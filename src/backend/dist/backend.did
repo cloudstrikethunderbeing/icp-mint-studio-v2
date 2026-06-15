@@ -1,0 +1,340 @@
+type _ImmutableObjectStorageRefillResult = 
+ record {
+   success: opt bool;
+   topped_up_amount: opt nat;
+ };
+type _ImmutableObjectStorageRefillInformation = record {
+                                                  proposed_top_up_amount:
+                                                   opt nat;};
+type _ImmutableObjectStorageCreateCertificateResult = 
+ record {
+   blob_hash: text;
+   method: text;
+ };
+type VerifyResult = 
+ record {
+   assetHash: text;
+   businessName: opt text;
+   canisterId: text;
+   collectionId: opt nat;
+   creatorId: CreatorId;
+   discountCode: opt text;
+   edition: text;
+   membershipId: opt text;
+   mintDate: Timestamp;
+   network: text;
+   nftUniqueId: text;
+   owner: principal;
+   rewardTier: RewardTier;
+   tags: vec text;
+   tokenId: nat;
+   website: opt text;
+ };
+type UserRole = 
+ variant {
+   admin;
+   guest;
+   user;
+ };
+type UserProfile = 
+ record {
+   activeSlots: nat;
+   createdAt: Timestamp;
+   creatorId: CreatorId;
+   creditsResetAt: Timestamp;
+   creditsTotal: nat;
+   creditsUsed: nat;
+   email: opt text;
+   emailAlerts: vec AlertType;
+   maxSlots: nat;
+   oisyWalletAddress: opt text;
+   principalId: principal;
+   stripeProductId: opt text;
+   subscriptionTier: SubscriptionTier;
+ };
+type UpdateMetadataRequest = 
+ record {
+   businessName: opt text;
+   discountCode: opt text;
+   membershipId: opt text;
+   rewardTier: opt RewardTier;
+   tags: opt vec text;
+   website: opt text;
+ };
+type TransferResult = 
+ record {
+   error: opt text;
+   newOwnerPrincipal: opt text;
+   success: bool;
+ };
+type Timestamp = nat;
+type SubscriptionTier = 
+ variant {
+   admin;
+   creator;
+   free;
+   org;
+   pro;
+ };
+type RewardTier = 
+ variant {
+   bronze;
+   gold;
+   none;
+   platinum;
+   silver;
+ };
+type Result_6 = 
+ variant {
+   err: Error;
+   ok;
+ };
+type Result_5 = 
+ variant {
+   err: text;
+   ok: nat;
+ };
+type Result_4 = 
+ variant {
+   err: record {message: text;};
+   ok: record {
+         collectionId: opt nat;
+         id: nat;
+         nftUniqueId: text;
+         tokenId: nat;
+       };
+ };
+type Result_3 = 
+ variant {
+   err: text;
+   ok: text;
+ };
+type Result_2 = 
+ variant {
+   err: text;
+   ok;
+ };
+type Result_1 = 
+ variant {
+   err: text;
+   ok: vec VerifyResult;
+ };
+type Result = 
+ variant {
+   err: text;
+   ok: VerifyResult;
+ };
+type PaymentProofStatus = 
+ variant {
+   approved;
+   pending;
+   rejected;
+ };
+type PaymentProof = 
+ record {
+   id: text;
+   networkType: text;
+   "principal": principal;
+   rejectionReason: opt text;
+   reviewedAt: opt int;
+   reviewedBy: opt principal;
+   status: PaymentProofStatus;
+   submittedAt: int;
+   tierRequested: text;
+   txHash: text;
+ };
+type NftStatus = 
+ variant {
+   active;
+   burned;
+   deleted;
+ };
+type Nft = 
+ record {
+   assetHash: text;
+   auditHistory: vec AuditEntry;
+   businessName: opt text;
+   collectionId: opt nat;
+   creatorId: CreatorId;
+   description: text;
+   discountCode: opt text;
+   edition: text;
+   id: nat;
+   imageBlob: ExternalBlob;
+   membershipId: opt text;
+   mintDate: Timestamp;
+   nftUniqueId: text;
+   ownerId: principal;
+   rewardTier: RewardTier;
+   status: NftStatus;
+   tags: vec text;
+   title: text;
+   website: opt text;
+ };
+type ExternalBlob = blob;
+type Error = 
+ variant {
+   AmbiguousAttribute: record {
+                         field: text;
+                         sources: vec text;
+                       };
+   FrontendOriginMismatch: record {
+                             expected: vec text;
+                             got: text;
+                           };
+   FrontendOriginsNotConfigured;
+   MalformedCandid;
+   MissingField: text;
+   MixedSsoSources: record {
+                      otherKeys: vec text;
+                      ssoKeys: vec text;
+                    };
+   NoAttributes;
+   Stale: record {ageNs: nat;};
+   UnknownNonce;
+   UntrustedSsoSource: record {domain: text;};
+ };
+type CreatorId = text;
+type CollectionWithCount = 
+ record {
+   createdAt: Timestamp;
+   description: text;
+   id: nat;
+   maxSize: nat;
+   name: text;
+   nftCount: nat;
+   ownerId: principal;
+   tier: SubscriptionTier;
+ };
+type Collection = 
+ record {
+   createdAt: Timestamp;
+   description: text;
+   id: nat;
+   maxSize: nat;
+   name: text;
+   ownerId: principal;
+   tier: SubscriptionTier;
+ };
+type AuditEntry = 
+ record {
+   action: text;
+   caller: principal;
+   details: opt text;
+   timestamp: Timestamp;
+ };
+type AlertType = 
+ variant {
+   draft_purge;
+   mint_confirmation;
+   subscription_expiry;
+   transfer_window;
+ };
+service : {
+  __accessControlState: () -> (reserved) query;
+  __adminPrincipal: () -> (opt principal) query;
+  __collectionStore: (ko: opt nat, count: opt nat) ->
+   (vec record {
+          nat;
+          Collection;
+        }) query;
+  __creatorIndex: () -> (reserved) query;
+  __globalAuditLog: (io: opt nat, count: opt nat) -> (vec AuditEntry) query;
+  __lastMintTime: () -> (reserved) query;
+  __mintCount: () -> (reserved) query;
+  __nextCollectionId: () -> (reserved) query;
+  __nextNftId: () -> (reserved) query;
+  __nftStore: (ko: opt nat, count: opt nat) -> (vec record {
+                                                      nat;
+                                                      Nft;
+                                                    }) query;
+  __paymentProofStore: (ko: opt text, count: opt nat) ->
+   (vec record {
+          text;
+          PaymentProof;
+        }) query;
+  __rateLimitStore: () -> (reserved) query;
+  __selfCanisterId: () -> (reserved) query;
+  __stripeConfigStore: () -> (reserved) query;
+  __userStore: (ko: opt principal, count: opt nat) ->
+   (vec record {
+          principal;
+          UserProfile;
+        }) query;
+  __verifiedEmails: () -> (reserved) query;
+  _immutableObjectStorageBlobsAreLive: (hashes: vec blob) -> (vec bool) query;
+  _immutableObjectStorageBlobsToDelete: () -> (vec blob) query;
+  _immutableObjectStorageConfirmBlobDeletion: (blobs: vec blob) -> ();
+  _immutableObjectStorageCreateCertificate: (blobHash: text) ->
+   (_ImmutableObjectStorageCreateCertificateResult);
+  _immutableObjectStorageRefillCashier: (refillInformation:
+   opt _ImmutableObjectStorageRefillInformation) ->
+   (_ImmutableObjectStorageRefillResult);
+  _immutableObjectStorageUpdateGatewayPrincipals: () -> ();
+  _initialize_access_control: () -> ();
+  _internet_identity_sign_in_finish: () -> (Result_6);
+  _internet_identity_sign_in_start: () -> (blob);
+  approvePaymentProof: (proofId: text) -> (Result_3);
+  assignCallerUserRole: (user: principal, role: UserRole) -> ();
+  burnNft: (id: nat) -> (Result_2);
+  createCheckoutSession: (_items: vec record {
+                                        name: text;
+                                        price: nat;
+                                      }, _successUrl: text, _cancelUrl:
+   text) -> (text);
+  createCollection: (name: text, description: text) -> (Result_5);
+  deleteCollection: (id: nat) -> ();
+  deleteNft: (id: nat) -> (Result_2);
+  getAdminPrincipal: () -> (opt principal) query;
+  getCallerProfile: () -> (UserProfile) query;
+  getCallerUserRole: () -> (UserRole) query;
+  getCanisterId: () -> (text) query;
+  getCollection: (id: nat) -> (opt Collection) query;
+  getCollectionId: () -> (opt nat) query;
+  getCreditsStatus: () ->
+   (record {
+      remaining: nat;
+      total: nat;
+      used: nat;
+    }) query;
+  getMyPaymentProofs: () -> (vec PaymentProof) query;
+  getNft: (id: nat) -> (opt Nft) query;
+  getSlotsStatus: () -> (record {
+                           remaining: nat;
+                           total: nat;
+                           used: nat;
+                         }) query;
+  getStripeSessionStatus: (_sessionId: text) -> (record {status: text;});
+  getStripeStatus: () -> (record {
+                            configured: bool;
+                            mode: text;
+                          }) query;
+  getTotalMinted: () -> (nat) query;
+  isAdmin: () -> (bool) query;
+  isCallerAdmin: () -> (bool) query;
+  isStripeConfigured: () -> (bool) query;
+  listMyActiveNfts: () -> (vec Nft) query;
+  listMyCollections: () -> (vec CollectionWithCount) query;
+  listMyNfts: () -> (vec Nft) query;
+  listPaymentProofs: () -> (vec PaymentProof) query;
+  mintNft: (imageBlob: ExternalBlob, assetHash: text, title: text,
+   description: text, edition: text, collectionId: opt nat, businessName:
+   opt text, website: opt text, discountCode: opt text, membershipId:
+   opt text) -> (Result_4);
+  rejectPaymentProof: (proofId: text, reason: text) -> (Result_3);
+  saveCallerProfile: (profile: UserProfile) -> ();
+  sendVerificationEmail: (email: text) -> ();
+  setEmail: (email: text) -> ();
+  setEmailAlerts: (alerts: vec AlertType) -> ();
+  setOisyWalletAddress: (address: text) -> ();
+  setStripeConfiguration: (secretKey: text, publicKey: text) -> ();
+  setUserStripeProductId: (userPrincipal: principal, productId: text) ->
+   (Result_2);
+  submitPaymentProof: (txHash: text, tierRequested: text, networkType:
+   text) -> (Result_3);
+  transferNft: (id: nat, toPrincipal: principal) -> (TransferResult);
+  updateBusinessMetadata: (id: nat, updates: UpdateMetadataRequest) ->
+   (Result_2);
+  verifyNftByCreatorId: (creatorId: text) -> (Result_1) query;
+  verifyNftPublic: (nftUniqueId: text) -> (Result) query;
+}
