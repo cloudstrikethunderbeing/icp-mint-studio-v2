@@ -1,3 +1,4 @@
+import { useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/hooks/useNotifications";
 import type { AppNotification, NotificationType } from "@/types";
 import { AlertTriangle, Bell, BellOff, Info, XCircle } from "lucide-react";
@@ -60,7 +61,9 @@ function NotificationItem({ notif }: { notif: AppNotification }) {
 }
 
 export function NotificationBell() {
-  const { notifications, unreadCount, markAllRead } = useNotifications();
+  const { principal } = useAuth();
+  const { notifications, unreadCount, markAllRead } =
+    useNotifications(principal);
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 

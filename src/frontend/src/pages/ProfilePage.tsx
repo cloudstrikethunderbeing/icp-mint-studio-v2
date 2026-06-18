@@ -3,18 +3,99 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, Diamond, Wallet } from "lucide-react";
-import { useTheme } from "next-themes";
+import { Check, Copy, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
+import BrandedAuthGate from "../components/BrandedAuthGate";
+import { useMyNfts } from "../hooks/useQueries";
 
 function truncatePrincipal(pid: string) {
   if (pid.length <= 16) return pid;
   return `${pid.slice(0, 8)}...${pid.slice(-8)}`;
 }
 
+function RoleBadge() {
+  const { effectiveRole, isAdmin, isAdminLoading } = usePermissions();
+
+  // Show skeleton while loading; never hide the badge entirely —
+  // this prevents the "missing admin indicator" bug when the query
+  // is still in-flight.
+  if (isAdminLoading) {
+    return (
+      <div
+        className="bg-card border border-border rounded-xl p-4 space-y-2"
+        data-ocid="profile.role_badge_card"
+      >
+        <Skeleton className="h-6 w-32" />
+        <Skeleton className="h-4 w-48" />
+      </div>
+    );
+  }
+
+  const badgeMap: Record<
+    string,
+    { icon: string; label: string; className: string }
+  > = {
+    admin: {
+      icon: "",
+      label: "Master Admin",
+      className: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+    },
+    paidCreator: {
+      icon: "",
+      label: "Creator",
+      className: "bg-primary/15 text-primary border-primary/30",
+    },
+    freeCreator: {
+      icon: "",
+      label: "Creator (Free)",
+      className: "bg-muted text-muted-foreground border-border",
+    },
+    collector: {
+      icon: "",
+      label: "Collector",
+      className: "bg-secondary/15 text-secondary-foreground border-border",
+    },
+  };
+
+  const badge = badgeMap[effectiveRole] ?? badgeMap.collector;
+
+  return (
+    <div
+      className="bg-card border border-border rounded-xl p-4 space-y-2"
+      data-ocid="profile.role_badge_card"
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold border ${badge.className}`}
+          data-ocid="profile.role_badge"
+        >
+          {badge.label}
+        </span>
+      </div>
+      {isAdmin && (
+        <div className="space-y-0.5 pl-1">
+          <p className="text-xs text-foreground">
+            Effective permissions:{" "}
+            <span className="font-medium">Administrator</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Subscription:{" "}
+            <span className="font-mono">
+              {effectiveRole === "freeCreator" || effectiveRole === "collector"
+                ? "Free"
+                : effectiveRole}
+            </span>
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProfilePage() {
-  const { isAuthenticated, principal, actor, identity } = useAuth();
+  const { isAuthenticated, principal, identity, actor } = useAuth();
   // Derive the full principal text directly from identity as the authoritative source
   const fullPrincipalText = identity
     ? identity.getPrincipal().toText()
@@ -87,17 +168,7 @@ export default function ProfilePage() {
     refetchOnMount: false,
   });
 
-  const allNftsQuery = useQuery<Nft[]>({
-    queryKey: ["allMyNfts"],
-    queryFn: async () => {
-      if (!actor) throw new Error("No actor");
-      return actor.listMyNfts();
-    },
-    enabled: !!actor && isAuthenticated,
-    staleTime: Number.POSITIVE_INFINITY,
-    refetchOnWindowFocus: false,
-    refetchOnMount: false,
-  });
+  const { data: allNfts = [] } = useMyNfts();
 
   const profile = profileQuery.data;
   const credits = creditsQuery.data;
@@ -154,32 +225,8 @@ export default function ProfilePage() {
 
   const _emailVerified = !!(profile?.email && profile.email.length > 0);
 
-  const { resolvedTheme } = useTheme();
-  const logoSrc =
-    resolvedTheme === "light"
-      ? "/assets/logo-inverted.jpg"
-      : "/assets/logo.jpg";
-
   if (!isAuthenticated) {
-    return (
-      <div
-        className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-4"
-        data-ocid="profile.not_auth"
-      >
-        <div className="flex flex-col items-center gap-3 mb-2">
-          <img
-            src={logoSrc}
-            alt="ICP Mint Studio"
-            className="max-w-[280px] w-full mx-auto rounded-lg"
-            data-ocid="profile.hero_logo"
-          />
-          <Diamond className="w-8 h-8 text-primary" />
-        </div>
-        <p className="text-foreground font-semibold text-lg text-center">
-          Please connect your Internet Identity to view your profile.
-        </p>
-      </div>
-    );
+    return <BrandedAuthGate subtitle="Connect to view your profile." />;
   }
 
   const canisterIdDisplay = canisterIdQuery.isLoading
@@ -194,6 +241,9 @@ export default function ProfilePage() {
       data-ocid="profile.page"
     >
       <h1 className="text-2xl font-bold text-foreground">Profile</h1>
+
+      {/* Role Badge */}
+      <RoleBadge />
 
       {/* Identity Info */}
       <div
@@ -226,7 +276,7 @@ export default function ProfilePage() {
             {profileQuery.isLoading ? (
               <Skeleton className="h-5 w-1/2" />
             ) : (
-              (profile?.creatorId ?? "—")
+              (profile?.creatorId ?? principal ?? "")
             )}
           </span>
         </div>
@@ -317,13 +367,7 @@ export default function ProfilePage() {
             className="text-sm text-foreground"
             data-ocid="profile.total_minted"
           >
-            {allNftsQuery.isLoading ? (
-              <Skeleton className="h-5 w-12" />
-            ) : allNftsQuery.data !== undefined ? (
-              allNftsQuery.data.length
-            ) : (
-              "—"
-            )}
+            {allNfts.length}
           </span>
           <p className="text-xs text-muted-foreground">
             Includes all minted NFTs, including those that were burned or

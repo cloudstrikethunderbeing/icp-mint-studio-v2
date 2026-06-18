@@ -16,6 +16,11 @@ export default defineConfig({
   logLevel: "error",
   build: {
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: "./index.html",
+      },
+    },
     sourcemap: false,
     minify: false,
   },

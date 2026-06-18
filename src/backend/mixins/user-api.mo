@@ -192,6 +192,14 @@ mixin (
     UserLib.setEmail(userStore, caller, email);
   };
 
+  public shared ({ caller }) func createSlot() : async Result.Result<Nat, Text> {
+    if (caller.isAnonymous()) {
+      return #err("Unauthorized: Anonymous caller");
+    };
+    let isAdmin = AccessControl.isAdmin(accessControlState, caller);
+    UserLib.createSlot(userStore, caller, isAdmin)
+  };
+
   func isValidEmail(email : Text) : Bool {
     let trimmed = email.trim(#text " \t\n\r");
     if (trimmed.size() == 0) {

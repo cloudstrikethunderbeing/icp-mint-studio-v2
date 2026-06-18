@@ -20,8 +20,22 @@ export interface AuditEntry {
   'details' : [] | [string],
   'caller' : Principal,
 }
+export interface ClaimStatus {
+  'token' : string,
+  'claimed' : boolean,
+  'claimedBy' : [] | [Principal],
+}
+export interface ClaimToken {
+  'token' : string,
+  'usedAt' : [] | [bigint],
+  'usedBy' : [] | [Principal],
+  'createdAt' : bigint,
+  'nftId' : bigint,
+}
 export interface Collection {
   'id' : bigint,
+  'previewImage' : [] | [string],
+  'nftIds' : Array<bigint>,
   'ownerId' : Principal,
   'name' : string,
   'createdAt' : Timestamp,
@@ -29,8 +43,17 @@ export interface Collection {
   'description' : string,
   'maxSize' : bigint,
 }
+export type CollectionId = bigint;
+export interface CollectionSummary {
+  'id' : CollectionId,
+  'ownerId' : Principal,
+  'name' : string,
+  'nftCount' : bigint,
+}
 export interface CollectionWithCount {
   'id' : bigint,
+  'previewImage' : [] | [string],
+  'nftIds' : Array<bigint>,
   'ownerId' : Principal,
   'name' : string,
   'createdAt' : Timestamp,
@@ -71,6 +94,7 @@ export interface Nft {
   'mintDate' : Timestamp,
   'description' : string,
   'website' : [] | [string],
+  'claimedAt' : [] | [bigint],
   'auditHistory' : Array<AuditEntry>,
   'rewardTier' : RewardTier,
   'assetHash' : string,
@@ -95,6 +119,10 @@ export interface PaymentProof {
 export type PaymentProofStatus = { 'pending' : null } |
   { 'approved' : null } |
   { 'rejected' : null };
+export interface RenameCollectionRequest {
+  'collectionId' : CollectionId,
+  'newName' : string,
+}
 export type Result = { 'ok' : VerifyResult } |
   { 'err' : string };
 export type Result_1 = { 'ok' : Array<VerifyResult> } |
@@ -112,9 +140,13 @@ export type Result_4 = {
     }
   } |
   { 'err' : { 'message' : string } };
-export type Result_5 = { 'ok' : bigint } |
+export type Result_5 = { 'ok' : ClaimStatus } |
   { 'err' : string };
-export type Result_6 = { 'ok' : null } |
+export type Result_6 = { 'ok' : Nft } |
+  { 'err' : string };
+export type Result_7 = { 'ok' : bigint } |
+  { 'err' : string };
+export type Result_8 = { 'ok' : null } |
   { 'err' : Error };
 export type RewardTier = { 'bronze' : null } |
   { 'gold' : null } |
@@ -124,7 +156,6 @@ export type RewardTier = { 'bronze' : null } |
 export type SubscriptionTier = { 'org' : null } |
   { 'pro' : null } |
   { 'creator' : null } |
-  { 'admin' : null } |
   { 'free' : null };
 export type Timestamp = bigint;
 export interface TransferResult {
@@ -146,6 +177,8 @@ export interface UserProfile {
   'emailAlerts' : Array<AlertType>,
   'maxSlots' : bigint,
   'createdAt' : Timestamp,
+  'role' : { 'creator' : null } |
+    { 'admin' : null },
   'subscriptionTier' : SubscriptionTier,
   'creatorId' : CreatorId,
   'email' : [] | [string],
@@ -159,6 +192,7 @@ export type UserRole = { 'admin' : null } |
   { 'user' : null } |
   { 'guest' : null };
 export interface VerifyResult {
+  'status' : NftStatus,
   'tokenId' : bigint,
   'edition' : string,
   'collectionId' : [] | [bigint],
@@ -190,6 +224,10 @@ export interface _ImmutableObjectStorageRefillResult {
 export interface _SERVICE {
   '__accessControlState' : ActorMethod<[], any>,
   '__adminPrincipal' : ActorMethod<[], [] | [Principal]>,
+  '__claimTokenStore' : ActorMethod<
+    [[] | [string], [] | [bigint]],
+    Array<[string, ClaimToken]>
+  >,
   '__collectionStore' : ActorMethod<
     [[] | [bigint], [] | [bigint]],
     Array<[bigint, Collection]>
@@ -206,6 +244,10 @@ export interface _SERVICE {
   '__nftStore' : ActorMethod<
     [[] | [bigint], [] | [bigint]],
     Array<[bigint, Nft]>
+  >,
+  '__nftToClaimToken' : ActorMethod<
+    [[] | [bigint], [] | [bigint]],
+    Array<[bigint, string]>
   >,
   '__paymentProofStore' : ActorMethod<
     [[] | [string], [] | [bigint]],
@@ -238,24 +280,45 @@ export interface _SERVICE {
   >,
   '_immutableObjectStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
   '_initialize_access_control' : ActorMethod<[], undefined>,
-  '_internet_identity_sign_in_finish' : ActorMethod<[], Result_6>,
+  '_internet_identity_sign_in_finish' : ActorMethod<[], Result_8>,
   '_internet_identity_sign_in_start' : ActorMethod<[], Uint8Array>,
+  'addNftToCollection' : ActorMethod<[bigint, bigint], Result_2>,
   'approvePaymentProof' : ActorMethod<[string], Result_3>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'burnNft' : ActorMethod<[bigint], Result_2>,
+  'claimAdmin' : ActorMethod<[], boolean>,
+  'claimNft' : ActorMethod<[string], Result_6>,
   'createCheckoutSession' : ActorMethod<
     [Array<{ 'name' : string, 'price' : bigint }>, string, string],
     string
   >,
-  'createCollection' : ActorMethod<[string, string], Result_5>,
+  'createCollection' : ActorMethod<[string, string], Result_7>,
+  'createSlot' : ActorMethod<[], Result_7>,
+  'debugAdminState' : ActorMethod<
+    [],
+    {
+      'adminPrincipalValue' : [] | [string],
+      'accessControlIsAdmin' : boolean,
+      'adminPrincipalMatchesCaller' : boolean,
+      'caller' : string,
+    }
+  >,
   'deleteCollection' : ActorMethod<[bigint], undefined>,
+  'deleteCollectionAndUnassignNfts' : ActorMethod<
+    [CollectionId],
+    CollectionSummary
+  >,
   'deleteNft' : ActorMethod<[bigint], Result_2>,
+  'forceResyncAdmin' : ActorMethod<[], undefined>,
+  'generateClaimLink' : ActorMethod<[bigint], Result_3>,
   'getAdminPrincipal' : ActorMethod<[], [] | [Principal]>,
   'getCallerProfile' : ActorMethod<[], UserProfile>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getCanisterId' : ActorMethod<[], string>,
+  'getClaimPreview' : ActorMethod<[string], Result_6>,
+  'getClaimStatus' : ActorMethod<[bigint], Result_5>,
   'getCollection' : ActorMethod<[bigint], [] | [Collection]>,
-  'getCollectionId' : ActorMethod<[], [] | [bigint]>,
+  'getCollectionIdByName' : ActorMethod<[string], [] | [CollectionId]>,
   'getCreditsStatus' : ActorMethod<
     [],
     { 'total' : bigint, 'used' : bigint, 'remaining' : bigint }
@@ -272,6 +335,7 @@ export interface _SERVICE {
     { 'mode' : string, 'configured' : boolean }
   >,
   'getTotalMinted' : ActorMethod<[], bigint>,
+  'hasAdmin' : ActorMethod<[], boolean>,
   'isAdmin' : ActorMethod<[], boolean>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
   'isStripeConfigured' : ActorMethod<[], boolean>,
@@ -295,7 +359,13 @@ export interface _SERVICE {
     Result_4
   >,
   'rejectPaymentProof' : ActorMethod<[string, string], Result_3>,
+  'removeNftFromCollection' : ActorMethod<[bigint, bigint], Result_2>,
+  'renameCollection' : ActorMethod<
+    [RenameCollectionRequest],
+    CollectionSummary
+  >,
   'saveCallerProfile' : ActorMethod<[UserProfile], undefined>,
+  'searchNfts' : ActorMethod<[string], Array<Nft>>,
   'sendVerificationEmail' : ActorMethod<[string], undefined>,
   'setEmail' : ActorMethod<[string], undefined>,
   'setEmailAlerts' : ActorMethod<[Array<AlertType>], undefined>,
@@ -309,6 +379,7 @@ export interface _SERVICE {
     Result_2
   >,
   'verifyNftByCreatorId' : ActorMethod<[string], Result_1>,
+  'verifyNftByCreatorIdWithHistory' : ActorMethod<[string], Result_1>,
   'verifyNftPublic' : ActorMethod<[string], Result>,
 }
 export declare const idlService: IDL.ServiceClass;

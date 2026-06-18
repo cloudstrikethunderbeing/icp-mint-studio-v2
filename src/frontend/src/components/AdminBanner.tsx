@@ -1,11 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import { AlertTriangle, Crown, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 export function AdminBanner() {
-  const { showAdminBanner, claimAdmin, dismissAdminBanner, isAdmin } =
-    useAuth();
+  const { showAdminBanner, claimAdmin, dismissAdminBanner } = useAuth();
+  const { isAdmin } = usePermissions();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

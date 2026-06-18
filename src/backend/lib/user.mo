@@ -18,7 +18,7 @@ module {
       case (#creator) { 10 };
       case (#pro) { 100 };
       case (#org) { 500 };
-      case (#admin) { 999999 };
+      // Admin slot limits are bypassed via role check, not tier
     }
   };
 
@@ -40,6 +40,7 @@ module {
       email = null;
       emailAlerts = [];
       subscriptionTier = #free;
+      role = #creator;
       creditsUsed = 0;
       creditsTotal = NftLib.getTierCredits(#free);
       creditsResetAt = timestamp;
@@ -176,6 +177,33 @@ module {
           0
         } else {
           Nat.sub(profile.creditsTotal, profile.creditsUsed)
+        }
+      };
+    }
+  };
+
+  public func createSlot(store : UserStore, principalId : Principal, isAdmin : Bool) : Result.Result<Nat, Text> {
+    switch (store.get(principalId)) {
+      case (null) { #err("User not found") };
+      case (?profile) {
+        if (isAdmin or profile.role == #admin) {
+          let newMaxSlots = profile.maxSlots + 1;
+          store.add(principalId, { profile with maxSlots = newMaxSlots });
+          #ok(newMaxSlots)
+        } else {
+          let tierInfo = getTierFromStripeProduct(
+            switch (profile.stripeProductId) {
+              case (?id) id;
+              case (null) "prod_UgpwDUBgXdz0K5"
+            }
+          );
+          if (profile.maxSlots >= tierInfo.maxSlots) {
+            #err("Slot limit reached for your tier. Upgrade to create more slots.")
+          } else {
+            let newMaxSlots = profile.maxSlots + 1;
+            store.add(principalId, { profile with maxSlots = newMaxSlots });
+            #ok(newMaxSlots)
+          }
         }
       };
     }

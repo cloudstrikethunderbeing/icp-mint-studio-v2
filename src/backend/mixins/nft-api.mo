@@ -14,6 +14,8 @@ import UserLib "../lib/user";
 import Debug "mo:core/Debug";
 import Result "mo:core/Result";
 import Error "mo:core/Error";
+import Random "mo:core/Random";
+import ClaimLib "../lib/claim-link";
 
 mixin (
   accessControlState : AccessControl.AccessControlState,
@@ -25,6 +27,9 @@ mixin (
   userStore : UserLib.UserStore,
   selfCanisterId : { var value : Text },
   creatorIndex : Map.Map<Text, List.List<Nat>>,
+  claimTokenStore : ClaimLib.ClaimTokenStore,
+  nftToClaimToken : ClaimLib.NftToClaimStore,
+  adminPrincipal : ?Principal,
 ) {
   func computeNftUniqueId(canisterId : Text, _collectionId : ?Nat, tokenId : Nat) : Text {
     if (canisterId == "") {
@@ -147,6 +152,53 @@ mixin (
     };
     let tierInfo = UserLib.getTierFromStripeProduct(productId);
     let tier = tierInfo.tier;
+
+    // Admin bypass: skip all tier-based mint restrictions
+    Debug.print("MINT_GATE_CHECK");
+    Debug.print(debug_show(caller));
+    Debug.print(debug_show(AccessControl.isAdmin(accessControlState, caller)));
+    Debug.print(debug_show(adminPrincipal));
+    let isAdmin = AccessControl.isAdmin(accessControlState, caller);
+    if (isAdmin) {
+      let id = if (nextNftId.value == 0) { nextNftId.value := 1; 1 } else { nextNftId.value };
+      nextNftId.value := id + 1;
+      let creatorId = profile.creatorId;
+
+      let nft = NftLib.createNft(
+        nftStore, id, caller, creatorId, imageBlob, assetHash,
+        sanitizedTitle, description, edition, timestamp,
+        collectionId, businessName, website, discountCode, membershipId, selfCanisterId.value
+      );
+
+      let entry : Common.AuditEntry = {
+        action = "MINT";
+        caller;
+        timestamp;
+        details = ?("Admin minted NFT " # id.toText() # " by " # creatorId);
+      };
+      let nftWithAudit = NftLib.addAuditEntry(nft, entry);
+      nftStore.add(id, nftWithAudit);
+
+      let cid = selfCanisterId.value;
+      let nftUniqueId = computeNftUniqueId(cid, collectionId, id);
+      switch (creatorIndex.get(creatorId)) {
+        case (null) {
+          let tokenList = List.empty<Nat>();
+          tokenList.add(id);
+          creatorIndex.add(creatorId, tokenList);
+        };
+        case (?tokenList) {
+          tokenList.add(id);
+          creatorIndex.add(creatorId, tokenList);
+        };
+      };
+      // Auto-generate claim link for admin and paid tiers
+      let randomBytes = await Random.blob();
+      let token = ClaimLib.buildToken(randomBytes);
+      let now = Time.now();
+      ClaimLib.storeToken(claimTokenStore, nftToClaimToken, id, token, now);
+      return #ok({ id; tokenId = id; nftUniqueId; collectionId });
+    };
     let maxSize = tierInfo.maxSlots * tierInfo.maxNFTsPerSlot;
     let activeCount = NftLib.countActiveNftsByOwner(nftStore, caller);
     if (activeCount >= maxSize) {
@@ -203,6 +255,13 @@ mixin (
           tokenList.add(id);
           creatorIndex.add(creatorId, tokenList);
         };
+      };
+      // Auto-generate claim link for paid tiers (admin already handled above)
+      if (tier != #free) {
+        let randomBytes = await Random.blob();
+        let token = ClaimLib.buildToken(randomBytes);
+        let now = Time.now();
+        ClaimLib.storeToken(claimTokenStore, nftToClaimToken, id, token, now);
       };
       #ok({ id; tokenId = id; nftUniqueId; collectionId })
     } catch (e) {
@@ -323,6 +382,39 @@ mixin (
       case (?tokenList) {
         let results = List.empty<Types.VerifyResult>();
         for (tokenId in tokenList.toArray().vals()) {
+          switch (NftLib.getNft(nftStore, tokenId)) {
+            case (null) {};
+            case (?nft) {
+              if (nft.status == #active) {
+                switch (NftLib.verifyNft(nftStore, tokenId, realCid)) {
+                  case (null) {};
+                  case (?result) {
+                    if (result.canisterId != "" and result.nftUniqueId != "") {
+                      results.add(result);
+                    };
+                  };
+                };
+              };
+            };
+          };
+        };
+        if (results.size() == 0) {
+          #err("NFT_NOT_FOUND_OR_INCOMPLETE")
+        } else {
+          #ok(results.toArray())
+        }
+      };
+    }
+  };
+
+  func verifyNftByCreatorIdWithHistoryInternal(creatorId : Text, realCid : Text) : Result.Result<[Types.VerifyResult], Text> {
+    switch (creatorIndex.get(creatorId)) {
+      case (null) {
+        #err("NFT_NOT_FOUND_OR_INCOMPLETE")
+      };
+      case (?tokenList) {
+        let results = List.empty<Types.VerifyResult>();
+        for (tokenId in tokenList.toArray().vals()) {
           switch (NftLib.verifyNft(nftStore, tokenId, realCid)) {
             case (null) {};
             case (?result) {
@@ -356,14 +448,37 @@ mixin (
       return #err("Name is required");
     };
 
-    let collectionCount = NftLib.countCollectionsByOwner(collectionStore, caller);
-    if (collectionCount >= 8) {
-      return #err("Max 8 collections per user");
+    let isAdmin = AccessControl.isAdmin(accessControlState, caller);
+    if (isAdmin) {
+      let id = nextCollectionId.value;
+      nextCollectionId.value += 1;
+      let timestamp = Int.abs(Time.now());
+      let collection : Types.Collection = {
+        id;
+        ownerId = caller;
+        name = sanitizedName;
+        description = sanitizedDesc;
+        tier = #org;
+        maxSize = 999999;
+        createdAt = timestamp;
+        previewImage = null;
+        nftIds = [];
+      };
+      collectionStore.add(id, collection);
+      return #ok(id);
     };
 
     let tier = switch (UserLib.getProfile(userStore, caller)) {
       case (?profile) { profile.subscriptionTier };
       case (null) { #free };
+    };
+    if (tier == #free) {
+      return #err("Collection creation requires a paid subscription");
+    };
+
+    let collectionCount = NftLib.countCollectionsByOwner(collectionStore, caller);
+    if (collectionCount >= 8) {
+      return #err("Max 8 collections per user");
     };
     let maxSize = NftLib.getTierMaxSize(tier);
 
@@ -378,6 +493,8 @@ mixin (
       tier;
       maxSize;
       createdAt = timestamp;
+      previewImage = null;
+      nftIds = [];
     };
     collectionStore.add(id, collection);
     #ok(id)
@@ -409,6 +526,8 @@ mixin (
     maxSize : Nat;
     createdAt : Common.Timestamp;
     nftCount : Nat;
+    previewImage : ?Text;
+    nftIds : [Nat];
   };
 
   public query ({ caller }) func listMyCollections() : async [CollectionWithCount] {
@@ -428,6 +547,8 @@ mixin (
           maxSize = col.maxSize;
           createdAt = col.createdAt;
           nftCount;
+          previewImage = col.previewImage;
+          nftIds = col.nftIds;
         });
       };
     };
@@ -511,6 +632,28 @@ mixin (
         #ok()
       };
     };
+  };
+
+  public shared ({ caller }) func addNftToCollection(nftId : Nat, collectionId : Nat) : async Result.Result<(), Text> {
+    if (caller.isAnonymous()) {
+      return #err("Unauthorized: Anonymous caller");
+    };
+    NftLib.addNftToCollection(nftStore, collectionStore, nftId, collectionId, caller)
+  };
+
+  public shared ({ caller }) func removeNftFromCollection(nftId : Nat, collectionId : Nat) : async Result.Result<(), Text> {
+    if (caller.isAnonymous()) {
+      return #err("Unauthorized: Anonymous caller");
+    };
+    NftLib.removeNftFromCollection(nftStore, collectionStore, nftId, collectionId, caller)
+  };
+
+  public query ({ caller }) func searchNfts(searchTerm : Text) : async [Types.Nft] {
+    let isAdmin = AccessControl.isAdmin(accessControlState, caller);
+    if (not isAdmin) {
+      Runtime.trap("Unauthorized: Admin only");
+    };
+    NftLib.searchNfts(nftStore, searchTerm, selfCanisterId.value)
   };
 
 }

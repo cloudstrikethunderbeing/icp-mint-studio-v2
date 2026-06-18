@@ -8,16 +8,24 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
+export const ClaimToken = IDL.Record({
+  'token' : IDL.Text,
+  'usedAt' : IDL.Opt(IDL.Int),
+  'usedBy' : IDL.Opt(IDL.Principal),
+  'createdAt' : IDL.Int,
+  'nftId' : IDL.Nat,
+});
 export const Timestamp = IDL.Nat;
 export const SubscriptionTier = IDL.Variant({
   'org' : IDL.Null,
   'pro' : IDL.Null,
   'creator' : IDL.Null,
-  'admin' : IDL.Null,
   'free' : IDL.Null,
 });
 export const Collection = IDL.Record({
   'id' : IDL.Nat,
+  'previewImage' : IDL.Opt(IDL.Text),
+  'nftIds' : IDL.Vec(IDL.Nat),
   'ownerId' : IDL.Principal,
   'name' : IDL.Text,
   'createdAt' : Timestamp,
@@ -60,6 +68,7 @@ export const Nft = IDL.Record({
   'mintDate' : Timestamp,
   'description' : IDL.Text,
   'website' : IDL.Opt(IDL.Text),
+  'claimedAt' : IDL.Opt(IDL.Nat),
   'auditHistory' : IDL.Vec(AuditEntry),
   'rewardTier' : RewardTier,
   'assetHash' : IDL.Text,
@@ -95,6 +104,7 @@ export const UserProfile = IDL.Record({
   'emailAlerts' : IDL.Vec(AlertType),
   'maxSlots' : IDL.Nat,
   'createdAt' : Timestamp,
+  'role' : IDL.Variant({ 'creator' : IDL.Null, 'admin' : IDL.Null }),
   'subscriptionTier' : SubscriptionTier,
   'creatorId' : CreatorId,
   'email' : IDL.Opt(IDL.Text),
@@ -136,17 +146,33 @@ export const Error = IDL.Variant({
     'expected' : IDL.Vec(IDL.Text),
   }),
 });
-export const Result_6 = IDL.Variant({ 'ok' : IDL.Null, 'err' : Error });
+export const Result_8 = IDL.Variant({ 'ok' : IDL.Null, 'err' : Error });
+export const Result_2 = IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text });
 export const Result_3 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
 export const UserRole = IDL.Variant({
   'admin' : IDL.Null,
   'user' : IDL.Null,
   'guest' : IDL.Null,
 });
-export const Result_2 = IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text });
-export const Result_5 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
+export const Result_6 = IDL.Variant({ 'ok' : Nft, 'err' : IDL.Text });
+export const Result_7 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
+export const CollectionId = IDL.Nat;
+export const CollectionSummary = IDL.Record({
+  'id' : CollectionId,
+  'ownerId' : IDL.Principal,
+  'name' : IDL.Text,
+  'nftCount' : IDL.Nat,
+});
+export const ClaimStatus = IDL.Record({
+  'token' : IDL.Text,
+  'claimed' : IDL.Bool,
+  'claimedBy' : IDL.Opt(IDL.Principal),
+});
+export const Result_5 = IDL.Variant({ 'ok' : ClaimStatus, 'err' : IDL.Text });
 export const CollectionWithCount = IDL.Record({
   'id' : IDL.Nat,
+  'previewImage' : IDL.Opt(IDL.Text),
+  'nftIds' : IDL.Vec(IDL.Nat),
   'ownerId' : IDL.Principal,
   'name' : IDL.Text,
   'createdAt' : Timestamp,
@@ -164,6 +190,10 @@ export const Result_4 = IDL.Variant({
   }),
   'err' : IDL.Record({ 'message' : IDL.Text }),
 });
+export const RenameCollectionRequest = IDL.Record({
+  'collectionId' : CollectionId,
+  'newName' : IDL.Text,
+});
 export const TransferResult = IDL.Record({
   'newOwnerPrincipal' : IDL.Opt(IDL.Text),
   'error' : IDL.Opt(IDL.Text),
@@ -178,6 +208,7 @@ export const UpdateMetadataRequest = IDL.Record({
   'membershipId' : IDL.Opt(IDL.Text),
 });
 export const VerifyResult = IDL.Record({
+  'status' : NftStatus,
   'tokenId' : IDL.Nat,
   'edition' : IDL.Text,
   'collectionId' : IDL.Opt(IDL.Nat),
@@ -204,6 +235,11 @@ export const Result = IDL.Variant({ 'ok' : VerifyResult, 'err' : IDL.Text });
 export const idlService = IDL.Service({
   '__accessControlState' : IDL.Func([], [IDL.Reserved], ['query']),
   '__adminPrincipal' : IDL.Func([], [IDL.Opt(IDL.Principal)], ['query']),
+  '__claimTokenStore' : IDL.Func(
+      [IDL.Opt(IDL.Text), IDL.Opt(IDL.Nat)],
+      [IDL.Vec(IDL.Tuple(IDL.Text, ClaimToken))],
+      ['query'],
+    ),
   '__collectionStore' : IDL.Func(
       [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
       [IDL.Vec(IDL.Tuple(IDL.Nat, Collection))],
@@ -222,6 +258,11 @@ export const idlService = IDL.Service({
   '__nftStore' : IDL.Func(
       [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
       [IDL.Vec(IDL.Tuple(IDL.Nat, Nft))],
+      ['query'],
+    ),
+  '__nftToClaimToken' : IDL.Func(
+      [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
+      [IDL.Vec(IDL.Tuple(IDL.Nat, IDL.Text))],
       ['query'],
     ),
   '__paymentProofStore' : IDL.Func(
@@ -265,11 +306,14 @@ export const idlService = IDL.Service({
     ),
   '_immutableObjectStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
   '_initialize_access_control' : IDL.Func([], [], []),
-  '_internet_identity_sign_in_finish' : IDL.Func([], [Result_6], []),
+  '_internet_identity_sign_in_finish' : IDL.Func([], [Result_8], []),
   '_internet_identity_sign_in_start' : IDL.Func([], [IDL.Vec(IDL.Nat8)], []),
+  'addNftToCollection' : IDL.Func([IDL.Nat, IDL.Nat], [Result_2], []),
   'approvePaymentProof' : IDL.Func([IDL.Text], [Result_3], []),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'burnNft' : IDL.Func([IDL.Nat], [Result_2], []),
+  'claimAdmin' : IDL.Func([], [IDL.Bool], []),
+  'claimNft' : IDL.Func([IDL.Text], [Result_6], []),
   'createCheckoutSession' : IDL.Func(
       [
         IDL.Vec(IDL.Record({ 'name' : IDL.Text, 'price' : IDL.Nat })),
@@ -279,15 +323,41 @@ export const idlService = IDL.Service({
       [IDL.Text],
       [],
     ),
-  'createCollection' : IDL.Func([IDL.Text, IDL.Text], [Result_5], []),
+  'createCollection' : IDL.Func([IDL.Text, IDL.Text], [Result_7], []),
+  'createSlot' : IDL.Func([], [Result_7], []),
+  'debugAdminState' : IDL.Func(
+      [],
+      [
+        IDL.Record({
+          'adminPrincipalValue' : IDL.Opt(IDL.Text),
+          'accessControlIsAdmin' : IDL.Bool,
+          'adminPrincipalMatchesCaller' : IDL.Bool,
+          'caller' : IDL.Text,
+        }),
+      ],
+      ['query'],
+    ),
   'deleteCollection' : IDL.Func([IDL.Nat], [], []),
+  'deleteCollectionAndUnassignNfts' : IDL.Func(
+      [CollectionId],
+      [CollectionSummary],
+      [],
+    ),
   'deleteNft' : IDL.Func([IDL.Nat], [Result_2], []),
+  'forceResyncAdmin' : IDL.Func([], [], []),
+  'generateClaimLink' : IDL.Func([IDL.Nat], [Result_3], []),
   'getAdminPrincipal' : IDL.Func([], [IDL.Opt(IDL.Principal)], ['query']),
   'getCallerProfile' : IDL.Func([], [UserProfile], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getCanisterId' : IDL.Func([], [IDL.Text], ['query']),
+  'getClaimPreview' : IDL.Func([IDL.Text], [Result_6], ['query']),
+  'getClaimStatus' : IDL.Func([IDL.Nat], [Result_5], ['query']),
   'getCollection' : IDL.Func([IDL.Nat], [IDL.Opt(Collection)], ['query']),
-  'getCollectionId' : IDL.Func([], [IDL.Opt(IDL.Nat)], ['query']),
+  'getCollectionIdByName' : IDL.Func(
+      [IDL.Text],
+      [IDL.Opt(CollectionId)],
+      ['query'],
+    ),
   'getCreditsStatus' : IDL.Func(
       [],
       [
@@ -323,6 +393,7 @@ export const idlService = IDL.Service({
       ['query'],
     ),
   'getTotalMinted' : IDL.Func([], [IDL.Nat], ['query']),
+  'hasAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'isAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
@@ -347,7 +418,14 @@ export const idlService = IDL.Service({
       [],
     ),
   'rejectPaymentProof' : IDL.Func([IDL.Text, IDL.Text], [Result_3], []),
+  'removeNftFromCollection' : IDL.Func([IDL.Nat, IDL.Nat], [Result_2], []),
+  'renameCollection' : IDL.Func(
+      [RenameCollectionRequest],
+      [CollectionSummary],
+      [],
+    ),
   'saveCallerProfile' : IDL.Func([UserProfile], [], []),
+  'searchNfts' : IDL.Func([IDL.Text], [IDL.Vec(Nft)], ['query']),
   'sendVerificationEmail' : IDL.Func([IDL.Text], [], []),
   'setEmail' : IDL.Func([IDL.Text], [], []),
   'setEmailAlerts' : IDL.Func([IDL.Vec(AlertType)], [], []),
@@ -370,22 +448,35 @@ export const idlService = IDL.Service({
       [],
     ),
   'verifyNftByCreatorId' : IDL.Func([IDL.Text], [Result_1], ['query']),
+  'verifyNftByCreatorIdWithHistory' : IDL.Func(
+      [IDL.Text],
+      [Result_1],
+      ['query'],
+    ),
   'verifyNftPublic' : IDL.Func([IDL.Text], [Result], ['query']),
 });
 
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
+  const ClaimToken = IDL.Record({
+    'token' : IDL.Text,
+    'usedAt' : IDL.Opt(IDL.Int),
+    'usedBy' : IDL.Opt(IDL.Principal),
+    'createdAt' : IDL.Int,
+    'nftId' : IDL.Nat,
+  });
   const Timestamp = IDL.Nat;
   const SubscriptionTier = IDL.Variant({
     'org' : IDL.Null,
     'pro' : IDL.Null,
     'creator' : IDL.Null,
-    'admin' : IDL.Null,
     'free' : IDL.Null,
   });
   const Collection = IDL.Record({
     'id' : IDL.Nat,
+    'previewImage' : IDL.Opt(IDL.Text),
+    'nftIds' : IDL.Vec(IDL.Nat),
     'ownerId' : IDL.Principal,
     'name' : IDL.Text,
     'createdAt' : Timestamp,
@@ -428,6 +519,7 @@ export const idlFactory = ({ IDL }) => {
     'mintDate' : Timestamp,
     'description' : IDL.Text,
     'website' : IDL.Opt(IDL.Text),
+    'claimedAt' : IDL.Opt(IDL.Nat),
     'auditHistory' : IDL.Vec(AuditEntry),
     'rewardTier' : RewardTier,
     'assetHash' : IDL.Text,
@@ -463,6 +555,7 @@ export const idlFactory = ({ IDL }) => {
     'emailAlerts' : IDL.Vec(AlertType),
     'maxSlots' : IDL.Nat,
     'createdAt' : Timestamp,
+    'role' : IDL.Variant({ 'creator' : IDL.Null, 'admin' : IDL.Null }),
     'subscriptionTier' : SubscriptionTier,
     'creatorId' : CreatorId,
     'email' : IDL.Opt(IDL.Text),
@@ -504,17 +597,33 @@ export const idlFactory = ({ IDL }) => {
       'expected' : IDL.Vec(IDL.Text),
     }),
   });
-  const Result_6 = IDL.Variant({ 'ok' : IDL.Null, 'err' : Error });
+  const Result_8 = IDL.Variant({ 'ok' : IDL.Null, 'err' : Error });
+  const Result_2 = IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text });
   const Result_3 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
   const UserRole = IDL.Variant({
     'admin' : IDL.Null,
     'user' : IDL.Null,
     'guest' : IDL.Null,
   });
-  const Result_2 = IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text });
-  const Result_5 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
+  const Result_6 = IDL.Variant({ 'ok' : Nft, 'err' : IDL.Text });
+  const Result_7 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
+  const CollectionId = IDL.Nat;
+  const CollectionSummary = IDL.Record({
+    'id' : CollectionId,
+    'ownerId' : IDL.Principal,
+    'name' : IDL.Text,
+    'nftCount' : IDL.Nat,
+  });
+  const ClaimStatus = IDL.Record({
+    'token' : IDL.Text,
+    'claimed' : IDL.Bool,
+    'claimedBy' : IDL.Opt(IDL.Principal),
+  });
+  const Result_5 = IDL.Variant({ 'ok' : ClaimStatus, 'err' : IDL.Text });
   const CollectionWithCount = IDL.Record({
     'id' : IDL.Nat,
+    'previewImage' : IDL.Opt(IDL.Text),
+    'nftIds' : IDL.Vec(IDL.Nat),
     'ownerId' : IDL.Principal,
     'name' : IDL.Text,
     'createdAt' : Timestamp,
@@ -532,6 +641,10 @@ export const idlFactory = ({ IDL }) => {
     }),
     'err' : IDL.Record({ 'message' : IDL.Text }),
   });
+  const RenameCollectionRequest = IDL.Record({
+    'collectionId' : CollectionId,
+    'newName' : IDL.Text,
+  });
   const TransferResult = IDL.Record({
     'newOwnerPrincipal' : IDL.Opt(IDL.Text),
     'error' : IDL.Opt(IDL.Text),
@@ -546,6 +659,7 @@ export const idlFactory = ({ IDL }) => {
     'membershipId' : IDL.Opt(IDL.Text),
   });
   const VerifyResult = IDL.Record({
+    'status' : NftStatus,
     'tokenId' : IDL.Nat,
     'edition' : IDL.Text,
     'collectionId' : IDL.Opt(IDL.Nat),
@@ -572,6 +686,11 @@ export const idlFactory = ({ IDL }) => {
   return IDL.Service({
     '__accessControlState' : IDL.Func([], [IDL.Reserved], ['query']),
     '__adminPrincipal' : IDL.Func([], [IDL.Opt(IDL.Principal)], ['query']),
+    '__claimTokenStore' : IDL.Func(
+        [IDL.Opt(IDL.Text), IDL.Opt(IDL.Nat)],
+        [IDL.Vec(IDL.Tuple(IDL.Text, ClaimToken))],
+        ['query'],
+      ),
     '__collectionStore' : IDL.Func(
         [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
         [IDL.Vec(IDL.Tuple(IDL.Nat, Collection))],
@@ -590,6 +709,11 @@ export const idlFactory = ({ IDL }) => {
     '__nftStore' : IDL.Func(
         [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
         [IDL.Vec(IDL.Tuple(IDL.Nat, Nft))],
+        ['query'],
+      ),
+    '__nftToClaimToken' : IDL.Func(
+        [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
+        [IDL.Vec(IDL.Tuple(IDL.Nat, IDL.Text))],
         ['query'],
       ),
     '__paymentProofStore' : IDL.Func(
@@ -633,11 +757,14 @@ export const idlFactory = ({ IDL }) => {
       ),
     '_immutableObjectStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
     '_initialize_access_control' : IDL.Func([], [], []),
-    '_internet_identity_sign_in_finish' : IDL.Func([], [Result_6], []),
+    '_internet_identity_sign_in_finish' : IDL.Func([], [Result_8], []),
     '_internet_identity_sign_in_start' : IDL.Func([], [IDL.Vec(IDL.Nat8)], []),
+    'addNftToCollection' : IDL.Func([IDL.Nat, IDL.Nat], [Result_2], []),
     'approvePaymentProof' : IDL.Func([IDL.Text], [Result_3], []),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'burnNft' : IDL.Func([IDL.Nat], [Result_2], []),
+    'claimAdmin' : IDL.Func([], [IDL.Bool], []),
+    'claimNft' : IDL.Func([IDL.Text], [Result_6], []),
     'createCheckoutSession' : IDL.Func(
         [
           IDL.Vec(IDL.Record({ 'name' : IDL.Text, 'price' : IDL.Nat })),
@@ -647,15 +774,41 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Text],
         [],
       ),
-    'createCollection' : IDL.Func([IDL.Text, IDL.Text], [Result_5], []),
+    'createCollection' : IDL.Func([IDL.Text, IDL.Text], [Result_7], []),
+    'createSlot' : IDL.Func([], [Result_7], []),
+    'debugAdminState' : IDL.Func(
+        [],
+        [
+          IDL.Record({
+            'adminPrincipalValue' : IDL.Opt(IDL.Text),
+            'accessControlIsAdmin' : IDL.Bool,
+            'adminPrincipalMatchesCaller' : IDL.Bool,
+            'caller' : IDL.Text,
+          }),
+        ],
+        ['query'],
+      ),
     'deleteCollection' : IDL.Func([IDL.Nat], [], []),
+    'deleteCollectionAndUnassignNfts' : IDL.Func(
+        [CollectionId],
+        [CollectionSummary],
+        [],
+      ),
     'deleteNft' : IDL.Func([IDL.Nat], [Result_2], []),
+    'forceResyncAdmin' : IDL.Func([], [], []),
+    'generateClaimLink' : IDL.Func([IDL.Nat], [Result_3], []),
     'getAdminPrincipal' : IDL.Func([], [IDL.Opt(IDL.Principal)], ['query']),
     'getCallerProfile' : IDL.Func([], [UserProfile], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'getCanisterId' : IDL.Func([], [IDL.Text], ['query']),
+    'getClaimPreview' : IDL.Func([IDL.Text], [Result_6], ['query']),
+    'getClaimStatus' : IDL.Func([IDL.Nat], [Result_5], ['query']),
     'getCollection' : IDL.Func([IDL.Nat], [IDL.Opt(Collection)], ['query']),
-    'getCollectionId' : IDL.Func([], [IDL.Opt(IDL.Nat)], ['query']),
+    'getCollectionIdByName' : IDL.Func(
+        [IDL.Text],
+        [IDL.Opt(CollectionId)],
+        ['query'],
+      ),
     'getCreditsStatus' : IDL.Func(
         [],
         [
@@ -691,6 +844,7 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'getTotalMinted' : IDL.Func([], [IDL.Nat], ['query']),
+    'hasAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'isAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
@@ -719,7 +873,14 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'rejectPaymentProof' : IDL.Func([IDL.Text, IDL.Text], [Result_3], []),
+    'removeNftFromCollection' : IDL.Func([IDL.Nat, IDL.Nat], [Result_2], []),
+    'renameCollection' : IDL.Func(
+        [RenameCollectionRequest],
+        [CollectionSummary],
+        [],
+      ),
     'saveCallerProfile' : IDL.Func([UserProfile], [], []),
+    'searchNfts' : IDL.Func([IDL.Text], [IDL.Vec(Nft)], ['query']),
     'sendVerificationEmail' : IDL.Func([IDL.Text], [], []),
     'setEmail' : IDL.Func([IDL.Text], [], []),
     'setEmailAlerts' : IDL.Func([IDL.Vec(AlertType)], [], []),
@@ -742,6 +903,11 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'verifyNftByCreatorId' : IDL.Func([IDL.Text], [Result_1], ['query']),
+    'verifyNftByCreatorIdWithHistory' : IDL.Func(
+        [IDL.Text],
+        [Result_1],
+        ['query'],
+      ),
     'verifyNftPublic' : IDL.Func([IDL.Text], [Result], ['query']),
   });
 };

@@ -1,23 +1,21 @@
 {
-  "overview": "ICP Mint Studio is a canister-native NFT minting and verification platform on the Internet Computer, enabling users to mint, verify, and manage digital assets fully on-chain.",
+  "overview": "ICP Mint Studio is a mobile-first NFT minting, management, and verification platform on the Internet Computer Protocol.",
   "features": [
-    "Mint NFTs with full on-chain metadata storage",
-    "Verify NFT authenticity by Token ID, Creator ID, or shareable link",
-    "Shareable /verify/{nftUniqueId} URL for permanent proof pages",
-    "Official logo displayed in Header, Mint Success, and Landing Page",
-    "Backend is sole authority for NFT identity — no frontend reconstruction",
-    "Admin-only tier assignment via ICP payment proof flow",
-    "In-app notification bell for mint, transfer, and admin events"
+    "NFT minting and management",
+    "Collection organization",
+    "Secure claim links",
+    "Role-based access control",
+    "Mobile-optimized UI",
+    "PWA support"
   ],
-  "category": "nft-platform",
+  "category": "productivity",
   "tags": [
     "nft",
     "icp",
-    "internet-computer",
     "minting",
+    "collections",
     "verification",
-    "web3",
-    "motoko"
+    "pwa"
   ],
-  "last_updated": "2026-06-15T02:00:56.793Z"
+  "last_updated": "2026-06-17T23:30:10.063Z"
 }

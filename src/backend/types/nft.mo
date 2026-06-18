@@ -19,6 +19,7 @@ module {
     description : Text;
     edition : Text;
     mintDate : Common.Timestamp;
+    claimedAt : ?Nat;
     status : NftStatus;
     auditHistory : [Common.AuditEntry];
     collectionId : ?Nat;
@@ -39,6 +40,8 @@ module {
     tier : Common.SubscriptionTier;
     maxSize : Nat;
     createdAt : Common.Timestamp;
+    previewImage : ?Text;
+    nftIds : [Nat];
   };
 
   public type VerifyResult = {
@@ -58,5 +61,6 @@ module {
     rewardTier : Common.RewardTier;
     nftUniqueId : Text;
     tags : [Text];
+    status : NftStatus;
   };
 }

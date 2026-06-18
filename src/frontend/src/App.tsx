@@ -1,5 +1,7 @@
 import { Layout } from "@/components/Layout";
+import { PWAUpdateBanner } from "@/components/PWAUpdateBanner";
 import { AuthProvider } from "@/contexts/AuthContext";
+import DisconnectPage from "@/pages/DisconnectPage";
 import {
   RouterProvider,
   createRootRoute,
@@ -10,8 +12,11 @@ import { Loader2 } from "lucide-react";
 import { ThemeProvider } from "next-themes";
 import { Suspense, lazy } from "react";
 
-const CollectionsPage = lazy(() => import("@/pages/CollectionsPage"));
+const ClaimPage = lazy(() => import("@/pages/ClaimPage"));
+
+const CollectorPage = lazy(() => import("@/pages/CollectorPage"));
 const HomePage = lazy(() => import("@/pages/HomePage"));
+const PostClaimPage = lazy(() => import("@/pages/PostClaimPage"));
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const VerifyPage = lazy(() => import("@/pages/VerifyPage"));
@@ -23,10 +28,11 @@ const indexRoute = createRoute({
   path: "/",
   component: HomePage,
 });
-const collectionsRoute = createRoute({
+
+const collectorRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/collections",
-  component: CollectionsPage,
+  path: "/collector",
+  component: CollectorPage,
 });
 const verifyRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -50,11 +56,26 @@ const verifyByIdRoute = createRoute({
   component: VerifyPage,
 });
 
+const claimRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/claim/$claimToken",
+  component: ClaimPage,
+});
+
+const postClaimRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/claim/$claimToken/success",
+  component: PostClaimPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
-  collectionsRoute,
+
+  collectorRoute,
   verifyRoute,
   verifyByIdRoute,
+  claimRoute,
+  postClaimRoute,
   profileRoute,
   settingsRoute,
 ]);
@@ -77,6 +98,7 @@ export default function App() {
             </div>
           }
         >
+          <PWAUpdateBanner />
           <RouterProvider router={router} />
         </Suspense>
       </AuthProvider>

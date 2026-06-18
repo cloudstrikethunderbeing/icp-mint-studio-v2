@@ -1,4 +1,4 @@
-import { ExternalBlob, createActor } from "@/backend";
+import { ExternalBlob } from "@/backend";
 import type { CollectionWithCount, Nft } from "@/backend";
 import { NftDetailModal } from "@/components/NftDetailModal";
 import { Button } from "@/components/ui/button";
@@ -29,30 +29,55 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/hooks/useNotifications";
-import { useActor } from "@caffeineai/core-infrastructure";
+import { usePermissions } from "@/hooks/usePermissions";
+import {
+  useCreateSlot,
+  useGenerateClaimLink,
+  useSearchNfts,
+} from "@/hooks/useQueries";
+
 import { Principal } from "@icp-sdk/core/principal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
   Check,
   ChevronDown,
   Copy,
-  Fingerprint,
   Hammer,
   ImageOff,
   Info,
   Loader2,
-  Lock,
   Plus,
-  QrCode,
+  Search,
   Share2,
+  X,
 } from "lucide-react";
-import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import BrandedAuthGate from "../components/BrandedAuthGate";
+import { useMyActiveNfts } from "../hooks/useQueries";
 
 const MAX_NFTS = 8;
 const UPLOAD_SLOT_IDX = 4; // center of 3x3 grid (0-indexed)
+
+function buildAdminGrid(nfts: Nft[]): GridSlot[] {
+  if (!Array.isArray(nfts)) {
+    console.error("INVALID NFT INPUT:", nfts);
+    return [];
+  }
+  const safeNfts = nfts.filter((item): item is Nft => item != null);
+  const slots: GridSlot[] = [];
+  let nftIdx = 0;
+  for (let i = 0; i < safeNfts.length + 1; i++) {
+    if (i === 0) {
+      slots.push({ kind: "upload" });
+    } else if (nftIdx < safeNfts.length) {
+      slots.push({ kind: "nft", nft: safeNfts[nftIdx++] });
+    }
+  }
+  return slots;
+}
 
 async function computeSha256(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
@@ -79,13 +104,15 @@ type MintParams = {
 };
 
 function buildGrid(nfts: Nft[]): GridSlot[] {
+  // Defensive filter: skip any null/undefined items that slipped through
+  const safeNfts = nfts.filter((item): item is Nft => item != null);
   const slots: GridSlot[] = [];
   let nftIdx = 0;
   for (let i = 0; i < 9; i++) {
     if (i === UPLOAD_SLOT_IDX) {
       slots.push({ kind: "upload" });
-    } else if (nftIdx < nfts.length) {
-      slots.push({ kind: "nft", nft: nfts[nftIdx++] });
+    } else if (nftIdx < safeNfts.length) {
+      slots.push({ kind: "nft", nft: safeNfts[nftIdx++] });
     } else {
       slots.push({ kind: "empty" });
     }
@@ -106,18 +133,41 @@ function NftGridCard({
   nft,
   slotNumber,
   onSelect,
-}: { nft: Nft; slotNumber: number; onSelect: (nft: Nft) => void }) {
+  isDeleting,
+  isBurning,
+  isNewlyMinted,
+}: {
+  nft: Nft;
+  slotNumber: number;
+  onSelect: (nft: Nft) => void;
+  isDeleting?: boolean;
+  isBurning?: boolean;
+  isNewlyMinted?: boolean;
+}) {
   const [imgError, setImgError] = useState(false);
-  const imgUrl = nft.imageBlob.getDirectURL();
+  const imgUrl = nft.imageBlob?.getDirectURL() ?? "";
   const handleClick = useCallback(() => onSelect(nft), [onSelect, nft]);
+
+  const deleting = isDeleting ?? false;
+  const burning = isBurning ?? false;
+
   return (
     <button
       type="button"
-      className="aspect-square rounded-xl overflow-hidden bg-muted relative cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      className={`aspect-square rounded-xl overflow-hidden bg-muted relative cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-all duration-300 ease-out ${
+        deleting || burning
+          ? "opacity-0 scale-95"
+          : isNewlyMinted
+            ? "animate-nft-enter"
+            : ""
+      } ${burning ? "ring-2 ring-red-500" : ""}`}
       onClick={handleClick}
       aria-label={`View NFT: ${nft.title}`}
       data-ocid={`home.nft_card.item.${slotNumber}`}
     >
+      {burning && (
+        <div className="absolute inset-0 bg-red-500/30 z-10 pointer-events-none transition-opacity duration-300" />
+      )}
       {imgError ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-muted">
           <ImageOff className="text-muted-foreground text-xl" />
@@ -139,18 +189,18 @@ function NftGridCard({
 }
 
 function UploadCard({
-  isAuthenticated,
   collections,
   onMint,
   isMinting,
-  uploadProgress,
   mintError,
   setMintError,
   mintSuccessSignal,
   mintDialogOpen,
   setMintDialogOpen,
+  isAuthenticated,
+  actor,
+  profileReady,
 }: {
-  isAuthenticated: boolean;
   collections: CollectionWithCount[];
   onMint: (params: MintParams) => void;
   isMinting: boolean;
@@ -160,6 +210,9 @@ function UploadCard({
   mintSuccessSignal: number;
   mintDialogOpen: boolean;
   setMintDialogOpen: (v: boolean) => void;
+  isAuthenticated: boolean;
+  actor: unknown;
+  profileReady: boolean;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -174,6 +227,7 @@ function UploadCard({
   const [membershipId, setMembershipId] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
   // isMintingLocal removed — use mintMutation.isPending as the single source of truth
 
   useEffect(() => {
@@ -196,6 +250,7 @@ function UploadCard({
 
   const handleFile = useCallback(
     (f: File) => {
+      if (isMinting) return;
       const validTypes = ["image/png", "image/jpeg", "image/webp"];
       if (!validTypes.includes(f.type)) {
         toast.error("Only PNG, JPG, and WEBP files are accepted.");
@@ -209,18 +264,48 @@ function UploadCard({
       setPreview(URL.createObjectURL(f));
       setMintDialogOpen(true);
     },
-    [setMintDialogOpen],
+    [setMintDialogOpen, isMinting],
   );
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
     setDragOver(false);
+    if (isMinting) return;
     const f = e.dataTransfer.files[0];
     if (f) handleFile(f);
   }
 
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function handleDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isMinting) return;
+    dragCounterRef.current += 1;
+    setDragOver(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setDragOver(false);
+    }
+  }
+
   function handleMint() {
     if (!file || !title.trim()) return;
+    if (!isAuthenticated || !actor || !profileReady) {
+      toast.error("Connect your wallet to mint NFTs.");
+      return;
+    }
     onMint({
       file,
       title,
@@ -250,43 +335,29 @@ function UploadCard({
     // isMintingLocal removed — loading state comes from mintMutation.isPending
   }
 
-  if (!isAuthenticated) {
-    return (
-      <div
-        className="aspect-square rounded-xl border-2 border-dashed border-primary/40 bg-primary/5 flex flex-col items-center justify-center gap-1.5 p-2"
-        data-ocid="home.upload_card"
-      >
-        <Lock className="text-primary/60 text-lg" />
-        <span className="text-xs text-muted-foreground text-center leading-tight">
-          Connect to mint
-        </span>
-      </div>
-    );
-  }
-
   return (
     <>
       <button
         type="button"
         className={`aspect-square rounded-xl border-2 border-dashed transition-colors duration-200 flex flex-col items-center justify-center gap-1.5 p-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-          dragOver
-            ? "border-primary bg-primary/10"
-            : "border-primary/50 bg-primary/5 hover:border-primary hover:bg-primary/10"
+          isMinting
+            ? "opacity-50 cursor-not-allowed border-muted bg-muted/20"
+            : dragOver
+              ? "border-primary bg-primary/10"
+              : "border-primary/50 bg-primary/5 hover:border-primary hover:bg-primary/10"
         }`}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => !isMinting && fileInputRef.current?.click()}
         onDrop={handleDrop}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
+        onDragOver={handleDragOver}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
         aria-label="Upload and mint NFT"
         data-ocid="home.upload_card"
       >
         {isMinting ? (
           <>
-            <Loader2 className="animate-spin text-primary text-lg" />
-            <span className="text-xs text-primary">{uploadProgress}%</span>
+            <Loader2 className="animate-spin text-muted-foreground text-lg" />
+            <span className="text-xs text-muted-foreground">Minting...</span>
           </>
         ) : (
           <>
@@ -395,7 +466,7 @@ function UploadCard({
                     <SelectValue placeholder="Select collection" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
                     {collections.map((c) => (
                       <SelectItem key={c.id.toString()} value={c.id.toString()}>
                         {c.name} ({c.nftCount.toString()}/{c.maxSize.toString()}
@@ -500,7 +571,13 @@ function UploadCard({
             <Button
               type="button"
               onClick={handleMint}
-              disabled={!title.trim() || isMinting}
+              disabled={
+                !title.trim() ||
+                isMinting ||
+                !isAuthenticated ||
+                !actor ||
+                !profileReady
+              }
               data-ocid="home.mint_submit_button"
             >
               {isMinting ? (
@@ -523,9 +600,19 @@ function UploadCard({
 }
 
 export default function HomePage() {
-  const { resolvedTheme } = useTheme();
-  const { isAuthenticated, actor, principal, login } = useAuth();
+  const _navigate = useNavigate();
+  const {
+    isAuthenticated,
+    actor,
+    principal,
+    authState,
+    profileReady,
+    creatorId,
+  } = useAuth();
+  const { isAdmin, isAdminLoading, canMint } = usePermissions();
+
   const queryClient = useQueryClient();
+  const _createSlotMutation = useCreateSlot();
   const [mintDialogOpen, setMintDialogOpen] = useState(false);
   const [selectedNft, setSelectedNft] = useState<Nft | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -537,9 +624,30 @@ export default function HomePage() {
     | { stage: "success"; message: string }
     | { stage: "error"; message: string }
   >({ stage: "idle" });
+  const [mintedClaimUrl, setMintedClaimUrl] = useState<string | null>(null);
 
   const [mintOverlayDismissVisible, setMintOverlayDismissVisible] =
     useState(false);
+
+  // Animation state: track which cards are animating out / in
+  const [deletingTokenIds, setDeletingTokenIds] = useState<Set<number>>(
+    new Set(),
+  );
+  const [burningTokenIds, setBurningTokenIds] = useState<Set<number>>(
+    new Set(),
+  );
+  const [newlyMintedTokenId, setNewlyMintedTokenId] = useState<number | null>(
+    null,
+  );
+  const [slotFlash, setSlotFlash] = useState<"mint" | "burn" | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const isSearchActive = debouncedSearch.trim().length > 0;
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    return () => clearTimeout(t);
+  }, [searchTerm]);
 
   useEffect(() => {
     if (mintTransition.stage === "minting") {
@@ -556,25 +664,22 @@ export default function HomePage() {
     setMintOverlayDismissVisible(false);
   }, [mintTransition.stage]);
 
-  const { data: nfts = [], isLoading } = useQuery<Nft[]>({
-    queryKey: ["myActiveNfts"],
-    queryFn: async () => {
-      if (!actor) return [];
-      return actor.listMyActiveNfts();
-    },
-    enabled: !!actor && isAuthenticated,
-  });
+  const { data: nfts = [], isLoading } = useMyActiveNfts();
+
+  const { data: searchResults = [], isLoading: isSearchLoading } =
+    useSearchNfts(debouncedSearch.trim(), isAdmin && isSearchActive);
 
   const { data: collections = [] } = useQuery<CollectionWithCount[]>({
     queryKey: ["collections"],
     queryFn: async () => {
       if (!actor) return [];
-      return actor.listMyCollections();
+      const result = await actor.listMyCollections();
+      return result;
     },
     enabled: !!actor && isAuthenticated && mintDialogOpen,
   });
 
-  const { data: slotsStatus } = useQuery({
+  useQuery({
     queryKey: ["slotsStatus"],
     queryFn: async () => {
       if (!actor) return null;
@@ -600,6 +705,7 @@ export default function HomePage() {
   });
 
   const { addNotification } = useNotifications();
+  const generateClaimLinkForAdmin = useGenerateClaimLink();
 
   const mintMutation = useMutation({
     mutationFn: async (params: MintParams) => {
@@ -666,10 +772,10 @@ export default function HomePage() {
           | undefined
       )?.ok;
       const tokenId = ok?.tokenId ?? ok?.id;
+      const tokenIdNum =
+        tokenId !== undefined && tokenId !== 0n ? Number(tokenId) : null;
       const tokenIdStr =
-        tokenId !== undefined && tokenId !== 0n
-          ? tokenId.toString()
-          : undefined;
+        tokenIdNum !== null ? tokenIdNum.toString() : undefined;
       const nftUniqueId = ok?.nftUniqueId;
       setMintTransition({
         stage: "success",
@@ -677,26 +783,6 @@ export default function HomePage() {
           ? `Token ID: ${tokenIdStr} minted successfully!`
           : "NFT minted successfully!",
       });
-      toast.success(
-        <div className="flex flex-col gap-1">
-          <span className="font-medium">
-            {tokenIdStr
-              ? `Token ID: ${tokenIdStr} minted successfully!`
-              : "NFT minted successfully!"}
-          </span>
-          {nftUniqueId && (
-            <span className="text-xs text-muted-foreground">
-              Unique ID: {nftUniqueId}
-            </span>
-          )}
-          <img
-            src="/assets/logo.jpg"
-            alt="ICP Mint Studio"
-            className="h-8 w-auto mt-1 rounded-sm self-start"
-            loading="lazy"
-          />
-        </div>,
-      );
       addNotification({
         type: "info",
         title: "NFT Minted",
@@ -709,10 +795,37 @@ export default function HomePage() {
       setMintSuccessSignal((n) => n + 1);
       queryClient.invalidateQueries({ queryKey: ["myActiveNfts"] });
       queryClient.invalidateQueries({ queryKey: ["slotsStatus"] });
-      setTimeout(() => setMintTransition({ stage: "idle" }), 2500);
+      queryClient.invalidateQueries({ queryKey: ["allMyNfts"] });
+      queryClient.invalidateQueries({ queryKey: ["collections"] });
+      queryClient.invalidateQueries({ queryKey: ["nftRegistry"] });
+      // Trigger mint enter animation + slot flash
+      if (tokenIdNum !== null) {
+        setNewlyMintedTokenId(tokenIdNum);
+        setSlotFlash("mint");
+        setTimeout(() => setNewlyMintedTokenId(null), 1000);
+        setTimeout(() => setSlotFlash(null), 600);
+      }
+      // Auto-generate claim link for admin or paid tiers after successful mint
+      if (canMint && nftUniqueId && ok?.id !== undefined) {
+        generateClaimLinkForAdmin
+          .mutateAsync(ok.id)
+          .then((url: string) => {
+            setMintedClaimUrl(url);
+          })
+          .catch((err: Error) => {
+            console.warn(
+              "[Admin] Auto-generate claim link failed (non-critical):",
+              err,
+            );
+            // Auto-dismiss only when no claim URL was captured
+            setTimeout(() => setMintTransition({ stage: "idle" }), 2500);
+          });
+      } else {
+        // No claim link for this tier — auto-dismiss after 2.5s
+        setTimeout(() => setMintTransition({ stage: "idle" }), 2500);
+      }
     },
     onError: (err: Error) => {
-      toast.error(err.message || "Mint failed");
       addNotification({
         type: "critical",
         title: "Mint Failed",
@@ -733,17 +846,44 @@ export default function HomePage() {
       if (!actor) throw new Error("Not authenticated");
       return actor.deleteNft(id);
     },
-    onMutate: () => {
-      toast.loading("Deleting NFT...", { id: "delete-toast" });
+    onMutate: (id: bigint) => {
+      const tokenIdNum = Number(id);
+      setDeletingTokenIds((prev) => new Set(prev).add(tokenIdNum));
     },
-    onSuccess: () => {
-      toast.success("NFT deleted", { id: "delete-toast" });
+    onSuccess: (_data, id: bigint) => {
+      addNotification({
+        type: "info",
+        title: "NFT Deleted",
+        message: "NFT has been deleted successfully.",
+      });
       setSelectedNft(null);
-      queryClient.invalidateQueries({ queryKey: ["myActiveNfts"] });
+      // Optimistically remove from cache to prevent flicker
+      queryClient.setQueryData<Nft[]>(["myActiveNfts"], (old) => {
+        if (!old) return old;
+        return old.filter((nft) => nft.id !== id);
+      });
       // delete does NOT free slots — do NOT invalidate slotsStatus
+      const tokenIdNum = Number(id);
+      setTimeout(() => {
+        setDeletingTokenIds((prev) => {
+          const next = new Set(prev);
+          next.delete(tokenIdNum);
+          return next;
+        });
+      }, 300);
     },
-    onError: (err: Error) => {
-      toast.error(err.message || "Delete failed", { id: "delete-toast" });
+    onError: (err: Error, id: bigint) => {
+      addNotification({
+        type: "critical",
+        title: "Delete Failed",
+        message: err.message || "Failed to delete NFT.",
+      });
+      const tokenIdNum = Number(id);
+      setDeletingTokenIds((prev) => {
+        const next = new Set(prev);
+        next.delete(tokenIdNum);
+        return next;
+      });
     },
   });
 
@@ -752,134 +892,232 @@ export default function HomePage() {
       if (!actor) throw new Error("Not authenticated");
       return actor.burnNft(id);
     },
-    onMutate: () => {
-      toast.loading("Burning NFT...", { id: "burn-toast" });
+    onMutate: (id: bigint) => {
+      const tokenIdNum = Number(id);
+      setBurningTokenIds((prev) => new Set(prev).add(tokenIdNum));
     },
-    onSuccess: () => {
-      toast.success("NFT burned permanently", { id: "burn-toast" });
+    onSuccess: (_data, id: bigint) => {
+      addNotification({
+        type: "critical",
+        title: "NFT Burned",
+        message: "NFT has been permanently destroyed.",
+      });
       setSelectedNft(null);
+      // Optimistically remove from cache to prevent flicker
+      queryClient.setQueryData<Nft[]>(["myActiveNfts"], (old) => {
+        if (!old) return old;
+        return old.filter((nft) => nft.id !== id);
+      });
       queryClient.invalidateQueries({ queryKey: ["myActiveNfts"] });
       queryClient.invalidateQueries({ queryKey: ["slotsStatus"] });
+      const tokenIdNum = Number(id);
+      setSlotFlash("burn");
+      setTimeout(() => {
+        setBurningTokenIds((prev) => {
+          const next = new Set(prev);
+          next.delete(tokenIdNum);
+          return next;
+        });
+      }, 300);
+      setTimeout(() => setSlotFlash(null), 600);
     },
-    onError: (err: Error) => {
-      toast.error(err.message || "Burn failed", { id: "burn-toast" });
+    onError: (err: Error, id: bigint) => {
+      addNotification({
+        type: "critical",
+        title: "Burn Failed",
+        message: err.message || "Failed to burn NFT.",
+      });
+      const tokenIdNum = Number(id);
+      setBurningTokenIds((prev) => {
+        const next = new Set(prev);
+        next.delete(tokenIdNum);
+        return next;
+      });
     },
   });
 
-  const gridSlots = useMemo(() => buildGrid(nfts.slice(0, MAX_NFTS)), [nfts]);
+  // HomePage is static — no conditional redirects based on role or auth state.
+  // Shell routing is handled by explicit user navigation only.
 
+  // searchResults is already Nft[] — returned directly from useSearchNfts queryFn
+  const displayNfts = isAdmin && isSearchActive ? searchResults : nfts;
+  const displayLoading =
+    isAdmin && isSearchActive ? isSearchLoading : isLoading;
+
+  const stableNfts = useMemo(() => displayNfts ?? [], [displayNfts]);
+  const gridSlots = useMemo(() => {
+    if (isAdmin) {
+      return buildAdminGrid(stableNfts);
+    }
+    return buildGrid(stableNfts.slice(0, MAX_NFTS));
+  }, [stableNfts, isAdmin]);
+
+  // 3-tier auth gating for Mint UI
+  const _effectiveCreatorId = creatorId ?? principal ?? "";
+
+  if (authState === "loading") {
+    return (
+      <div className="flex flex-col gap-4 p-3 max-w-xl mx-auto w-full pb-24">
+        <BrandedAuthGate subtitle="Mint, claim, and collect NFTs on the Internet Computer." />
+        <div
+          className="flex flex-col items-center justify-center py-20 gap-3"
+          data-ocid="home.auth_loading_state"
+        >
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Syncing wallet...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (authState === "unauthenticated") {
+    return (
+      <div className="flex flex-col gap-4 p-3 max-w-xl mx-auto w-full pb-24">
+        <BrandedAuthGate subtitle="Mint, claim, and collect NFTs on the Internet Computer." />
+        <div
+          className="flex flex-col items-center justify-center py-20 gap-3"
+          data-ocid="home.unauthenticated_state"
+        >
+          <Info className="w-8 h-8 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground text-center">
+            Please connect your Internet Identity to mint NFTs.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // authState === "ready"
+  if (!profileReady) {
+    return (
+      <div className="flex flex-col gap-4 p-3 max-w-xl mx-auto w-full pb-24">
+        <BrandedAuthGate subtitle="Mint, claim, and collect NFTs on the Internet Computer." />
+        <div
+          className="flex flex-col items-center justify-center py-20 gap-3"
+          data-ocid="home.profile_loading_state"
+        >
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Creating profile...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Full Mint UI — authState === "ready" && profileReady
   return (
     <div className="flex flex-col gap-4 p-3 max-w-xl mx-auto w-full pb-24">
-      {/* Hero — brand trust with logo */}
-      <div className="flex flex-col items-center text-center gap-3 py-6">
-        <img
-          src={
-            resolvedTheme === "light"
-              ? "/assets/logo-inverted.jpg"
-              : "/assets/logo.jpg"
-          }
-          alt="ICP Mint Studio"
-          className="h-20 w-auto rounded-lg shadow-sm"
-          loading="lazy"
-        />
-        <div>
-          <h1 className="text-2xl font-display font-bold text-foreground">
-            Mint. Own. Verify.
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            The easiest way to create and verify NFTs on the Internet Computer.
-          </p>
-        </div>
-        {!isAuthenticated && (
-          <Button
-            type="button"
-            onClick={() => login()}
-            className="mt-2 rounded-full px-6"
-            data-ocid="home.hero_connect_button"
-          >
-            <Fingerprint className="mr-2" />
-            Start Minting
-          </Button>
-        )}
-      </div>
+      {/* Hero branding — persistent on mint screen */}
+      <BrandedAuthGate subtitle="Mint, claim, and collect NFTs on the Internet Computer." />
 
-      {/* Start Here — 1-2-3 action steps for authenticated users */}
-      {isAuthenticated && (
-        <div
-          className="bg-card border border-border rounded-xl p-3 space-y-2"
-          data-ocid="home.start_here_section"
-        >
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-            Start Here
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                document
-                  .querySelector('[data-ocid="home.upload_card"]')
-                  ?.scrollIntoView({ behavior: "smooth", block: "center" })
-              }
-              className="flex flex-col items-center gap-1 rounded-lg bg-primary/5 border border-primary/10 p-2 hover:bg-primary/10 transition-colors"
-              data-ocid="home.step_1_button"
-            >
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                1
-              </span>
-              <span className="text-xs font-medium text-foreground text-center leading-tight">
-                Mint NFT
-              </span>
-            </button>
-            <a
-              href="/verify"
-              className="flex flex-col items-center gap-1 rounded-lg bg-primary/5 border border-primary/10 p-2 hover:bg-primary/10 transition-colors"
-              data-ocid="home.step_2_link"
-            >
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                2
-              </span>
-              <span className="text-xs font-medium text-foreground text-center leading-tight">
-                Verify NFT
-              </span>
-            </a>
-            <a
-              href="/profile"
-              className="flex flex-col items-center gap-1 rounded-lg bg-primary/5 border border-primary/10 p-2 hover:bg-primary/10 transition-colors"
-              data-ocid="home.step_3_link"
-            >
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                3
-              </span>
-              <span className="text-xs font-medium text-foreground text-center leading-tight">
-                View Profile
-              </span>
-            </a>
+      {/* Start Here — 3-step quick guide */}
+      <div
+        className="bg-card border border-border rounded-xl p-3"
+        data-ocid="home.start_here_section"
+      >
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+          Start Here
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          <div className="flex flex-col items-center gap-1 rounded-lg bg-primary/5 border border-primary/10 p-2">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+              1
+            </span>
+            <span className="text-xs font-medium text-foreground text-center leading-tight">
+              Mint NFT
+            </span>
+          </div>
+          <div className="flex flex-col items-center gap-1 rounded-lg bg-primary/5 border border-primary/10 p-2">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+              2
+            </span>
+            <span className="text-xs font-medium text-foreground text-center leading-tight">
+              Verify NFT
+            </span>
+          </div>
+          <div className="flex flex-col items-center gap-1 rounded-lg bg-primary/5 border border-primary/10 p-2">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+              3
+            </span>
+            <span className="text-xs font-medium text-foreground text-center leading-tight">
+              View Profile
+            </span>
           </div>
         </div>
-      )}
+      </div>
 
       {isAuthenticated && (
-        <p className="text-xs text-muted-foreground -mt-2">
-          NFTs are organized by Slots (Collections)
-        </p>
+        <div className="flex items-center justify-between -mt-2">
+          <p
+            className={`text-xs transition-colors duration-600 ${
+              slotFlash === "mint"
+                ? "text-green-400"
+                : slotFlash === "burn"
+                  ? "text-amber-400"
+                  : "text-muted-foreground"
+            }`}
+          >
+            {isAdmin
+              ? "Admin Mode — Unlimited Slots"
+              : "NFTs are organized by Slots (Collections)"}
+          </p>
+        </div>
       )}
 
-      {isLoading ? (
-        <div className="grid grid-cols-3 gap-2" data-ocid="home.loading_state">
-          {Array.from({ length: 9 }).map((_, i) => (
+      {/* Admin search bar */}
+      {isAuthenticated && isAdmin && (
+        <div className="relative" data-ocid="home.search_bar">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+          <Input
+            type="text"
+            placeholder="Search NFTs by title, business, or tags..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-9 pr-9 rounded-lg"
+            data-ocid="home.search_input"
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Clear search"
+              data-ocid="home.search_clear_button"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {isAdminLoading ? (
+        <div
+          className="flex flex-col items-center justify-center py-20 gap-3"
+          data-ocid="home.admin_loading_state"
+        >
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        </div>
+      ) : displayLoading ? (
+        <div
+          className={`gap-2 ${isAdmin ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5" : "grid grid-cols-3"}`}
+          data-ocid="home.loading_state"
+        >
+          {Array.from({ length: isAdmin ? 12 : 9 }).map((_, i) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton
             <Skeleton key={i} className="aspect-square rounded-xl" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-3 gap-2" data-ocid="home.grid">
+        <div
+          className={`gap-2 ${isAdmin ? "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5" : "grid grid-cols-3"}`}
+          data-ocid="home.grid"
+        >
           {gridSlots.map((slot, i) => {
-            const nftSlotNumber = i < UPLOAD_SLOT_IDX ? i + 1 : i;
+            const nftSlotNumber = isAdmin ? i : i < UPLOAD_SLOT_IDX ? i + 1 : i;
             if (slot.kind === "upload") {
               return (
                 <UploadCard
                   key="upload"
-                  isAuthenticated={isAuthenticated}
                   collections={collections}
                   onMint={(params) => mintMutation.mutate(params)}
                   isMinting={mintMutation.isPending}
@@ -889,16 +1127,23 @@ export default function HomePage() {
                   mintDialogOpen={mintDialogOpen}
                   setMintDialogOpen={setMintDialogOpen}
                   mintSuccessSignal={mintSuccessSignal}
+                  isAuthenticated={isAuthenticated}
+                  actor={actor}
+                  profileReady={profileReady}
                 />
               );
             }
             if (slot.kind === "nft") {
+              const tokenIdNum = Number(slot.nft.id);
               return (
                 <NftGridCard
                   key={slot.nft.id.toString()}
                   nft={slot.nft}
                   slotNumber={nftSlotNumber}
                   onSelect={setSelectedNft}
+                  isDeleting={deletingTokenIds.has(tokenIdNum)}
+                  isBurning={burningTokenIds.has(tokenIdNum)}
+                  isNewlyMinted={newlyMintedTokenId === tokenIdNum}
                 />
               );
             }
@@ -908,33 +1153,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* State mismatch warning: backend reports slots used but no NFTs visible */}
-      {isAuthenticated &&
-        !isLoading &&
-        slotsStatus &&
-        Number(slotsStatus.used) > 0 &&
-        nfts.length === 0 && (
-          <div
-            className="rounded-lg border border-yellow-600 bg-yellow-900/20 p-3 flex items-start gap-2"
-            data-ocid="home.state_mismatch_warning"
-          >
-            <AlertTriangle className="text-yellow-300 mt-0.5 text-sm" />
-            <p className="text-xs text-yellow-300 leading-relaxed">
-              State mismatch detected — backend slot state is inconsistent. No
-              NFTs found. Please contact support if this persists.
-            </p>
-          </div>
-        )}
-
-      {!isAuthenticated && !isLoading && (
-        <p
-          className="text-center text-xs text-muted-foreground"
-          data-ocid="home.auth_required"
-        >
-          <Info className="mr-1 inline" />
-          Please connect your Internet Identity before uploading
-        </p>
-      )}
+      {/* auth gating handled above; this block removed to prevent flash */}
 
       {/* Mint transition overlay */}
       {mintTransition.stage !== "idle" && (
@@ -971,6 +1190,67 @@ export default function HomePage() {
                 <p className="text-sm font-medium text-foreground">
                   {mintTransition.message}
                 </p>
+                {mintedClaimUrl && (
+                  <div className="mt-2 space-y-2 text-left">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      Claim Link
+                    </p>
+                    <div className="flex items-center gap-1 bg-muted/60 rounded-lg px-2 py-1.5 min-w-0">
+                      <span
+                        className="text-xs text-foreground truncate flex-1 font-mono"
+                        data-ocid="mint.claim_url"
+                      >
+                        {mintedClaimUrl}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 text-xs"
+                        data-ocid="mint.copy_claim_url_button"
+                        onClick={() => {
+                          navigator.clipboard
+                            .writeText(mintedClaimUrl)
+                            .then(() => {
+                              toast.success("Claim link copied!");
+                            });
+                        }}
+                      >
+                        <Copy className="mr-1 h-3 w-3" />
+                        Copy
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        className="flex-1 text-xs"
+                        data-ocid="mint.open_claim_page_button"
+                        onClick={() => window.open(mintedClaimUrl, "_blank")}
+                      >
+                        <Share2 className="mr-1 h-3 w-3" />
+                        Open
+                      </Button>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="w-full text-xs text-muted-foreground"
+                      data-ocid="mint.success_dismiss_button"
+                      onClick={() => {
+                        setMintTransition({ stage: "idle" });
+                        setMintedClaimUrl(null);
+                      }}
+                    >
+                      Done
+                    </Button>
+                  </div>
+                )}
+                {!mintedClaimUrl && (
+                  <p className="text-xs text-muted-foreground">Redirecting…</p>
+                )}
               </>
             )}
             {mintTransition.stage === "error" && (

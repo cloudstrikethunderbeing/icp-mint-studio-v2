@@ -30,7 +30,7 @@ export interface AuditEntry {
 }
 export type Result_5 = {
     __kind__: "ok";
-    ok: bigint;
+    ok: ClaimStatus;
 } | {
     __kind__: "err";
     err: string;
@@ -44,6 +44,8 @@ export type Result_1 = {
 };
 export interface CollectionWithCount {
     id: bigint;
+    previewImage?: string;
+    nftIds: Array<bigint>;
     ownerId: Principal;
     name: string;
     createdAt: Timestamp;
@@ -93,6 +95,7 @@ export interface Nft {
     mintDate: Timestamp;
     description: string;
     website?: string;
+    claimedAt?: bigint;
     auditHistory: Array<AuditEntry>;
     rewardTier: RewardTier;
     assetHash: string;
@@ -112,7 +115,25 @@ export interface TransferResult {
     error?: string;
     success: boolean;
 }
+export interface ClaimStatus {
+    token: string;
+    claimed: boolean;
+    claimedBy?: Principal;
+}
+export type Result_7 = {
+    __kind__: "ok";
+    ok: bigint;
+} | {
+    __kind__: "err";
+    err: string;
+};
+export interface RenameCollectionRequest {
+    collectionId: CollectionId;
+    newName: string;
+}
+export type CollectionId = bigint;
 export interface VerifyResult {
+    status: NftStatus;
     tokenId: bigint;
     edition: string;
     collectionId?: bigint;
@@ -132,11 +153,17 @@ export interface VerifyResult {
 }
 export type Result_6 = {
     __kind__: "ok";
-    ok: null;
+    ok: Nft;
 } | {
     __kind__: "err";
-    err: Error_;
+    err: string;
 };
+export interface CollectionSummary {
+    id: CollectionId;
+    ownerId: Principal;
+    name: string;
+    nftCount: bigint;
+}
 export type Error_ = {
     __kind__: "FrontendOriginsNotConfigured";
     FrontendOriginsNotConfigured: null;
@@ -181,6 +208,13 @@ export type Error_ = {
         expected: Array<string>;
     };
 };
+export interface ClaimToken {
+    token: string;
+    usedAt?: bigint;
+    usedBy?: Principal;
+    createdAt: bigint;
+    nftId: bigint;
+}
 export type CreatorId = string;
 export type Result = {
     __kind__: "ok";
@@ -198,6 +232,8 @@ export type Result_3 = {
 };
 export interface Collection {
     id: bigint;
+    previewImage?: string;
+    nftIds: Array<bigint>;
     ownerId: Principal;
     name: string;
     createdAt: Timestamp;
@@ -205,12 +241,20 @@ export interface Collection {
     description: string;
     maxSize: bigint;
 }
+export type Result_8 = {
+    __kind__: "ok";
+    ok: null;
+} | {
+    __kind__: "err";
+    err: Error_;
+};
 export interface UserProfile {
     creditsTotal: bigint;
     oisyWalletAddress?: string;
     emailAlerts: Array<AlertType>;
     maxSlots: bigint;
     createdAt: Timestamp;
+    role: Variant_creator_admin;
     subscriptionTier: SubscriptionTier;
     creatorId: CreatorId;
     email?: string;
@@ -247,7 +291,6 @@ export enum SubscriptionTier {
     org = "org",
     pro = "pro",
     creator = "creator",
-    admin = "admin",
     free = "free"
 }
 export enum UserRole {
@@ -255,23 +298,42 @@ export enum UserRole {
     user = "user",
     guest = "guest"
 }
+export enum Variant_creator_admin {
+    creator = "creator",
+    admin = "admin"
+}
 export interface backendInterface {
+    addNftToCollection(nftId: bigint, collectionId: bigint): Promise<Result_2>;
     approvePaymentProof(proofId: string): Promise<Result_3>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     burnNft(id: bigint): Promise<Result_2>;
+    claimAdmin(): Promise<boolean>;
+    claimNft(token: string): Promise<Result_6>;
     createCheckoutSession(_items: Array<{
         name: string;
         price: bigint;
     }>, _successUrl: string, _cancelUrl: string): Promise<string>;
-    createCollection(name: string, description: string): Promise<Result_5>;
+    createCollection(name: string, description: string): Promise<Result_7>;
+    createSlot(): Promise<Result_7>;
+    debugAdminState(): Promise<{
+        adminPrincipalValue?: string;
+        accessControlIsAdmin: boolean;
+        adminPrincipalMatchesCaller: boolean;
+        caller: string;
+    }>;
     deleteCollection(id: bigint): Promise<void>;
+    deleteCollectionAndUnassignNfts(collectionId: CollectionId): Promise<CollectionSummary>;
     deleteNft(id: bigint): Promise<Result_2>;
+    forceResyncAdmin(): Promise<void>;
+    generateClaimLink(nftId: bigint): Promise<Result_3>;
     getAdminPrincipal(): Promise<Principal | null>;
     getCallerProfile(): Promise<UserProfile>;
     getCallerUserRole(): Promise<UserRole>;
     getCanisterId(): Promise<string>;
+    getClaimPreview(token: string): Promise<Result_6>;
+    getClaimStatus(nftId: bigint): Promise<Result_5>;
     getCollection(id: bigint): Promise<Collection | null>;
-    getCollectionId(): Promise<bigint | null>;
+    getCollectionIdByName(name: string): Promise<CollectionId | null>;
     getCreditsStatus(): Promise<{
         total: bigint;
         used: bigint;
@@ -292,6 +354,7 @@ export interface backendInterface {
         configured: boolean;
     }>;
     getTotalMinted(): Promise<bigint>;
+    hasAdmin(): Promise<boolean>;
     isAdmin(): Promise<boolean>;
     isCallerAdmin(): Promise<boolean>;
     isStripeConfigured(): Promise<boolean>;
@@ -301,7 +364,10 @@ export interface backendInterface {
     listPaymentProofs(): Promise<Array<PaymentProof>>;
     mintNft(imageBlob: ExternalBlob, assetHash: string, title: string, description: string, edition: string, collectionId: bigint | null, businessName: string | null, website: string | null, discountCode: string | null, membershipId: string | null): Promise<Result_4>;
     rejectPaymentProof(proofId: string, reason: string): Promise<Result_3>;
+    removeNftFromCollection(nftId: bigint, collectionId: bigint): Promise<Result_2>;
+    renameCollection(request: RenameCollectionRequest): Promise<CollectionSummary>;
     saveCallerProfile(profile: UserProfile): Promise<void>;
+    searchNfts(searchTerm: string): Promise<Array<Nft>>;
     sendVerificationEmail(email: string): Promise<void>;
     setEmail(email: string): Promise<void>;
     setEmailAlerts(alerts: Array<AlertType>): Promise<void>;
@@ -312,5 +378,6 @@ export interface backendInterface {
     transferNft(id: bigint, toPrincipal: Principal): Promise<TransferResult>;
     updateBusinessMetadata(id: bigint, updates: UpdateMetadataRequest): Promise<Result_2>;
     verifyNftByCreatorId(creatorId: string): Promise<Result_1>;
+    verifyNftByCreatorIdWithHistory(creatorId: string): Promise<Result_1>;
     verifyNftPublic(nftUniqueId: string): Promise<Result>;
 }

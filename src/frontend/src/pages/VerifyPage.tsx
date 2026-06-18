@@ -1,13 +1,14 @@
-import { createActor } from "@/backend";
+import { NftStatus } from "@/backend";
 import type { VerifyResult } from "@/backend";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
-import { useActor } from "@caffeineai/core-infrastructure";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useParams, useSearch } from "@tanstack/react-router";
 import {
   AlertCircle,
@@ -91,6 +92,29 @@ function Row({
   );
 }
 
+function StatusBadge({ status }: { status: NftStatus }) {
+  if (status === NftStatus.active) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-semibold text-green-600 border border-green-500/20">
+        Active
+      </span>
+    );
+  }
+  if (status === NftStatus.burned) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-semibold text-orange-600 border border-orange-500/20">
+        Burned
+      </span>
+    );
+  }
+  // deleted
+  return (
+    <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground border border-border">
+      Deleted
+    </span>
+  );
+}
+
 function VerifyResultCard({ result }: { result: VerifyResult }) {
   const mintDate = new Date(
     Number(result.mintDate) / 1_000_000,
@@ -134,6 +158,7 @@ function VerifyResultCard({ result }: { result: VerifyResult }) {
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <CheckCircle2 className="w-4 h-4 text-primary" />
           NFT Verified
+          {result.status && <StatusBadge status={result.status} />}
         </div>
 
         <dl className="space-y-2">
@@ -234,44 +259,57 @@ function VerifyResultCard({ result }: { result: VerifyResult }) {
   );
 }
 
-function CollapsibleNftCard({ result }: { result: VerifyResult }) {
-  const [expanded, setExpanded] = useState(false);
-  const mintDate = new Date(
-    Number(result.mintDate) / 1_000_000,
-  ).toLocaleString();
-  const explorerUrl = `https://dashboard.internetcomputer.org/canister/${result.canisterId}`;
-  const ownerPrincipalText = result.owner ? result.owner.toString() : "";
-
+function CollapsibleNftCard({
+  result,
+  expanded,
+  onToggle,
+}: {
+  result: VerifyResult;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const nftUniqueId =
     typeof result.nftUniqueId === "string" &&
     result.nftUniqueId.trim().length > 0
       ? result.nftUniqueId
       : "Invalid NFT Record";
 
-  const nftReference = `${result.canisterId}:${result.tokenId.toString()}`;
+  const isInactive =
+    result.status === NftStatus.burned || result.status === NftStatus.deleted;
 
   return (
     <Card
-      className="rounded-xl overflow-hidden"
+      className={`rounded-xl overflow-hidden transition-opacity duration-200 ${
+        isInactive ? "opacity-60" : ""
+      }`}
       data-ocid="verify.creator_nft_card"
     >
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={onToggle}
         className="w-full text-left p-3 flex items-center justify-between gap-2 hover:bg-muted/30 transition-colors"
         aria-expanded={expanded}
         data-ocid="verify.creator_nft_toggle"
       >
-        <div className="flex items-center gap-2 min-w-0">
-          <CheckCircle2 className="w-3 h-3 text-primary shrink-0" />
-          <span className="text-sm font-semibold text-foreground truncate">
-            {nftUniqueId}
-          </span>
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+          <div className="flex flex-col min-w-0">
+            <span className="text-sm font-semibold text-foreground truncate">
+              {nftUniqueId}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Token {result.tokenId.toString()}
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs text-muted-foreground">
-            Token {result.tokenId.toString()}
+          <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+            {result.edition}
           </span>
+          <span className="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-semibold text-green-600">
+            Verified
+          </span>
+          {result.status && <StatusBadge status={result.status} />}
           {expanded ? (
             <ChevronUp className="w-4 h-4 text-muted-foreground" />
           ) : (
@@ -284,108 +322,8 @@ function CollapsibleNftCard({ result }: { result: VerifyResult }) {
           expanded ? "max-h-[9999px] opacity-100" : "max-h-0 opacity-0"
         }`}
       >
-        <CardContent className="pt-0 pb-3 px-3 space-y-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <CheckCircle2 className="w-4 h-4 text-primary" />
-            NFT Verified
-          </div>
-
-          <dl className="space-y-2">
-            <Row
-              label="Token ID"
-              value={(() => {
-                if (
-                  result.tokenId === undefined ||
-                  result.tokenId === null ||
-                  result.tokenId === 0n
-                )
-                  return "Pending...";
-                return result.tokenId.toString();
-              })()}
-            />
-            {ownerPrincipalText && (
-              <RowWithCopy
-                label="Owner Principal"
-                value={ownerPrincipalText}
-                mono
-                copyable
-              />
-            )}
-            <Row label="Creator ID (metadata only)" value={result.creatorId} />
-            <Row label="Edition" value={result.edition} />
-            <Row label="Network" value={result.network || "ICP"} />
-            <Row label="Canister ID" value={result.canisterId} mono />
-            <Row label="Mint Date" value={mintDate} />
-            <Row label="Asset Hash" value={result.assetHash} mono />
-            {result.collectionId !== undefined && (
-              <Row
-                label="Collection ID"
-                value={result.collectionId.toString()}
-              />
-            )}
-            {result.businessName && (
-              <Row label="Business Name" value={result.businessName} />
-            )}
-            {result.website && <Row label="Website" value={result.website} />}
-            {result.discountCode && (
-              <Row label="Discount Code" value={result.discountCode} />
-            )}
-            {result.membershipId && (
-              <Row label="Membership / Ticket ID" value={result.membershipId} />
-            )}
-          </dl>
-
-          {/* Wallet View (ICP Native) */}
-          <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Wallet View (ICP Native)
-            </p>
-            <p className="text-[10px] text-muted-foreground">
-              ICP wallets only need Canister ID + Token ID
-            </p>
-            <RowWithCopy
-              label="Canister ID"
-              value={result.canisterId}
-              mono
-              copyable
-            />
-            <RowWithCopy
-              label="Token ID"
-              value={result.tokenId.toString()}
-              mono
-              copyable
-            />
-          </div>
-
-          {/* Copy for Wallet Import */}
-          <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Copy for Wallet Import
-            </p>
-            <RowWithCopy
-              label="Collection Import String"
-              value={result.canisterId}
-              mono
-              copyable
-            />
-            <RowWithCopy
-              label="NFT Reference"
-              value={nftReference}
-              mono
-              copyable
-            />
-          </div>
-
-          <a
-            href={explorerUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 text-xs text-primary hover:underline mt-2"
-            data-ocid="verify.explorer_link"
-          >
-            <ExternalLink className="w-4 h-4" />
-            View on ICP Explorer
-          </a>
+        <CardContent className="pt-2 pb-3 px-3">
+          <VerifyResultCard result={result} />
         </CardContent>
       </div>
     </Card>
@@ -420,9 +358,8 @@ function NotFoundState() {
 }
 
 export default function VerifyPage() {
-  const { actor: authActor } = useAuth();
-  const { actor: anonActor } = useActor(createActor);
-  const effectiveActor = authActor ?? anonActor;
+  const { actor } = useAuth();
+  const { isAdmin } = usePermissions();
 
   // Read ?id=canisterId:0:tokenId from URL search params
   const search = useSearch({ strict: false }) as Record<string, string>;
@@ -435,6 +372,9 @@ export default function VerifyPage() {
     VerifyResult[] | null | undefined
   >(undefined);
   const [creatorError, setCreatorError] = useState<string | null>(null);
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+  // All History toggle — admin-only, session-only
+  const [showAllHistory, setShowAllHistory] = useState(false);
 
   // By NFT Unique ID state
   const [nftUniqueIdInput, setNftUniqueIdInput] = useState(urlNftUniqueId);
@@ -446,11 +386,11 @@ export default function VerifyPage() {
 
   // Auto-trigger verification when ?id= is present in URL
   useEffect(() => {
-    if (!urlNftUniqueId || !effectiveActor) return;
+    if (!urlNftUniqueId || !actor) return;
     setNftLoading(true);
     setNftResult(undefined);
     setNftError(null);
-    effectiveActor
+    actor
       .verifyNftPublic(urlNftUniqueId)
       .then((res) => {
         if (res.__kind__ === "ok") {
@@ -465,12 +405,15 @@ export default function VerifyPage() {
         ),
       )
       .finally(() => setNftLoading(false));
-  }, [urlNftUniqueId, effectiveActor]);
+  }, [urlNftUniqueId, actor]);
 
-  async function handleVerifyByCreatorId(e: React.FormEvent) {
+  async function handleVerifyByCreatorId(
+    e: React.FormEvent,
+    forceHistory?: boolean,
+  ) {
     e.preventDefault();
-    if (!effectiveActor) {
-      setCreatorError("Actor unavailable. Please try again.");
+    if (!actor) {
+      setCreatorError("Please log in to verify by Creator ID.");
       return;
     }
     const trimmed = creatorId.trim();
@@ -481,8 +424,13 @@ export default function VerifyPage() {
     setCreatorLoading(true);
     setCreatorResult(undefined);
     setCreatorError(null);
+    setExpandedCardId(null);
+    const useHistory =
+      forceHistory !== undefined ? forceHistory : showAllHistory;
     try {
-      const res = await effectiveActor.verifyNftByCreatorId(trimmed);
+      const res = useHistory
+        ? await actor.verifyNftByCreatorIdWithHistory(trimmed)
+        : await actor.verifyNftByCreatorId(trimmed);
       if (res.__kind__ === "ok") {
         setCreatorResult(res.ok.length > 0 ? res.ok : null);
       } else {
@@ -499,8 +447,8 @@ export default function VerifyPage() {
 
   async function handleVerifyByNftId(e: React.FormEvent) {
     e.preventDefault();
-    if (!effectiveActor) {
-      setNftError("Actor unavailable. Please try again.");
+    if (!actor) {
+      setNftError("Please log in to verify NFTs.");
       return;
     }
     const trimmed = nftUniqueIdInput.trim();
@@ -512,7 +460,7 @@ export default function VerifyPage() {
     setNftResult(undefined);
     setNftError(null);
     try {
-      const res = await effectiveActor.verifyNftPublic(trimmed);
+      const res = await actor.verifyNftPublic(trimmed);
       if (res.__kind__ === "ok") {
         setNftResult(res.ok);
       } else {
@@ -532,7 +480,7 @@ export default function VerifyPage() {
       <div>
         <h1 className="text-xl font-bold text-foreground">Verify NFT</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Confirm authenticity of any minted NFT. No login required.
+          Confirm authenticity of any minted NFT. Log in to verify.
         </p>
       </div>
 
@@ -594,6 +542,60 @@ export default function VerifyPage() {
 
         {/* Tab 1: Verify by Creator ID */}
         <TabsContent value="creator-id" className="space-y-4 mt-4">
+          {/* All History toggle — admin only */}
+          {isAdmin && (
+            <div
+              className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2"
+              data-ocid="verify.all_history_toggle_row"
+            >
+              <div className="flex flex-col">
+                <span className="text-xs font-semibold text-foreground">
+                  Show All History
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  Include burned &amp; deleted NFTs
+                </span>
+              </div>
+              <Switch
+                checked={showAllHistory}
+                onCheckedChange={(checked) => {
+                  setShowAllHistory(checked);
+                  // Re-fetch if a creatorId was already searched
+                  if (creatorId.trim()) {
+                    setCreatorLoading(true);
+                    setCreatorResult(undefined);
+                    setCreatorError(null);
+                    setExpandedCardId(null);
+                    if (!actor) {
+                      setCreatorLoading(false);
+                      return;
+                    }
+                    const trimmed = creatorId.trim();
+                    (checked
+                      ? actor.verifyNftByCreatorIdWithHistory(trimmed)
+                      : actor.verifyNftByCreatorId(trimmed)
+                    )
+                      .then((res) => {
+                        if (res.__kind__ === "ok") {
+                          setCreatorResult(res.ok.length > 0 ? res.ok : null);
+                        } else {
+                          setCreatorResult(null);
+                        }
+                      })
+                      .catch(() =>
+                        setCreatorError(
+                          "Verification failed. Please try again.",
+                        ),
+                      )
+                      .finally(() => setCreatorLoading(false));
+                  }
+                }}
+                id="all-history-toggle"
+                aria-label="Show all NFT history including burned and deleted"
+                data-ocid="verify.all_history_toggle"
+              />
+            </div>
+          )}
           <form
             onSubmit={handleVerifyByCreatorId}
             className="space-y-3"
@@ -641,7 +643,9 @@ export default function VerifyPage() {
           {creatorResult && creatorResult.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">
-                {creatorResult.length} NFT(s) found for this Creator ID
+                {showAllHistory
+                  ? `${creatorResult.length} NFT(s) total (including burned and deleted)`
+                  : `${creatorResult.length} active NFT(s) found`}
               </p>
               {Array.from(
                 new Map(
@@ -651,6 +655,14 @@ export default function VerifyPage() {
                 <CollapsibleNftCard
                   key={r.nftUniqueId ?? r.assetHash}
                   result={r}
+                  expanded={expandedCardId === (r.nftUniqueId ?? r.assetHash)}
+                  onToggle={() =>
+                    setExpandedCardId((prev) =>
+                      prev === (r.nftUniqueId ?? r.assetHash)
+                        ? null
+                        : (r.nftUniqueId ?? r.assetHash),
+                    )
+                  }
                 />
               ))}
             </div>

@@ -11,6 +11,7 @@ import Iter "mo:core/Iter";
 import Array "mo:core/Array";
 import Debug "mo:core/Debug";
 import Char "mo:core/Char";
+import Result "mo:core/Result";
 
 module {
   public type NftStore = Map.Map<Nat, Types.Nft>;
@@ -98,6 +99,7 @@ module {
       description = sanitizedDesc;
       edition;
       mintDate = timestamp;
+      claimedAt = null;
       status = #active;
       auditHistory = [];
       collectionId;
@@ -248,6 +250,7 @@ module {
           rewardTier = nft.rewardTier;
           nftUniqueId;
           tags = nft.tags;
+          status = nft.status;
         }
       };
     }
@@ -326,6 +329,27 @@ module {
     results.toArray()
   };
 
+  public func searchNfts(store : NftStore, searchQuery : Text, canisterId : Text) : [Types.Nft] {
+    let lowerQuery = searchQuery.toLower();
+    let results = List.empty<Types.Nft>();
+    for ((_, nft) in store.entries()) {
+      if (nft.status == #active) {
+        let titleMatch = nft.title.toLower().contains(#text(lowerQuery));
+        let descMatch = nft.description.toLower().contains(#text(lowerQuery));
+        let businessMatch = switch (nft.businessName) {
+          case (null) { false };
+          case (?name) { name.toLower().contains(#text(lowerQuery)) };
+        };
+        let tagMatch = nft.tags.find(func(t) = t.toLower().contains(#text(lowerQuery))) != null;
+        if (titleMatch or descMatch or businessMatch or tagMatch) {
+          let nftUniqueId = canisterId # ":0:" # nft.id.toText();
+          results.add({ nft with nftUniqueId });
+        };
+      };
+    };
+    results.toArray()
+  };
+
   public func countCollectionsByOwner(store : CollectionStore, ownerId : Principal) : Nat {
     var count = 0;
     for ((_, col) in store.entries()) {
@@ -349,6 +373,82 @@ module {
       };
     };
     count
+  };
+
+  public func addNftToCollection(store : NftStore, collectionStore : CollectionStore, nftId : Nat, collectionId : Nat, caller : Principal) : Result.Result<(), Text> {
+    switch (store.get(nftId)) {
+      case (null) { #err("NFT not found") };
+      case (?nft) {
+        if (not Principal.equal(nft.ownerId, caller)) {
+          return #err("Unauthorized: Not the NFT owner");
+        };
+        switch (collectionStore.get(collectionId)) {
+          case (null) { #err("Collection not found") };
+          case (?col) {
+            if (not Principal.equal(col.ownerId, caller)) {
+              return #err("Unauthorized: Not the collection owner");
+            };
+            let nftCount = countNftsInCollection(store, collectionId);
+            if (nftCount >= col.maxSize) {
+              return #err("Collection is full");
+            };
+            // Update NFT's collectionId
+            let updatedNft = { nft with collectionId = ?collectionId };
+            store.add(nftId, updatedNft);
+            // Update collection's nftIds list
+            let nftIdList = List.empty<Nat>();
+            for (id in col.nftIds.vals()) {
+              if (id != nftId) { nftIdList.add(id) };
+            };
+            nftIdList.add(nftId);
+            // Set preview image from first NFT's asset if empty
+            let newPreviewImage = switch (col.previewImage) {
+              case (null) { ?nft.assetHash };
+              case (?_) { col.previewImage };
+            };
+            let updatedCol = {
+              col with
+              nftIds = nftIdList.toArray();
+              previewImage = newPreviewImage;
+            };
+            collectionStore.add(collectionId, updatedCol);
+            #ok()
+          };
+        };
+      };
+    }
+  };
+
+  public func removeNftFromCollection(store : NftStore, collectionStore : CollectionStore, nftId : Nat, collectionId : Nat, caller : Principal) : Result.Result<(), Text> {
+    switch (store.get(nftId)) {
+      case (null) { #err("NFT not found") };
+      case (?nft) {
+        if (not Principal.equal(nft.ownerId, caller)) {
+          return #err("Unauthorized: Not the NFT owner");
+        };
+        switch (collectionStore.get(collectionId)) {
+          case (null) { #err("Collection not found") };
+          case (?col) {
+            if (not Principal.equal(col.ownerId, caller)) {
+              return #err("Unauthorized: Not the collection owner");
+            };
+            // Update NFT's collectionId to null
+            let updatedNft = { nft with collectionId = null };
+            store.add(nftId, updatedNft);
+            // Update collection's nftIds list
+            let nftIdList = List.empty<Nat>();
+            for (id in col.nftIds.vals()) {
+              if (id != nftId) { nftIdList.add(id) };
+            };
+            let updatedCol = {
+              col with nftIds = nftIdList.toArray()
+            };
+            collectionStore.add(collectionId, updatedCol);
+            #ok()
+          };
+        };
+      };
+    }
   };
 
   public func transferNft(store : NftStore, id : Nat, newOwnerId : Principal, caller : Principal, timestamp : Common.Timestamp) : ?Types.Nft {

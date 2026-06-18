@@ -9,7 +9,7 @@ module {
     #creator;
     #pro;
     #org;
-    #admin;
+    // #admin removed — role is separate from tier
   };
 
   public type AlertType = {

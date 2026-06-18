@@ -26,6 +26,7 @@ type VerifyResult =
    nftUniqueId: text;
    owner: principal;
    rewardTier: RewardTier;
+   status: NftStatus;
    tags: vec text;
    tokenId: nat;
    website: opt text;
@@ -49,6 +50,10 @@ type UserProfile =
    maxSlots: nat;
    oisyWalletAddress: opt text;
    principalId: principal;
+   role: variant {
+           admin;
+           creator;
+         };
    stripeProductId: opt text;
    subscriptionTier: SubscriptionTier;
  };
@@ -70,7 +75,6 @@ type TransferResult =
 type Timestamp = nat;
 type SubscriptionTier = 
  variant {
-   admin;
    creator;
    free;
    org;
@@ -84,15 +88,25 @@ type RewardTier =
    platinum;
    silver;
  };
-type Result_6 = 
+type Result_8 = 
  variant {
    err: Error;
    ok;
  };
-type Result_5 = 
+type Result_7 = 
  variant {
    err: text;
    ok: nat;
+ };
+type Result_6 = 
+ variant {
+   err: text;
+   ok: Nft;
+ };
+type Result_5 = 
+ variant {
+   err: text;
+   ok: ClaimStatus;
  };
 type Result_4 = 
  variant {
@@ -124,6 +138,11 @@ type Result =
    err: text;
    ok: VerifyResult;
  };
+type RenameCollectionRequest = 
+ record {
+   collectionId: CollectionId;
+   newName: text;
+ };
 type PaymentProofStatus = 
  variant {
    approved;
@@ -154,6 +173,7 @@ type Nft =
    assetHash: text;
    auditHistory: vec AuditEntry;
    businessName: opt text;
+   claimedAt: opt nat;
    collectionId: opt nat;
    creatorId: CreatorId;
    description: text;
@@ -203,9 +223,19 @@ type CollectionWithCount =
    maxSize: nat;
    name: text;
    nftCount: nat;
+   nftIds: vec nat;
    ownerId: principal;
+   previewImage: opt text;
    tier: SubscriptionTier;
  };
+type CollectionSummary = 
+ record {
+   id: CollectionId;
+   name: text;
+   nftCount: nat;
+   ownerId: principal;
+ };
+type CollectionId = nat;
 type Collection = 
  record {
    createdAt: Timestamp;
@@ -213,8 +243,24 @@ type Collection =
    id: nat;
    maxSize: nat;
    name: text;
+   nftIds: vec nat;
    ownerId: principal;
+   previewImage: opt text;
    tier: SubscriptionTier;
+ };
+type ClaimToken = 
+ record {
+   createdAt: int;
+   nftId: nat;
+   token: text;
+   usedAt: opt int;
+   usedBy: opt principal;
+ };
+type ClaimStatus = 
+ record {
+   claimed: bool;
+   claimedBy: opt principal;
+   token: text;
  };
 type AuditEntry = 
  record {
@@ -233,6 +279,11 @@ type AlertType =
 service : {
   __accessControlState: () -> (reserved) query;
   __adminPrincipal: () -> (opt principal) query;
+  __claimTokenStore: (ko: opt text, count: opt nat) ->
+   (vec record {
+          text;
+          ClaimToken;
+        }) query;
   __collectionStore: (ko: opt nat, count: opt nat) ->
    (vec record {
           nat;
@@ -248,6 +299,11 @@ service : {
                                                       nat;
                                                       Nft;
                                                     }) query;
+  __nftToClaimToken: (ko: opt nat, count: opt nat) ->
+   (vec record {
+          nat;
+          text;
+        }) query;
   __paymentProofStore: (ko: opt text, count: opt nat) ->
    (vec record {
           text;
@@ -272,25 +328,42 @@ service : {
    (_ImmutableObjectStorageRefillResult);
   _immutableObjectStorageUpdateGatewayPrincipals: () -> ();
   _initialize_access_control: () -> ();
-  _internet_identity_sign_in_finish: () -> (Result_6);
+  _internet_identity_sign_in_finish: () -> (Result_8);
   _internet_identity_sign_in_start: () -> (blob);
+  addNftToCollection: (nftId: nat, collectionId: nat) -> (Result_2);
   approvePaymentProof: (proofId: text) -> (Result_3);
   assignCallerUserRole: (user: principal, role: UserRole) -> ();
   burnNft: (id: nat) -> (Result_2);
+  claimAdmin: () -> (bool);
+  claimNft: (token: text) -> (Result_6);
   createCheckoutSession: (_items: vec record {
                                         name: text;
                                         price: nat;
                                       }, _successUrl: text, _cancelUrl:
    text) -> (text);
-  createCollection: (name: text, description: text) -> (Result_5);
+  createCollection: (name: text, description: text) -> (Result_7);
+  createSlot: () -> (Result_7);
+  debugAdminState: () ->
+   (record {
+      accessControlIsAdmin: bool;
+      adminPrincipalMatchesCaller: bool;
+      adminPrincipalValue: opt text;
+      caller: text;
+    }) query;
   deleteCollection: (id: nat) -> ();
+  deleteCollectionAndUnassignNfts: (collectionId: CollectionId) ->
+   (CollectionSummary);
   deleteNft: (id: nat) -> (Result_2);
+  forceResyncAdmin: () -> ();
+  generateClaimLink: (nftId: nat) -> (Result_3);
   getAdminPrincipal: () -> (opt principal) query;
   getCallerProfile: () -> (UserProfile) query;
   getCallerUserRole: () -> (UserRole) query;
   getCanisterId: () -> (text) query;
+  getClaimPreview: (token: text) -> (Result_6) query;
+  getClaimStatus: (nftId: nat) -> (Result_5) query;
   getCollection: (id: nat) -> (opt Collection) query;
-  getCollectionId: () -> (opt nat) query;
+  getCollectionIdByName: (name: text) -> (opt CollectionId) query;
   getCreditsStatus: () ->
    (record {
       remaining: nat;
@@ -310,6 +383,7 @@ service : {
                             mode: text;
                           }) query;
   getTotalMinted: () -> (nat) query;
+  hasAdmin: () -> (bool) query;
   isAdmin: () -> (bool) query;
   isCallerAdmin: () -> (bool) query;
   isStripeConfigured: () -> (bool) query;
@@ -322,7 +396,10 @@ service : {
    opt text, website: opt text, discountCode: opt text, membershipId:
    opt text) -> (Result_4);
   rejectPaymentProof: (proofId: text, reason: text) -> (Result_3);
+  removeNftFromCollection: (nftId: nat, collectionId: nat) -> (Result_2);
+  renameCollection: (request: RenameCollectionRequest) -> (CollectionSummary);
   saveCallerProfile: (profile: UserProfile) -> ();
+  searchNfts: (searchTerm: text) -> (vec Nft) query;
   sendVerificationEmail: (email: text) -> ();
   setEmail: (email: text) -> ();
   setEmailAlerts: (alerts: vec AlertType) -> ();
@@ -336,5 +413,6 @@ service : {
   updateBusinessMetadata: (id: nat, updates: UpdateMetadataRequest) ->
    (Result_2);
   verifyNftByCreatorId: (creatorId: text) -> (Result_1) query;
+  verifyNftByCreatorIdWithHistory: (creatorId: text) -> (Result_1) query;
   verifyNftPublic: (nftUniqueId: text) -> (Result) query;
 }
