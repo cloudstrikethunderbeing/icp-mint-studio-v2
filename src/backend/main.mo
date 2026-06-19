@@ -55,14 +55,14 @@ actor Main {
   let nftToClaimToken : ClaimLinkLib.NftToClaimStore;
 
 
-  include ClaimLinkMixin(adminPrincipal, nftStore, claimTokenStore, nftToClaimToken, globalAuditLog, userStore);
+  include ClaimLinkMixin(accessControlState, nftStore, claimTokenStore, nftToClaimToken, globalAuditLog, userStore);
   include MixinAuthorization(accessControlState, null);
   include MixinObjectStorage();
 
   include MixinViews();
 
   include NftMixin(accessControlState, nftStore, collectionStore, nextNftId, nextCollectionId, rateLimitStore, userStore, selfCanisterId, creatorIndex, claimTokenStore, nftToClaimToken, adminPrincipal);
-  include UserMixin(accessControlState, userStore, nftStore, globalAuditLog, selfCanisterId);
+  include UserMixin(accessControlState, userStore, nftStore, globalAuditLog, selfCanisterId, { var value = adminPrincipal });
   include PaymentProofMixin(accessControlState, paymentProofStore, userStore, globalAuditLog, adminPrincipal);
   include StripeMixin(accessControlState, stripeConfigStore, globalAuditLog);
   include CollectionMixin(accessControlState, collectionStore, nftStore);

@@ -1,7 +1,7 @@
-import { d as createLucideIcon, r as reactExports, e as useComposedRefs, j as jsxRuntimeExports, R as ReactDOM, X, g as cn, s as usePermissions, C as useNftDetailQuery, D as useUpdateMetadata, i as useCollections, o as useAddNftToCollection, m as useRemoveNftFromCollection, y as useGenerateClaimLink, F as useGetClaimStatus, B as Button, L as LoaderCircle, A as ue } from "./main-DYtxSk3m.js";
-import { u as useCallbackRef$1, b as Primitive, c as composeEventHandlers, d as dispatchDiscreteCustomEvent, h as useLayoutEffect2, f as useControllableState, g as useId, P as Presence, a as createContextScope, e as createSlot, i as createContext2, E as ExternalLink } from "./index-BWIET021.js";
-import { I as Input } from "./input-CSvdAEmI.js";
-import { C as Check, a as Copy, L as Label } from "./label-BClErHj4.js";
+import { e as createLucideIcon, r as reactExports, f as useComposedRefs, j as jsxRuntimeExports, R as ReactDOM, X, h as cn, t as usePermissions, C as useNftDetailQuery, D as useUpdateMetadata, k as useCollections, p as useAddNftToCollection, n as useRemoveNftFromCollection, y as useGenerateClaimLink, F as useGetClaimStatus, B as Button, L as LoaderCircle, A as ue } from "./main-NqEFbe9E.js";
+import { u as useCallbackRef$1, b as Primitive, c as composeEventHandlers, d as dispatchDiscreteCustomEvent, h as useLayoutEffect2, f as useControllableState, g as useId, P as Presence, a as createContextScope, e as createSlot, i as createContext2, E as ExternalLink } from "./index-Dg0dg0_-.js";
+import { I as Input } from "./input-BVzQQ5xW.js";
+import { C as Check, a as Copy, L as Label } from "./label-f3K4DGEC.js";
 /**
  * @license lucide-react v0.511.0 - ISC
  *
@@ -1737,7 +1737,8 @@ function NftDetailModal({
   callerPrincipal,
   canisterId: _canisterId,
   nftUniqueId: _nftUniqueId,
-  readOnly = false
+  readOnly = false,
+  imageUrl: imageUrlProp
 }) {
   var _a;
   const [showDeleteConfirm, setShowDeleteConfirm] = reactExports.useState(false);
@@ -1796,6 +1797,7 @@ function NftDetailModal({
     !readOnly && !!nft && !!nft.id
   );
   const imgUrl = reactExports.useMemo(() => {
+    if (imageUrlProp) return imageUrlProp;
     if (!(nft == null ? void 0 : nft.imageBlob) || typeof nft.imageBlob.getDirectURL !== "function")
       return "";
     try {
@@ -1803,19 +1805,20 @@ function NftDetailModal({
     } catch {
       return "";
     }
-  }, [nft == null ? void 0 : nft.imageBlob]);
+  }, [imageUrlProp, nft == null ? void 0 : nft.imageBlob]);
   const mintDate = reactExports.useMemo(() => {
-    if (!(nft == null ? void 0 : nft.mintDate) || nft.mintDate === 0n) return "Unknown (legacy record)";
-    const ts = Number(nft.mintDate);
+    const rawMint = (verifyResult == null ? void 0 : verifyResult.mintDate) ?? (nft == null ? void 0 : nft.mintDate);
+    if (!rawMint || rawMint === 0n) return "Unknown (legacy record)";
+    const ts = Number(rawMint);
     if (!Number.isFinite(ts) || ts <= 0) return "Unknown (legacy record)";
     try {
       return new Date(ts / 1e6).toLocaleString();
     } catch {
       return "Unknown (legacy record)";
     }
-  }, [nft == null ? void 0 : nft.mintDate]);
+  }, [nft == null ? void 0 : nft.mintDate, verifyResult]);
   const claimedDate = reactExports.useMemo(() => {
-    const raw = nft == null ? void 0 : nft.claimedAt;
+    const raw = (verifyResult == null ? void 0 : verifyResult.claimedAt) ?? (nft == null ? void 0 : nft.claimedAt);
     if (!raw) return null;
     let val = null;
     if (Array.isArray(raw)) {
@@ -1831,7 +1834,7 @@ function NftDetailModal({
     } catch {
       return null;
     }
-  }, [nft]);
+  }, [nft, verifyResult]);
   if (!nft) return null;
   if (renderError) {
     return /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -2004,7 +2007,14 @@ function NftDetailModal({
                     })()
                   }
                 ),
-                /* @__PURE__ */ jsxRuntimeExports.jsx(MetaRow, { label: "Creator ID", value: nft.creatorId, mono: true }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  MetaRow,
+                  {
+                    label: "Creator ID",
+                    value: (verifyResult == null ? void 0 : verifyResult.creatorId) ?? nft.creatorId,
+                    mono: true
+                  }
+                ),
                 (verifyResult == null ? void 0 : verifyResult.canisterId) && /* @__PURE__ */ jsxRuntimeExports.jsx(
                   MetaRow,
                   {

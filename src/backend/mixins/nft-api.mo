@@ -92,6 +92,17 @@ mixin (
     if (caller.isAnonymous()) {
       return #err({ message = "Must be authenticated to mint" });
     };
+    // EARLY AUTO-REGISTRATION: ensure user exists before any operation
+    // This prevents any "User is not registered" traps from downstream code
+    let _earlyProfile = switch (UserLib.getProfile(userStore, caller)) {
+      case (?p) { p };
+      case (null) {
+        let creatorId = NftLib.generateCreatorId(caller);
+        let timestamp = Int.abs(Time.now());
+        UserLib.createProfile(userStore, caller, creatorId, timestamp)
+      };
+    };
+
     switch (checkRateLimit(caller)) {
       case (#err(msg)) { return #err({ message = msg }) };
       case (#ok) {};

@@ -1,15 +1,8 @@
-import {
-  type AuditEntry,
-  ExternalBlob,
-  type Nft,
-  type NftStatus,
-  type RewardTier,
-} from "@/backend";
 import { NftDetailModal } from "@/components/NftDetailModal";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import type { Principal } from "@icp-sdk/core/principal";
+import { useNftDetailQuery } from "@/hooks/useQueries";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { CheckCircle2, Sparkles, Wallet } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -48,37 +41,40 @@ export default function PostClaimPage() {
     }
   }, [claimedNft, navigate]);
 
-  // Build a minimal Nft object from the snapshot so NftDetailModal can render
+  // Fetch fresh canonical NFT data from backend using the nftUniqueId
+  const { data: freshNftResult } = useNftDetailQuery(claimedNft?.nftUniqueId);
+
+  // Build a minimal Nft object from the snapshot for the modal prop shape.
+  // Prefer fresh verifyResult data when available; fall back to snapshot only
+  // for fields the backend hasn't returned yet.
   const minimalNft = useMemo(() => {
     if (!claimedNft) return null;
-    const mockPrincipal = {
-      toString: () => claimedNft.nftUniqueId?.split(":")[2] ?? "",
-      toText: () => claimedNft.nftUniqueId?.split(":")[2] ?? "",
-    };
+    const fresh = freshNftResult ?? null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const build = fresh as any;
     return {
-      id: BigInt(claimedNft.id ?? 0),
-      title: claimedNft.title,
-      edition: claimedNft.edition,
+      id: build?.id ?? BigInt(claimedNft.id ?? 0),
+      title: build?.title ?? claimedNft.title,
+      edition: build?.edition ?? claimedNft.edition,
       nftUniqueId: claimedNft.nftUniqueId,
-      imageBlob: ExternalBlob.fromURL(
-        claimedNft.imageUrl ?? "",
-      ) as ExternalBlob,
-      ownerId: mockPrincipal as unknown as Principal,
-      creatorId: claimedNft.nftUniqueId?.split(":")[2] ?? "",
-      mintDate: 0n,
-      description: "",
-      businessName: "",
-      website: "",
-      discountCode: "",
-      membershipId: "",
-      rewardTier: "none" as RewardTier,
-      status: "active" as NftStatus,
-      auditHistory: [] as AuditEntry[],
-      assetHash: "",
-      tags: [],
-      collectionId: undefined,
-    } as unknown as Nft;
-  }, [claimedNft]);
+      imageBlob: build?.imageBlob ?? null,
+      ownerId: build?.ownerId ?? null,
+      creatorId: build?.creatorId ?? "",
+      mintDate: build?.mintDate ?? 0n,
+      description: build?.description ?? "",
+      businessName: build?.businessName ?? "",
+      website: build?.website ?? "",
+      discountCode: build?.discountCode ?? "",
+      membershipId: build?.membershipId ?? "",
+      rewardTier: build?.rewardTier ?? "none",
+      status: build?.status ?? "active",
+      auditHistory: build?.auditHistory ?? [],
+      assetHash: build?.assetHash ?? "",
+      tags: build?.tags ?? [],
+      collectionId: build?.collectionId ?? undefined,
+      claimedAt: build?.claimedAt ?? undefined,
+    };
+  }, [claimedNft, freshNftResult]);
 
   if (!claimedNft) return null;
 
@@ -104,6 +100,7 @@ export default function PostClaimPage() {
           callerPrincipal={claimedNft.nftUniqueId?.split(":")[2] ?? ""}
           canisterId={claimedNft.nftUniqueId?.split(":")[0] ?? ""}
           nftUniqueId={claimedNft.nftUniqueId}
+          imageUrl={imageUrl}
           readOnly={true}
         />
       )}

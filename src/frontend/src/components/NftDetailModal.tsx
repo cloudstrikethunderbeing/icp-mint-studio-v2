@@ -63,6 +63,8 @@ interface NftDetailModalProps {
   isBurning?: boolean;
   /** When true, suppresses all write actions (collection assign, delete, burn, edit). Collector-only view. */
   readOnly?: boolean;
+  /** Optional direct image URL string. Used as fallback when imageBlob is not available (e.g. claimed NFTs). */
+  imageUrl?: string;
 }
 
 export function NftDetailModal({
@@ -77,6 +79,7 @@ export function NftDetailModal({
   canisterId: _canisterId,
   nftUniqueId: _nftUniqueId,
   readOnly = false,
+  imageUrl: imageUrlProp,
 }: NftDetailModalProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showBurnStep1, setShowBurnStep1] = useState(false);
@@ -158,6 +161,8 @@ export function NftDetailModal({
     );
 
   const imgUrl = useMemo(() => {
+    // Prefer direct imageUrl string prop (used for claimed NFTs where imageBlob is not available)
+    if (imageUrlProp) return imageUrlProp;
     if (!nft?.imageBlob || typeof nft.imageBlob.getDirectURL !== "function")
       return "";
     try {
@@ -165,24 +170,30 @@ export function NftDetailModal({
     } catch {
       return "";
     }
-  }, [nft?.imageBlob]);
+  }, [imageUrlProp, nft?.imageBlob]);
 
   const mintDate = useMemo(() => {
-    if (!nft?.mintDate || nft.mintDate === 0n) return "Unknown (legacy record)";
-    const ts = Number(nft.mintDate);
+    // Prefer fresh verifyResult data over stale nft prop
+    const rawMint =
+      (verifyResult as unknown as { mintDate?: bigint })?.mintDate ??
+      nft?.mintDate;
+    if (!rawMint || rawMint === 0n) return "Unknown (legacy record)";
+    const ts = Number(rawMint);
     if (!Number.isFinite(ts) || ts <= 0) return "Unknown (legacy record)";
     try {
       return new Date(ts / 1_000_000).toLocaleString();
     } catch {
       return "Unknown (legacy record)";
     }
-  }, [nft?.mintDate]);
+  }, [nft?.mintDate, verifyResult]);
 
   const claimedDate = useMemo(() => {
-    // claimedAt may come as Motoko optional: [] | [bigint], or as bigint | null | undefined
-    const raw = (
-      nft as unknown as { claimedAt?: [] | [bigint] | bigint | null }
-    )?.claimedAt;
+    // Prefer fresh verifyResult data over stale nft prop
+    const raw =
+      (verifyResult as unknown as { claimedAt?: [] | [bigint] | bigint | null })
+        ?.claimedAt ??
+      (nft as unknown as { claimedAt?: [] | [bigint] | bigint | null })
+        ?.claimedAt;
     if (!raw) return null;
     // Handle Motoko optional array form: [] | [bigint]
     let val: bigint | null = null;
@@ -199,7 +210,7 @@ export function NftDetailModal({
     } catch {
       return null;
     }
-  }, [nft]);
+  }, [nft, verifyResult]);
 
   if (!nft) return null;
 
@@ -396,7 +407,14 @@ export function NftDetailModal({
                 return raw.toString();
               })()}
             />
-            <MetaRow label="Creator ID" value={nft.creatorId} mono />
+            <MetaRow
+              label="Creator ID"
+              value={
+                (verifyResult as unknown as { creatorId?: string })
+                  ?.creatorId ?? nft.creatorId
+              }
+              mono
+            />
             {verifyResult?.canisterId && (
               <MetaRow
                 label="Canister ID"

@@ -1,8 +1,8 @@
-import { a as useAuth, t as useQueryClient, c as useQuery, G as useMyNfts, r as reactExports, z as useMutation, j as jsxRuntimeExports, s as usePermissions } from "./main-DYtxSk3m.js";
-import { C as Check, a as Copy, L as Label } from "./label-BClErHj4.js";
-import { S as Skeleton } from "./skeleton-DGeeSp5P.js";
-import { B as BrandedAuthGate } from "./BrandedAuthGate-BlzQ5XVW.js";
-import { W as Wallet } from "./wallet-B5Xvbipf.js";
+import { a as useAuth, c as useQueryClient, d as useQuery, G as useMyNfts, r as reactExports, z as useMutation, j as jsxRuntimeExports, t as usePermissions } from "./main-NqEFbe9E.js";
+import { C as Check, a as Copy, L as Label } from "./label-f3K4DGEC.js";
+import { S as Skeleton } from "./skeleton-D7SF3OWg.js";
+import { B as BrandedAuthGate } from "./BrandedAuthGate-B-QVzGYi.js";
+import { W as Wallet } from "./wallet-BfFaXwWy.js";
 function truncatePrincipal(pid) {
   if (pid.length <= 16) return pid;
   return `${pid.slice(0, 8)}...${pid.slice(-8)}`;

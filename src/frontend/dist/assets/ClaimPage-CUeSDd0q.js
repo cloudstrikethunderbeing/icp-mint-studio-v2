@@ -1,10 +1,10 @@
-import { u as useParams, a as useAuth, b as useNavigate, r as reactExports, c as useQuery, j as jsxRuntimeExports, S as Sparkles, B as Button, L as LoaderCircle } from "./main-DYtxSk3m.js";
-import { B as Badge } from "./badge-MPBrSfN9.js";
-import { S as Skeleton } from "./skeleton-DGeeSp5P.js";
-import { S as ShieldCheck } from "./shield-check-CQ7GfN61.js";
-import { L as Lock } from "./lock-D8i3dnPr.js";
-import { C as CircleCheck } from "./circle-check-BIfkbAZu.js";
-import { C as CircleAlert } from "./circle-alert-MdoSbF2f.js";
+import { u as useParams, a as useAuth, b as useNavigate, c as useQueryClient, r as reactExports, d as useQuery, j as jsxRuntimeExports, S as Sparkles, B as Button, L as LoaderCircle } from "./main-NqEFbe9E.js";
+import { B as Badge } from "./badge-A9IkWYww.js";
+import { S as Skeleton } from "./skeleton-D7SF3OWg.js";
+import { S as ShieldCheck } from "./shield-check-Cmq__vzM.js";
+import { L as Lock } from "./lock-CX1k1n-g.js";
+import { C as CircleCheck } from "./circle-check-Dd7rUHV7.js";
+import { C as CircleAlert } from "./circle-alert-L8_hEgMV.js";
 function ClaimSkeleton() {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex flex-col items-center gap-5 w-full max-w-sm", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(Skeleton, { className: "w-full aspect-square rounded-2xl" }),
@@ -47,6 +47,7 @@ function ClaimPage() {
   const { claimToken } = useParams({ strict: false });
   const { isAuthenticated, login, principal, actor, isFetching } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [isClaiming, setIsClaiming] = reactExports.useState(false);
   const [claimError, setClaimError] = reactExports.useState(null);
   const {
@@ -73,16 +74,24 @@ function ClaimPage() {
     try {
       const result = await actor.claimNft(claimToken);
       if (result.__kind__ === "ok") {
+        const nftUniqueId = result.ok.nftUniqueId;
         sessionStorage.setItem(
           `claim_success_${claimToken}`,
           JSON.stringify({
             id: (_a = result.ok.id) == null ? void 0 : _a.toString(),
             title: result.ok.title,
             edition: result.ok.edition,
-            nftUniqueId: result.ok.nftUniqueId,
+            nftUniqueId,
             imageUrl: ((_c = (_b = result.ok.imageBlob) == null ? void 0 : _b.getDirectURL) == null ? void 0 : _c.call(_b)) ?? ""
           })
         );
+        await queryClient.invalidateQueries({
+          queryKey: ["nftDetail", nftUniqueId]
+        });
+        await queryClient.refetchQueries({
+          queryKey: ["nftDetail", nftUniqueId],
+          exact: true
+        });
         navigate({
           to: "/claim/$claimToken/success",
           params: { claimToken }

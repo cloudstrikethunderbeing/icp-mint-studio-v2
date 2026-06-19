@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import {
   AlertCircle,
@@ -67,6 +67,7 @@ export default function ClaimPage() {
   const { isAuthenticated, login, principal, actor, isFetching } = useAuth();
   const navigate = useNavigate();
 
+  const queryClient = useQueryClient();
   const [isClaiming, setIsClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
 
@@ -99,16 +100,26 @@ export default function ClaimPage() {
     try {
       const result = await actor.claimNft(claimToken);
       if (result.__kind__ === "ok") {
+        const nftUniqueId = result.ok.nftUniqueId;
+        // Store minimal snapshot for navigation guard only
         sessionStorage.setItem(
           `claim_success_${claimToken}`,
           JSON.stringify({
             id: result.ok.id?.toString(),
             title: result.ok.title,
             edition: result.ok.edition,
-            nftUniqueId: result.ok.nftUniqueId,
+            nftUniqueId,
             imageUrl: result.ok.imageBlob?.getDirectURL?.() ?? "",
           }),
         );
+        // Force fresh metadata fetch before showing success page
+        await queryClient.invalidateQueries({
+          queryKey: ["nftDetail", nftUniqueId],
+        });
+        await queryClient.refetchQueries({
+          queryKey: ["nftDetail", nftUniqueId],
+          exact: true,
+        });
         navigate({
           to: "/claim/$claimToken/success",
           params: { claimToken },

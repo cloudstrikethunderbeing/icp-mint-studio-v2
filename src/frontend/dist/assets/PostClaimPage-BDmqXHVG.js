@@ -1,12 +1,12 @@
-import { r as reactExports, j as jsxRuntimeExports, g as cn, b as useNavigate, u as useParams, E as ExternalBlob, S as Sparkles } from "./main-DYtxSk3m.js";
-import { N as NftDetailModal } from "./NftDetailModal-0GnpvB7N.js";
-import { B as Badge } from "./badge-MPBrSfN9.js";
-import { C as Card, a as CardContent } from "./card-CFPt30Ot.js";
-import { P as Primitive } from "./label-BClErHj4.js";
-import { C as CircleCheck } from "./circle-check-BIfkbAZu.js";
-import { W as Wallet } from "./wallet-B5Xvbipf.js";
-import "./index-BWIET021.js";
-import "./input-CSvdAEmI.js";
+import { r as reactExports, j as jsxRuntimeExports, h as cn, b as useNavigate, u as useParams, C as useNftDetailQuery, S as Sparkles } from "./main-NqEFbe9E.js";
+import { N as NftDetailModal } from "./NftDetailModal-BJeV6AD5.js";
+import { B as Badge } from "./badge-A9IkWYww.js";
+import { C as Card, a as CardContent } from "./card-B3HPdjMS.js";
+import { P as Primitive } from "./label-f3K4DGEC.js";
+import { C as CircleCheck } from "./circle-check-Dd7rUHV7.js";
+import { W as Wallet } from "./wallet-BfFaXwWy.js";
+import "./index-Dg0dg0_-.js";
+import "./input-BVzQQ5xW.js";
 var NAME = "Separator";
 var DEFAULT_ORIENTATION = "horizontal";
 var ORIENTATIONS = ["horizontal", "vertical"];
@@ -70,43 +70,34 @@ function PostClaimPage() {
       navigate({ to: "/collector" });
     }
   }, [claimedNft, navigate]);
+  const { data: freshNftResult } = useNftDetailQuery(claimedNft == null ? void 0 : claimedNft.nftUniqueId);
   const minimalNft = reactExports.useMemo(() => {
-    var _a2;
     if (!claimedNft) return null;
-    const mockPrincipal = {
-      toString: () => {
-        var _a3;
-        return ((_a3 = claimedNft.nftUniqueId) == null ? void 0 : _a3.split(":")[2]) ?? "";
-      },
-      toText: () => {
-        var _a3;
-        return ((_a3 = claimedNft.nftUniqueId) == null ? void 0 : _a3.split(":")[2]) ?? "";
-      }
-    };
+    const fresh = freshNftResult ?? null;
+    const build = fresh;
     return {
-      id: BigInt(claimedNft.id ?? 0),
-      title: claimedNft.title,
-      edition: claimedNft.edition,
+      id: (build == null ? void 0 : build.id) ?? BigInt(claimedNft.id ?? 0),
+      title: (build == null ? void 0 : build.title) ?? claimedNft.title,
+      edition: (build == null ? void 0 : build.edition) ?? claimedNft.edition,
       nftUniqueId: claimedNft.nftUniqueId,
-      imageBlob: ExternalBlob.fromURL(
-        claimedNft.imageUrl ?? ""
-      ),
-      ownerId: mockPrincipal,
-      creatorId: ((_a2 = claimedNft.nftUniqueId) == null ? void 0 : _a2.split(":")[2]) ?? "",
-      mintDate: 0n,
-      description: "",
-      businessName: "",
-      website: "",
-      discountCode: "",
-      membershipId: "",
-      rewardTier: "none",
-      status: "active",
-      auditHistory: [],
-      assetHash: "",
-      tags: [],
-      collectionId: void 0
+      imageBlob: (build == null ? void 0 : build.imageBlob) ?? null,
+      ownerId: (build == null ? void 0 : build.ownerId) ?? null,
+      creatorId: (build == null ? void 0 : build.creatorId) ?? "",
+      mintDate: (build == null ? void 0 : build.mintDate) ?? 0n,
+      description: (build == null ? void 0 : build.description) ?? "",
+      businessName: (build == null ? void 0 : build.businessName) ?? "",
+      website: (build == null ? void 0 : build.website) ?? "",
+      discountCode: (build == null ? void 0 : build.discountCode) ?? "",
+      membershipId: (build == null ? void 0 : build.membershipId) ?? "",
+      rewardTier: (build == null ? void 0 : build.rewardTier) ?? "none",
+      status: (build == null ? void 0 : build.status) ?? "active",
+      auditHistory: (build == null ? void 0 : build.auditHistory) ?? [],
+      assetHash: (build == null ? void 0 : build.assetHash) ?? "",
+      tags: (build == null ? void 0 : build.tags) ?? [],
+      collectionId: (build == null ? void 0 : build.collectionId) ?? void 0,
+      claimedAt: (build == null ? void 0 : build.claimedAt) ?? void 0
     };
-  }, [claimedNft]);
+  }, [claimedNft, freshNftResult]);
   if (!claimedNft) return null;
   const imageUrl = claimedNft.imageUrl ?? "";
   function handleViewNft() {
@@ -129,6 +120,7 @@ function PostClaimPage() {
         callerPrincipal: ((_a = claimedNft.nftUniqueId) == null ? void 0 : _a.split(":")[2]) ?? "",
         canisterId: ((_b = claimedNft.nftUniqueId) == null ? void 0 : _b.split(":")[0]) ?? "",
         nftUniqueId: claimedNft.nftUniqueId,
+        imageUrl,
         readOnly: true
       }
     ),

@@ -357,7 +357,7 @@ service : {
   forceResyncAdmin: () -> ();
   generateClaimLink: (nftId: nat) -> (Result_3);
   getAdminPrincipal: () -> (opt principal) query;
-  getCallerProfile: () -> (UserProfile) query;
+  getCallerProfile: () -> (UserProfile);
   getCallerUserRole: () -> (UserRole) query;
   getCanisterId: () -> (text) query;
   getClaimPreview: (token: text) -> (Result_6) query;

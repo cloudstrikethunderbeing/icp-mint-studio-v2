@@ -1,4 +1,4 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/ClaimPage-CaWvGhse.js","assets/badge-MPBrSfN9.js","assets/skeleton-DGeeSp5P.js","assets/shield-check-CQ7GfN61.js","assets/lock-D8i3dnPr.js","assets/circle-check-BIfkbAZu.js","assets/circle-alert-MdoSbF2f.js","assets/CollectorPage-BRtyxiEz.js","assets/NftDetailModal-0GnpvB7N.js","assets/index-BWIET021.js","assets/input-CSvdAEmI.js","assets/label-BClErHj4.js","assets/card-CFPt30Ot.js","assets/index-C9ylDg-p.js","assets/index-bsc3wu71.js","assets/index-DOjSIqtd.js","assets/BrandedAuthGate-BlzQ5XVW.js","assets/layers-DymXxuGw.js","assets/wallet-B5Xvbipf.js","assets/HomePage-CgjSM_UK.js","assets/index-BRhJF3Xp.js","assets/PostClaimPage-CTIcE5ky.js","assets/ProfilePage-28vw7vD8.js","assets/SettingsPage-DJ88Hu3e.js","assets/fingerprint-BEBGH-Qz.js","assets/VerifyPage-HARO9ZU0.js"])))=>i.map(i=>d[i]);
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/ClaimPage-CUeSDd0q.js","assets/badge-A9IkWYww.js","assets/skeleton-D7SF3OWg.js","assets/shield-check-Cmq__vzM.js","assets/lock-CX1k1n-g.js","assets/circle-check-Dd7rUHV7.js","assets/circle-alert-L8_hEgMV.js","assets/CollectorPage-gXZ7DBWK.js","assets/NftDetailModal-BJeV6AD5.js","assets/index-Dg0dg0_-.js","assets/input-BVzQQ5xW.js","assets/label-f3K4DGEC.js","assets/card-B3HPdjMS.js","assets/index-vdb8UDIJ.js","assets/index-ctQY016_.js","assets/index-BCPnqNMc.js","assets/BrandedAuthGate-B-QVzGYi.js","assets/layers-CLuAlVO7.js","assets/wallet-BfFaXwWy.js","assets/HomePage-v7RDLR9X.js","assets/index-By6BziLa.js","assets/PostClaimPage-BDmqXHVG.js","assets/ProfilePage-BY6bNQmJ.js","assets/SettingsPage-DHVfKUG_.js","assets/fingerprint-F3XaivdP.js","assets/VerifyPage-Drfr2srF.js"])))=>i.map(i=>d[i]);
 var __defProp = Object.defineProperty;
 var __typeError = (msg) => {
   throw TypeError(msg);
@@ -36642,7 +36642,7 @@ Service({
   "forceResyncAdmin": Func([], [], []),
   "generateClaimLink": Func([Nat], [Result_3], []),
   "getAdminPrincipal": Func([], [Opt(Principal2)], ["query"]),
-  "getCallerProfile": Func([], [UserProfile], ["query"]),
+  "getCallerProfile": Func([], [UserProfile], []),
   "getCallerUserRole": Func([], [UserRole], ["query"]),
   "getCanisterId": Func([], [Text], ["query"]),
   "getClaimPreview": Func([Text], [Result_6], ["query"]),
@@ -37089,7 +37089,7 @@ const idlFactory = ({ IDL: IDL2 }) => {
     "forceResyncAdmin": IDL2.Func([], [], []),
     "generateClaimLink": IDL2.Func([IDL2.Nat], [Result_32], []),
     "getAdminPrincipal": IDL2.Func([], [IDL2.Opt(IDL2.Principal)], ["query"]),
-    "getCallerProfile": IDL2.Func([], [UserProfile2], ["query"]),
+    "getCallerProfile": IDL2.Func([], [UserProfile2], []),
     "getCallerUserRole": IDL2.Func([], [UserRole2], ["query"]),
     "getCanisterId": IDL2.Func([], [IDL2.Text], ["query"]),
     "getClaimPreview": IDL2.Func([IDL2.Text], [Result_62], ["query"]),
@@ -39027,9 +39027,11 @@ function createActor(canisterId, _uploadFile, _downloadFile, options = {}) {
   });
   return new Backend(actor, _uploadFile, _downloadFile, options.processError);
 }
+const backendId = "potzq-lqaaa-aaaan-qz4ba-cai";
+const frontendId = "k3lj7-cyaaa-aaaak-qy62q-cai";
 const CANISTERS = {
-  backend: "ksicd-uqaaa-aaaak-qy63a-cai",
-  frontend: "k3lj7-cyaaa-aaaak-qy62q-cai"
+  backend: backendId,
+  frontend: frontendId
 };
 function createAuthenticatedActor(identity) {
   if (!identity) {
@@ -41010,13 +41012,13 @@ function PWAUpdateBanner() {
     }
   );
 }
-const ClaimPage = reactExports.lazy(() => __vitePreload(() => import("./ClaimPage-CaWvGhse.js"), true ? __vite__mapDeps([0,1,2,3,4,5,6]) : void 0));
-const CollectorPage = reactExports.lazy(() => __vitePreload(() => import("./CollectorPage-BRtyxiEz.js"), true ? __vite__mapDeps([7,8,9,10,11,1,12,13,14,15,2,16,3,17,18,5]) : void 0));
-const HomePage = reactExports.lazy(() => __vitePreload(() => import("./HomePage-CgjSM_UK.js"), true ? __vite__mapDeps([19,8,9,10,11,13,14,20,2,16]) : void 0));
-const PostClaimPage = reactExports.lazy(() => __vitePreload(() => import("./PostClaimPage-CTIcE5ky.js"), true ? __vite__mapDeps([21,8,9,10,11,1,12,5,18]) : void 0));
-const ProfilePage = reactExports.lazy(() => __vitePreload(() => import("./ProfilePage-28vw7vD8.js"), true ? __vite__mapDeps([22,11,2,16,18]) : void 0));
-const SettingsPage = reactExports.lazy(() => __vitePreload(() => import("./SettingsPage-DJ88Hu3e.js"), true ? __vite__mapDeps([23,1,10,11,16,24,17,6,4]) : void 0));
-const VerifyPage = reactExports.lazy(() => __vitePreload(() => import("./VerifyPage-HARO9ZU0.js"), true ? __vite__mapDeps([25,12,10,11,2,9,20,13,15,24,3,6,5]) : void 0));
+const ClaimPage = reactExports.lazy(() => __vitePreload(() => import("./ClaimPage-CUeSDd0q.js"), true ? __vite__mapDeps([0,1,2,3,4,5,6]) : void 0));
+const CollectorPage = reactExports.lazy(() => __vitePreload(() => import("./CollectorPage-gXZ7DBWK.js"), true ? __vite__mapDeps([7,8,9,10,11,1,12,13,14,15,2,16,3,17,18,5]) : void 0));
+const HomePage = reactExports.lazy(() => __vitePreload(() => import("./HomePage-v7RDLR9X.js"), true ? __vite__mapDeps([19,8,9,10,11,13,14,20,2,16]) : void 0));
+const PostClaimPage = reactExports.lazy(() => __vitePreload(() => import("./PostClaimPage-BDmqXHVG.js"), true ? __vite__mapDeps([21,8,9,10,11,1,12,5,18]) : void 0));
+const ProfilePage = reactExports.lazy(() => __vitePreload(() => import("./ProfilePage-BY6bNQmJ.js"), true ? __vite__mapDeps([22,11,2,16,18]) : void 0));
+const SettingsPage = reactExports.lazy(() => __vitePreload(() => import("./SettingsPage-DHVfKUG_.js"), true ? __vite__mapDeps([23,1,10,11,16,24,17,6,4]) : void 0));
+const VerifyPage = reactExports.lazy(() => __vitePreload(() => import("./VerifyPage-Drfr2srF.js"), true ? __vite__mapDeps([25,12,10,11,2,9,20,13,15,24,3,6,5]) : void 0));
 const rootRoute = createRootRoute({ component: Layout });
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -41132,24 +41134,24 @@ export {
   React$4 as a2,
   createSlot as a3,
   useNavigate as b,
-  useQuery as c,
-  createLucideIcon as d,
-  useComposedRefs as e,
-  composeRefs as f,
-  cn as g,
-  useMyActiveNfts as h,
-  useCollections as i,
+  useQueryClient as c,
+  useQuery as d,
+  createLucideIcon as e,
+  useComposedRefs as f,
+  composeRefs as g,
+  cn as h,
+  useMyActiveNfts as i,
   jsxRuntimeExports as j,
-  useDeleteNft as k,
-  useBurnNft as l,
-  useRemoveNftFromCollection as m,
-  useCreateCollection as n,
-  useAddNftToCollection as o,
-  Link as p,
-  reactDomExports as q,
+  useCollections as k,
+  useDeleteNft as l,
+  useBurnNft as m,
+  useRemoveNftFromCollection as n,
+  useCreateCollection as o,
+  useAddNftToCollection as p,
+  Link as q,
   reactExports as r,
-  usePermissions as s,
-  useQueryClient as t,
+  reactDomExports as s,
+  usePermissions as t,
   useParams as u,
   useCreateSlot as v,
   useSearchNfts as w,

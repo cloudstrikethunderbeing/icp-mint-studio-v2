@@ -18,17 +18,52 @@ mixin (
   nftStore : NftLib.NftStore,
   globalAuditLog : Queue.Queue<Common.AuditEntry>,
   selfCanisterId : { var value : Text },
+  adminPrincipal : { var value : ?Principal },
 ) {
-  public query ({ caller }) func getCallerProfile() : async Types.UserProfile {
+  public shared ({ caller }) func getCallerProfile() : async Types.UserProfile {
     if (caller.isAnonymous()) {
       Runtime.trap("Unauthorized: Anonymous caller");
     };
+    // Auto-claim admin on first login if no admin exists
+    switch (adminPrincipal.value) {
+      case (null) {
+        adminPrincipal.value := ?caller;
+        accessControlState.userRoles.add(caller, #admin);
+        accessControlState.adminAssigned := true;
+      };
+      case (?_) {};
+    };
     switch (UserLib.getProfile(userStore, caller)) {
-      case (?profile) { profile };
+      case (?profile) {
+        // If this user just became admin, update their profile role
+        switch (adminPrincipal.value) {
+          case (?admin) {
+            if (Principal.equal(caller, admin) and profile.role != #admin) {
+              let updated = { profile with role = #admin; updatedAt = Int.abs(Time.now()) };
+              UserLib.updateProfile(userStore, caller, updated);
+              return updated;
+            };
+          };
+          case (null) {};
+        };
+        profile
+      };
       case (null) {
         let timestamp = Int.abs(Time.now());
         let creatorId = NftLib.generateCreatorId(caller);
-        UserLib.createProfile(userStore, caller, creatorId, timestamp);
+        let profile = UserLib.createProfile(userStore, caller, creatorId, timestamp);
+        // If this user just became admin, update their profile role
+        switch (adminPrincipal.value) {
+          case (?admin) {
+            if (Principal.equal(caller, admin)) {
+              let updated = { profile with role = #admin; updatedAt = timestamp };
+              UserLib.updateProfile(userStore, caller, updated);
+              return updated;
+            };
+          };
+          case (null) {};
+        };
+        profile
       };
     };
   };

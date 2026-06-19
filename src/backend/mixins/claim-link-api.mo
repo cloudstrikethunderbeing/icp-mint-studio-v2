@@ -11,9 +11,10 @@ import Time "mo:core/Time";
 import Int "mo:core/Int";
 import Nat "mo:core/Nat";
 import UserLib "../lib/user";
+import AccessControl "mo:caffeineai-authorization/access-control";
 
 mixin (
-  adminPrincipal : ?Principal,
+  accessControlState : AccessControl.AccessControlState,
   nftStore : NftLib.NftStore,
   claimTokenStore : ClaimLib.ClaimTokenStore,
   nftToClaimToken : ClaimLib.NftToClaimStore,
@@ -31,10 +32,7 @@ mixin (
         return #err("User profile not found. Please create a profile first.");
       };
     };
-    let isAdmin = switch (adminPrincipal) {
-      case (?admin) { Principal.equal(admin, caller) };
-      case (null) { false };
-    };
+    let isAdmin = AccessControl.isAdmin(accessControlState, caller);
     let isPaidTier = switch (callerProfile.subscriptionTier) {
       case (#creator) { true };
       case (#pro) { true };
@@ -63,14 +61,9 @@ mixin (
 
   /// Admin-only: return claim status for a given NFT.
   public query ({ caller }) func getClaimStatus(nftId : Nat) : async Result.Result<ClaimTypes.ClaimStatus, Text> {
-    // Admin-only guard
-    switch (adminPrincipal) {
-      case (null) { return #err("Unauthorized: No admin configured") };
-      case (?admin) {
-        if (not Principal.equal(admin, caller)) {
-          return #err("Unauthorized: Admin only");
-        };
-      };
+    // Admin-only guard using AccessControl
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      return #err("Unauthorized: Admin only");
     };
     switch (ClaimLib.getTokenForNft(nftToClaimToken, nftId)) {
       case (null) {
@@ -136,7 +129,8 @@ mixin (
     };
     let nftWithAudit = NftLib.addAuditEntry(nft, auditEntry);
     // Transfer ownership to claimer, recording the claim timestamp
-    let updatedNft : NftTypes.Nft = { nftWithAudit with ownerId = caller; claimedAt = ?nowNat };
+    // Strip collection assignment — collections are creator-side organization only
+    let updatedNft : NftTypes.Nft = { nftWithAudit with ownerId = caller; claimedAt = ?nowNat; collectionId = null };
     nftStore.add(claimToken.nftId, updatedNft);
     // Append to global audit log
     let globalEntry : Common.AuditEntry = {
