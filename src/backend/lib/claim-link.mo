@@ -37,6 +37,8 @@ module {
     nftId : Nat,
     token : Text,
     createdAt : Int,
+    supplyLimit : Nat,
+    claimedCount : Nat,
   ) : () {
     let claimToken : ClaimTypes.ClaimToken = {
       nftId;
@@ -44,6 +46,8 @@ module {
       createdAt;
       usedBy = null;
       usedAt = null;
+      supplyLimit;
+      claimedCount;
     };
     // Overwrite any prior token for this nftId (one active token per NFT rule)
     switch (nftToClaimToken.get(nftId)) {
@@ -64,12 +68,13 @@ module {
     claimTokenStore.get(token)
   };
 
-  /// Mark a token as used atomically.
+  /// Mark a token as used atomically and update claimedCount.
   public func useToken(
     claimTokenStore : ClaimTokenStore,
     token : Text,
     caller : Principal,
     usedAt : Int,
+    newClaimedCount : Nat,
   ) : Result.Result<ClaimTypes.ClaimToken, Text> {
     switch (claimTokenStore.get(token)) {
       case (null) { #err("Claim token not found") };
@@ -81,6 +86,7 @@ module {
           claimToken with
           usedBy = ?caller;
           usedAt = ?usedAt;
+          claimedCount = newClaimedCount;
         };
         claimTokenStore.add(token, updated);
         #ok(updated)

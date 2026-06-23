@@ -15,7 +15,6 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
-  AlertTriangle,
   Bitcoin,
   Building,
   Check,
@@ -39,7 +38,6 @@ import {
   Settings,
   Shield,
   Sprout,
-  UserCheck,
   UserCog,
   X,
   XCircle,
@@ -274,10 +272,6 @@ export default function SettingsPage() {
     stripeMutation.mutate({ sk, pk });
   }
 
-  // ── Admin PID state ───────────────────────────────────────────────────────
-  const [adminPidInput, setAdminPidInput] = useState("");
-  const [adminPidError, setAdminPidError] = useState("");
-
   // ── Collection Discovery state ────────────────────────────────────────────
   const [canisterIdCopied, setCanisterIdCopied] = useState(false);
   const [collectionIdCopied, setCollectionIdCopied] = useState(false);
@@ -304,21 +298,6 @@ export default function SettingsPage() {
   const rejectPaymentProof = useRejectPaymentProof();
   const myProofsQuery = useMyPaymentProofs(principal);
   const listProofsQuery = useListPaymentProofs(isAdmin);
-
-  // ── Admin query ───────────────────────────────────────────────────────────
-  const adminPrincipalQuery = useQuery<string | null>({
-    queryKey: ["adminPrincipal"],
-    queryFn: async () => {
-      if (!actor) return null;
-      const result = await actor.getAdminPrincipal();
-      return result ? result.toString() : null;
-    },
-    enabled: !!actor && isAuthenticated,
-    staleTime: Number.POSITIVE_INFINITY, // admin principal never changes
-  });
-
-  const adminConfigured =
-    adminPrincipalQuery.data !== null && adminPrincipalQuery.data !== undefined;
 
   // ── Canister ID query ───────────────────────────────────────────────────
   const canisterIdQuery = useQuery<string>({
@@ -353,55 +332,6 @@ export default function SettingsPage() {
     staleTime: Number.POSITIVE_INFINITY,
   });
 
-  // ── Set admin PID mutation ────────────────────────────────────────────────
-  const setAdminMutation = useMutation<boolean, Error, void>({
-    mutationFn: async () => {
-      if (!actor) throw new Error("No actor");
-      return actor.claimAdmin();
-    },
-    onSuccess: (claimed) => {
-      if (claimed) {
-        addNotification({
-          type: "info",
-          title: "Admin Claimed",
-          message: "Admin has been claimed successfully.",
-        });
-        queryClient.invalidateQueries({ queryKey: ["isAdmin"] });
-        queryClient.invalidateQueries({ queryKey: ["adminPrincipal"] });
-      } else {
-        addNotification({
-          type: "warning",
-          title: "Admin Already Set",
-          message: "Admin has already been claimed by another principal.",
-        });
-      }
-    },
-    onError: (err: Error) => {
-      addNotification({
-        type: "critical",
-        title: "Admin Claim Failed",
-        message: err.message || "Failed to claim admin.",
-      });
-    },
-  });
-
-  function handleSetAdmin() {
-    const pid = adminPidInput.trim();
-    if (!pid) {
-      setAdminPidError("Principal ID is required.");
-      return;
-    }
-    const principalPattern = /^([a-z2-7]{2,5}-){1,28}[a-z2-7]{2,5}$/i;
-    if (!principalPattern.test(pid)) {
-      setAdminPidError(
-        "Enter a valid ICP Principal ID (e.g. rdmx6-jaaaa-aaaah-qcaiq-cai).",
-      );
-      return;
-    }
-    setAdminPidError("");
-    setAdminMutation.mutate();
-  }
-
   if (!isAuthenticated) {
     return <BrandedAuthGate subtitle="Connect to access settings." />;
   }
@@ -417,85 +347,7 @@ export default function SettingsPage() {
     >
       <h1 className="text-2xl font-bold text-foreground">Settings</h1>
 
-      {/* ── Admin Configuration Card (above tabs, only when unconfigured) ─── */}
-      {!adminConfigured && (
-        <div
-          className="bg-card border border-border rounded-xl p-4 space-y-3"
-          data-ocid="settings.admin_card"
-        >
-          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-            <Shield className="w-4 h-4 text-primary" />
-            Admin Configuration
-          </h2>
-          {adminPrincipalQuery.isLoading ? (
-            <p className="text-xs text-muted-foreground animate-pulse">
-              Checking admin status...
-            </p>
-          ) : (
-            <div className="space-y-3" data-ocid="settings.admin_unconfigured">
-              <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2">
-                <p className="text-xs text-amber-400 font-medium">
-                  <AlertTriangle className="w-4 h-4 mr-1" />
-                  No admin set. Enter your Principal ID below to claim admin
-                  permanently. This can only be done once.
-                </p>
-              </div>
-              <div className="space-y-1">
-                <Label
-                  htmlFor="admin-pid-input"
-                  className="text-xs text-muted-foreground"
-                >
-                  Admin Principal ID
-                </Label>
-                <p className="text-xs text-muted-foreground/70">
-                  Paste your full ICP Principal ID (visible in your Profile
-                  page).
-                </p>
-                <Input
-                  id="admin-pid-input"
-                  value={adminPidInput}
-                  onChange={(e) => {
-                    setAdminPidInput(e.target.value);
-                    setAdminPidError("");
-                  }}
-                  placeholder="e.g. rdmx6-jaaaa-aaaah-qcaiq-cai"
-                  className="font-mono text-xs"
-                  autoComplete="off"
-                  data-ocid="settings.admin_pid_input"
-                />
-                {adminPidError && (
-                  <p
-                    className="text-xs text-destructive"
-                    data-ocid="settings.admin_pid_field_error"
-                  >
-                    {adminPidError}
-                  </p>
-                )}
-              </div>
-              <Button
-                type="button"
-                onClick={handleSetAdmin}
-                disabled={setAdminMutation.isPending || !adminPidInput.trim()}
-                size="sm"
-                className="w-full"
-                data-ocid="settings.admin_pid_save_button"
-              >
-                {setAdminMutation.isPending ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    Setting Admin...
-                  </>
-                ) : (
-                  <>
-                    <UserCheck className="w-4 h-4 mr-2" />
-                    Set Admin Principal
-                  </>
-                )}
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
+      {/* ── Tab Switcher — admin only ──────────────────────────────────── */}
 
       {/* ── Tab Switcher — admin only ──────────────────────────────────── */}
       {isAdmin && (

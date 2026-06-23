@@ -20,6 +20,9 @@ if (fs.existsSync(canisterIdsPath)) {
 
 const ids = canisterIds[envKey] || {};
 
+const backendId = process.env.CANISTER_ID_BACKEND || ids.backend || "";
+const frontendId = process.env.CANISTER_ID_FRONTEND || ids.frontend || "";
+
 const ii_url =
   process.env.DFX_NETWORK === "local"
     ? `http://uqzsh-gqaaa-aaaaq-qaada-cai.localhost:8081/authorize`
@@ -64,8 +67,8 @@ export default defineConfig({
     },
   },
   define: {
-    "import.meta.env.CANISTER_ID_BACKEND": JSON.stringify(ids.backend || ""),
-    "import.meta.env.CANISTER_ID_FRONTEND": JSON.stringify(ids.frontend || ""),
+    "import.meta.env.CANISTER_ID_BACKEND": JSON.stringify(backendId),
+    "import.meta.env.CANISTER_ID_FRONTEND": JSON.stringify(frontendId),
   },
   plugins: [
     environment("all", { prefix: "CANISTER_" }),

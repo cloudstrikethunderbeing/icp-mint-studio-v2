@@ -11,6 +11,7 @@ import {
 import { Loader2 } from "lucide-react";
 import { ThemeProvider } from "next-themes";
 import { Suspense, lazy } from "react";
+import { Toaster } from "sonner";
 
 const ClaimPage = lazy(() => import("@/pages/ClaimPage"));
 
@@ -90,6 +91,7 @@ declare module "@tanstack/react-router" {
 export default function App() {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+      <Toaster />
       <AuthProvider>
         <Suspense
           fallback={

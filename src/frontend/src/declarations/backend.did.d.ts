@@ -20,17 +20,26 @@ export interface AuditEntry {
   'details' : [] | [string],
   'caller' : Principal,
 }
+export interface ClaimPreview {
+  'nft' : Nft,
+  'supplyLimit' : bigint,
+  'claimedCount' : bigint,
+}
 export interface ClaimStatus {
+  'supplyLimit' : bigint,
   'token' : string,
   'claimed' : boolean,
   'claimedBy' : [] | [Principal],
+  'claimedCount' : bigint,
 }
 export interface ClaimToken {
+  'supplyLimit' : bigint,
   'token' : string,
   'usedAt' : [] | [bigint],
   'usedBy' : [] | [Principal],
   'createdAt' : bigint,
   'nftId' : bigint,
+  'claimedCount' : bigint,
 }
 export interface Collection {
   'id' : bigint,
@@ -82,6 +91,7 @@ export type ExternalBlob = Uint8Array;
 export interface Nft {
   'id' : bigint,
   'status' : NftStatus,
+  'supplyLimit' : bigint,
   'title' : string,
   'imageBlob' : ExternalBlob,
   'edition' : string,
@@ -142,11 +152,13 @@ export type Result_4 = {
   { 'err' : { 'message' : string } };
 export type Result_5 = { 'ok' : ClaimStatus } |
   { 'err' : string };
-export type Result_6 = { 'ok' : Nft } |
+export type Result_6 = { 'ok' : ClaimPreview } |
   { 'err' : string };
 export type Result_7 = { 'ok' : bigint } |
   { 'err' : string };
-export type Result_8 = { 'ok' : null } |
+export type Result_8 = { 'ok' : Nft } |
+  { 'err' : string };
+export type Result_9 = { 'ok' : null } |
   { 'err' : Error };
 export type RewardTier = { 'bronze' : null } |
   { 'gold' : null } |
@@ -193,6 +205,7 @@ export type UserRole = { 'admin' : null } |
   { 'guest' : null };
 export interface VerifyResult {
   'status' : NftStatus,
+  'supplyLimit' : bigint,
   'tokenId' : bigint,
   'edition' : string,
   'collectionId' : [] | [bigint],
@@ -280,14 +293,14 @@ export interface _SERVICE {
   >,
   '_immutableObjectStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
   '_initialize_access_control' : ActorMethod<[], undefined>,
-  '_internet_identity_sign_in_finish' : ActorMethod<[], Result_8>,
+  '_internet_identity_sign_in_finish' : ActorMethod<[], Result_9>,
   '_internet_identity_sign_in_start' : ActorMethod<[], Uint8Array>,
   'addNftToCollection' : ActorMethod<[bigint, bigint], Result_2>,
   'approvePaymentProof' : ActorMethod<[string], Result_3>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'burnNft' : ActorMethod<[bigint], Result_2>,
   'claimAdmin' : ActorMethod<[], boolean>,
-  'claimNft' : ActorMethod<[string], Result_6>,
+  'claimNft' : ActorMethod<[string], Result_8>,
   'createCheckoutSession' : ActorMethod<
     [Array<{ 'name' : string, 'price' : bigint }>, string, string],
     string
@@ -309,7 +322,6 @@ export interface _SERVICE {
     CollectionSummary
   >,
   'deleteNft' : ActorMethod<[bigint], Result_2>,
-  'forceResyncAdmin' : ActorMethod<[], undefined>,
   'generateClaimLink' : ActorMethod<[bigint], Result_3>,
   'getAdminPrincipal' : ActorMethod<[], [] | [Principal]>,
   'getCallerProfile' : ActorMethod<[], UserProfile>,
@@ -349,12 +361,12 @@ export interface _SERVICE {
       string,
       string,
       string,
-      string,
       [] | [bigint],
       [] | [string],
       [] | [string],
       [] | [string],
       [] | [string],
+      bigint,
     ],
     Result_4
   >,

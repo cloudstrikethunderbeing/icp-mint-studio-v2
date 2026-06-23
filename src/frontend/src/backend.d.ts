@@ -83,6 +83,7 @@ export interface PaymentProof {
 export interface Nft {
     id: bigint;
     status: NftStatus;
+    supplyLimit: bigint;
     title: string;
     imageBlob: ExternalBlob;
     edition: string;
@@ -116,9 +117,11 @@ export interface TransferResult {
     success: boolean;
 }
 export interface ClaimStatus {
+    supplyLimit: bigint;
     token: string;
     claimed: boolean;
     claimedBy?: Principal;
+    claimedCount: bigint;
 }
 export type Result_7 = {
     __kind__: "ok";
@@ -132,8 +135,14 @@ export interface RenameCollectionRequest {
     newName: string;
 }
 export type CollectionId = bigint;
+export interface ClaimPreview {
+    nft: Nft;
+    supplyLimit: bigint;
+    claimedCount: bigint;
+}
 export interface VerifyResult {
     status: NftStatus;
+    supplyLimit: bigint;
     tokenId: bigint;
     edition: string;
     collectionId?: bigint;
@@ -153,7 +162,7 @@ export interface VerifyResult {
 }
 export type Result_6 = {
     __kind__: "ok";
-    ok: Nft;
+    ok: ClaimPreview;
 } | {
     __kind__: "err";
     err: string;
@@ -208,14 +217,23 @@ export type Error_ = {
         expected: Array<string>;
     };
 };
+export type Result_9 = {
+    __kind__: "ok";
+    ok: null;
+} | {
+    __kind__: "err";
+    err: Error_;
+};
+export type CreatorId = string;
 export interface ClaimToken {
+    supplyLimit: bigint;
     token: string;
     usedAt?: bigint;
     usedBy?: Principal;
     createdAt: bigint;
     nftId: bigint;
+    claimedCount: bigint;
 }
-export type CreatorId = string;
 export type Result = {
     __kind__: "ok";
     ok: VerifyResult;
@@ -243,10 +261,10 @@ export interface Collection {
 }
 export type Result_8 = {
     __kind__: "ok";
-    ok: null;
+    ok: Nft;
 } | {
     __kind__: "err";
-    err: Error_;
+    err: string;
 };
 export interface UserProfile {
     creditsTotal: bigint;
@@ -308,7 +326,7 @@ export interface backendInterface {
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     burnNft(id: bigint): Promise<Result_2>;
     claimAdmin(): Promise<boolean>;
-    claimNft(token: string): Promise<Result_6>;
+    claimNft(token: string): Promise<Result_8>;
     createCheckoutSession(_items: Array<{
         name: string;
         price: bigint;
@@ -324,7 +342,6 @@ export interface backendInterface {
     deleteCollection(id: bigint): Promise<void>;
     deleteCollectionAndUnassignNfts(collectionId: CollectionId): Promise<CollectionSummary>;
     deleteNft(id: bigint): Promise<Result_2>;
-    forceResyncAdmin(): Promise<void>;
     generateClaimLink(nftId: bigint): Promise<Result_3>;
     getAdminPrincipal(): Promise<Principal | null>;
     getCallerProfile(): Promise<UserProfile>;
@@ -362,7 +379,7 @@ export interface backendInterface {
     listMyCollections(): Promise<Array<CollectionWithCount>>;
     listMyNfts(): Promise<Array<Nft>>;
     listPaymentProofs(): Promise<Array<PaymentProof>>;
-    mintNft(imageBlob: ExternalBlob, assetHash: string, title: string, description: string, edition: string, collectionId: bigint | null, businessName: string | null, website: string | null, discountCode: string | null, membershipId: string | null): Promise<Result_4>;
+    mintNft(imageBlob: ExternalBlob, assetHash: string, title: string, description: string, collectionId: bigint | null, businessName: string | null, website: string | null, discountCode: string | null, membershipId: string | null, supplyLimit: bigint): Promise<Result_4>;
     rejectPaymentProof(proofId: string, reason: string): Promise<Result_3>;
     removeNftFromCollection(nftId: bigint, collectionId: bigint): Promise<Result_2>;
     renameCollection(request: RenameCollectionRequest): Promise<CollectionSummary>;

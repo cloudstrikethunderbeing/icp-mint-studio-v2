@@ -1,4 +1,5 @@
 import Principal "mo:core/Principal";
+import NftTypes "../types/nft";
 
 module {
   /// A shareable claim token tied to a single NFT.
@@ -9,6 +10,8 @@ module {
     createdAt : Int;
     usedBy : ?Principal;
     usedAt : ?Int;
+    supplyLimit : Nat;
+    claimedCount : Nat;
   };
 
   /// Returned by getClaimStatus — admin-only view of claim state.
@@ -16,5 +19,14 @@ module {
     token : Text;
     claimed : Bool;
     claimedBy : ?Principal;
+    supplyLimit : Nat;
+    claimedCount : Nat;
+  };
+
+  /// Returned by getClaimPreview — public preview of claimable NFT.
+  public type ClaimPreview = {
+    nft : NftTypes.Nft;
+    supplyLimit : Nat;
+    claimedCount : Nat;
   };
 }

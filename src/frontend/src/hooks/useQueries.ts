@@ -364,10 +364,13 @@ export function useAddNftToCollection() {
         throw new Error(result.err || "Failed to add NFT to collection");
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("NFT added to collection");
-      queryClient.invalidateQueries({ queryKey: ["nfts"] });
-      queryClient.invalidateQueries({ queryKey: ["collections"] });
+      await queryClient.refetchQueries({ queryKey: ["nfts"], exact: true });
+      await queryClient.refetchQueries({
+        queryKey: ["collections"],
+        exact: true,
+      });
     },
     onError: (err: Error) => {
       toast.error(err.message || "Failed to add NFT to collection");
@@ -494,13 +497,39 @@ export function useRemoveNftFromCollection() {
         throw new Error(result.err || "Failed to remove NFT from collection");
       }
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("NFT removed from collection");
-      queryClient.invalidateQueries({ queryKey: ["nfts"] });
-      queryClient.invalidateQueries({ queryKey: ["collections"] });
+      await queryClient.refetchQueries({ queryKey: ["nfts"], exact: true });
+      await queryClient.refetchQueries({
+        queryKey: ["collections"],
+        exact: true,
+      });
     },
     onError: (err: Error) => {
       toast.error(err.message || "Failed to remove NFT from collection");
+    },
+  });
+}
+
+export function useDeleteCollection() {
+  const { actor } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (collectionId: bigint): Promise<void> => {
+      if (!actor) throw new Error("Not authenticated");
+      await actor.deleteCollectionAndUnassignNfts(collectionId);
+    },
+    onSuccess: async () => {
+      toast.success("Collection deleted");
+      await queryClient.refetchQueries({
+        queryKey: ["collections"],
+        exact: true,
+      });
+      await queryClient.refetchQueries({ queryKey: ["nfts"], exact: true });
+    },
+    onError: (err: Error) => {
+      toast.error(err.message || "Failed to delete collection");
     },
   });
 }

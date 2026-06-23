@@ -9,11 +9,13 @@
 import { IDL } from '@icp-sdk/core/candid';
 
 export const ClaimToken = IDL.Record({
+  'supplyLimit' : IDL.Nat,
   'token' : IDL.Text,
   'usedAt' : IDL.Opt(IDL.Int),
   'usedBy' : IDL.Opt(IDL.Principal),
   'createdAt' : IDL.Int,
   'nftId' : IDL.Nat,
+  'claimedCount' : IDL.Nat,
 });
 export const Timestamp = IDL.Nat;
 export const SubscriptionTier = IDL.Variant({
@@ -56,6 +58,7 @@ export const RewardTier = IDL.Variant({
 export const Nft = IDL.Record({
   'id' : IDL.Nat,
   'status' : NftStatus,
+  'supplyLimit' : IDL.Nat,
   'title' : IDL.Text,
   'imageBlob' : ExternalBlob,
   'edition' : IDL.Text,
@@ -146,7 +149,7 @@ export const Error = IDL.Variant({
     'expected' : IDL.Vec(IDL.Text),
   }),
 });
-export const Result_8 = IDL.Variant({ 'ok' : IDL.Null, 'err' : Error });
+export const Result_9 = IDL.Variant({ 'ok' : IDL.Null, 'err' : Error });
 export const Result_2 = IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text });
 export const Result_3 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
 export const UserRole = IDL.Variant({
@@ -154,7 +157,7 @@ export const UserRole = IDL.Variant({
   'user' : IDL.Null,
   'guest' : IDL.Null,
 });
-export const Result_6 = IDL.Variant({ 'ok' : Nft, 'err' : IDL.Text });
+export const Result_8 = IDL.Variant({ 'ok' : Nft, 'err' : IDL.Text });
 export const Result_7 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
 export const CollectionId = IDL.Nat;
 export const CollectionSummary = IDL.Record({
@@ -163,10 +166,18 @@ export const CollectionSummary = IDL.Record({
   'name' : IDL.Text,
   'nftCount' : IDL.Nat,
 });
+export const ClaimPreview = IDL.Record({
+  'nft' : Nft,
+  'supplyLimit' : IDL.Nat,
+  'claimedCount' : IDL.Nat,
+});
+export const Result_6 = IDL.Variant({ 'ok' : ClaimPreview, 'err' : IDL.Text });
 export const ClaimStatus = IDL.Record({
+  'supplyLimit' : IDL.Nat,
   'token' : IDL.Text,
   'claimed' : IDL.Bool,
   'claimedBy' : IDL.Opt(IDL.Principal),
+  'claimedCount' : IDL.Nat,
 });
 export const Result_5 = IDL.Variant({ 'ok' : ClaimStatus, 'err' : IDL.Text });
 export const CollectionWithCount = IDL.Record({
@@ -209,6 +220,7 @@ export const UpdateMetadataRequest = IDL.Record({
 });
 export const VerifyResult = IDL.Record({
   'status' : NftStatus,
+  'supplyLimit' : IDL.Nat,
   'tokenId' : IDL.Nat,
   'edition' : IDL.Text,
   'collectionId' : IDL.Opt(IDL.Nat),
@@ -306,14 +318,14 @@ export const idlService = IDL.Service({
     ),
   '_immutableObjectStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
   '_initialize_access_control' : IDL.Func([], [], []),
-  '_internet_identity_sign_in_finish' : IDL.Func([], [Result_8], []),
+  '_internet_identity_sign_in_finish' : IDL.Func([], [Result_9], []),
   '_internet_identity_sign_in_start' : IDL.Func([], [IDL.Vec(IDL.Nat8)], []),
   'addNftToCollection' : IDL.Func([IDL.Nat, IDL.Nat], [Result_2], []),
   'approvePaymentProof' : IDL.Func([IDL.Text], [Result_3], []),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'burnNft' : IDL.Func([IDL.Nat], [Result_2], []),
   'claimAdmin' : IDL.Func([], [IDL.Bool], []),
-  'claimNft' : IDL.Func([IDL.Text], [Result_6], []),
+  'claimNft' : IDL.Func([IDL.Text], [Result_8], []),
   'createCheckoutSession' : IDL.Func(
       [
         IDL.Vec(IDL.Record({ 'name' : IDL.Text, 'price' : IDL.Nat })),
@@ -344,7 +356,6 @@ export const idlService = IDL.Service({
       [],
     ),
   'deleteNft' : IDL.Func([IDL.Nat], [Result_2], []),
-  'forceResyncAdmin' : IDL.Func([], [], []),
   'generateClaimLink' : IDL.Func([IDL.Nat], [Result_3], []),
   'getAdminPrincipal' : IDL.Func([], [IDL.Opt(IDL.Principal)], ['query']),
   'getCallerProfile' : IDL.Func([], [UserProfile], []),
@@ -407,12 +418,12 @@ export const idlService = IDL.Service({
         IDL.Text,
         IDL.Text,
         IDL.Text,
-        IDL.Text,
         IDL.Opt(IDL.Nat),
         IDL.Opt(IDL.Text),
         IDL.Opt(IDL.Text),
         IDL.Opt(IDL.Text),
         IDL.Opt(IDL.Text),
+        IDL.Nat,
       ],
       [Result_4],
       [],
@@ -460,11 +471,13 @@ export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
   const ClaimToken = IDL.Record({
+    'supplyLimit' : IDL.Nat,
     'token' : IDL.Text,
     'usedAt' : IDL.Opt(IDL.Int),
     'usedBy' : IDL.Opt(IDL.Principal),
     'createdAt' : IDL.Int,
     'nftId' : IDL.Nat,
+    'claimedCount' : IDL.Nat,
   });
   const Timestamp = IDL.Nat;
   const SubscriptionTier = IDL.Variant({
@@ -507,6 +520,7 @@ export const idlFactory = ({ IDL }) => {
   const Nft = IDL.Record({
     'id' : IDL.Nat,
     'status' : NftStatus,
+    'supplyLimit' : IDL.Nat,
     'title' : IDL.Text,
     'imageBlob' : ExternalBlob,
     'edition' : IDL.Text,
@@ -597,7 +611,7 @@ export const idlFactory = ({ IDL }) => {
       'expected' : IDL.Vec(IDL.Text),
     }),
   });
-  const Result_8 = IDL.Variant({ 'ok' : IDL.Null, 'err' : Error });
+  const Result_9 = IDL.Variant({ 'ok' : IDL.Null, 'err' : Error });
   const Result_2 = IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text });
   const Result_3 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
   const UserRole = IDL.Variant({
@@ -605,7 +619,7 @@ export const idlFactory = ({ IDL }) => {
     'user' : IDL.Null,
     'guest' : IDL.Null,
   });
-  const Result_6 = IDL.Variant({ 'ok' : Nft, 'err' : IDL.Text });
+  const Result_8 = IDL.Variant({ 'ok' : Nft, 'err' : IDL.Text });
   const Result_7 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
   const CollectionId = IDL.Nat;
   const CollectionSummary = IDL.Record({
@@ -614,10 +628,18 @@ export const idlFactory = ({ IDL }) => {
     'name' : IDL.Text,
     'nftCount' : IDL.Nat,
   });
+  const ClaimPreview = IDL.Record({
+    'nft' : Nft,
+    'supplyLimit' : IDL.Nat,
+    'claimedCount' : IDL.Nat,
+  });
+  const Result_6 = IDL.Variant({ 'ok' : ClaimPreview, 'err' : IDL.Text });
   const ClaimStatus = IDL.Record({
+    'supplyLimit' : IDL.Nat,
     'token' : IDL.Text,
     'claimed' : IDL.Bool,
     'claimedBy' : IDL.Opt(IDL.Principal),
+    'claimedCount' : IDL.Nat,
   });
   const Result_5 = IDL.Variant({ 'ok' : ClaimStatus, 'err' : IDL.Text });
   const CollectionWithCount = IDL.Record({
@@ -660,6 +682,7 @@ export const idlFactory = ({ IDL }) => {
   });
   const VerifyResult = IDL.Record({
     'status' : NftStatus,
+    'supplyLimit' : IDL.Nat,
     'tokenId' : IDL.Nat,
     'edition' : IDL.Text,
     'collectionId' : IDL.Opt(IDL.Nat),
@@ -757,14 +780,14 @@ export const idlFactory = ({ IDL }) => {
       ),
     '_immutableObjectStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
     '_initialize_access_control' : IDL.Func([], [], []),
-    '_internet_identity_sign_in_finish' : IDL.Func([], [Result_8], []),
+    '_internet_identity_sign_in_finish' : IDL.Func([], [Result_9], []),
     '_internet_identity_sign_in_start' : IDL.Func([], [IDL.Vec(IDL.Nat8)], []),
     'addNftToCollection' : IDL.Func([IDL.Nat, IDL.Nat], [Result_2], []),
     'approvePaymentProof' : IDL.Func([IDL.Text], [Result_3], []),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'burnNft' : IDL.Func([IDL.Nat], [Result_2], []),
     'claimAdmin' : IDL.Func([], [IDL.Bool], []),
-    'claimNft' : IDL.Func([IDL.Text], [Result_6], []),
+    'claimNft' : IDL.Func([IDL.Text], [Result_8], []),
     'createCheckoutSession' : IDL.Func(
         [
           IDL.Vec(IDL.Record({ 'name' : IDL.Text, 'price' : IDL.Nat })),
@@ -795,7 +818,6 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'deleteNft' : IDL.Func([IDL.Nat], [Result_2], []),
-    'forceResyncAdmin' : IDL.Func([], [], []),
     'generateClaimLink' : IDL.Func([IDL.Nat], [Result_3], []),
     'getAdminPrincipal' : IDL.Func([], [IDL.Opt(IDL.Principal)], ['query']),
     'getCallerProfile' : IDL.Func([], [UserProfile], []),
@@ -862,12 +884,12 @@ export const idlFactory = ({ IDL }) => {
           IDL.Text,
           IDL.Text,
           IDL.Text,
-          IDL.Text,
           IDL.Opt(IDL.Nat),
           IDL.Opt(IDL.Text),
           IDL.Opt(IDL.Text),
           IDL.Opt(IDL.Text),
           IDL.Opt(IDL.Text),
+          IDL.Nat,
         ],
         [Result_4],
         [],

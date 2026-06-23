@@ -1,7 +1,9 @@
-import type { Nft } from "@/backend";
+import { ExternalBlob, createActor } from "@/backend";
+import type { ClaimPreview } from "@/backend";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CANISTERS } from "@/config/canisters";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
@@ -10,10 +12,11 @@ import {
   CheckCircle2,
   Loader2,
   Lock,
+  Package,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 function ClaimSkeleton() {
   return (
@@ -71,6 +74,20 @@ export default function ClaimPage() {
   const [isClaiming, setIsClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
 
+  // Anonymous actor for public preview — no auth required
+  const anonymousActor = useMemo(() => {
+    return createActor(
+      CANISTERS.backend,
+      async (file) => {
+        const bytes = await file.getBytes();
+        return bytes;
+      },
+      async (bytes) => {
+        return ExternalBlob.fromBytes(bytes as Uint8Array<ArrayBuffer>);
+      },
+    );
+  }, []);
+
   // Public preview — no auth required
   const {
     data: previewResult,
@@ -79,17 +96,20 @@ export default function ClaimPage() {
   } = useQuery({
     queryKey: ["claimPreview", claimToken],
     queryFn: async () => {
-      // getClaimPreview is public — use actor when ready, or skip until actor is available
-      if (!actor) throw new Error("Actor not ready");
-      return actor.getClaimPreview(claimToken);
+      return anonymousActor.getClaimPreview(claimToken);
     },
-    enabled: !!claimToken && !!actor && !isFetching,
+    enabled: !!claimToken,
     staleTime: 30_000,
     retry: 1,
   });
 
-  const nft: Nft | null =
+  const preview: ClaimPreview | null =
     previewResult?.__kind__ === "ok" ? previewResult.ok : null;
+  const nft = preview?.nft ?? null;
+  const supplyLimit = preview?.supplyLimit ?? 0n;
+  const claimedCount = preview?.claimedCount ?? 0n;
+  const remaining = supplyLimit - claimedCount;
+  const isSoldOut = claimedCount >= supplyLimit;
   const isUnavailable =
     !isLoading && (isError || previewResult?.__kind__ === "err");
 
@@ -185,13 +205,12 @@ export default function ClaimPage() {
             )}
             <div className="flex items-center justify-center gap-2 pt-1">
               <Badge variant="secondary" className="text-xs">
-                Edition {nft.edition}
+                Edition {(claimedCount + 1n).toString()} of{" "}
+                {supplyLimit.toString()}
               </Badge>
-              <Badge variant="outline" className="text-xs">
-                Owned by{" "}
-                <span className="font-mono ml-1 truncate max-w-[80px]">
-                  {nft.creatorId}
-                </span>
+              <Badge variant="outline" className="text-xs gap-1">
+                <Package className="w-3 h-3" />
+                {remaining.toString()} of {supplyLimit.toString()} remaining
               </Badge>
             </div>
           </div>
@@ -238,10 +257,15 @@ export default function ClaimPage() {
                 type="button"
                 className="w-full"
                 onClick={handleClaim}
-                disabled={isClaiming || !actor || isFetching}
+                disabled={isClaiming || !actor || isFetching || isSoldOut}
                 data-ocid="claim.claim_button"
               >
-                {isClaiming ? (
+                {isSoldOut ? (
+                  <>
+                    <AlertCircle className="w-4 h-4 mr-2" />
+                    This drop is sold out
+                  </>
+                ) : isClaiming ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     Claiming…

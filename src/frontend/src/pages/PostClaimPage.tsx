@@ -73,6 +73,7 @@ export default function PostClaimPage() {
       tags: build?.tags ?? [],
       collectionId: build?.collectionId ?? undefined,
       claimedAt: build?.claimedAt ?? undefined,
+      supplyLimit: build?.supplyLimit ?? 1n,
     };
   }, [claimedNft, freshNftResult]);
 

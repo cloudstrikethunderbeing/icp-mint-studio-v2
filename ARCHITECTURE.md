@@ -13,7 +13,7 @@ Three shells:
 - Claim (/claim/:token): Shareable secure NFT claim links
 
 Draft vs Live:
-- Draft canister: potzq-lqaaa-aaaan-qz4ba-cai (ephemeral)
+- Draft canister: rqo43-haaaa-aaaai-q3zia-cai (ephemeral)
 - Live canister: ksicd-uqaaa-aaaak-qy63a-cai (permanent)
 - Draft URL: https://pretty-amber-68k-draft.caffeine.xyz/
 - Live URL: https://icp-mint-studio-n3x.caffeine.xyz/
@@ -21,10 +21,11 @@ Draft vs Live:
 
 ## 2. CANISTER STRUCTURE
 
-- Frontend canister: k3lj7-cyaaa-aaaak-qy62q-cai
-- Backend draft: potzq-lqaaa-aaaan-qz4ba-cai
+- Frontend canister: nzbzg-eiaaa-aaaai-q34ua-cai (draft) / k3lj7-cyaaa-aaaak-qy62q-cai (live)
+- Backend draft: rqo43-haaaa-aaaai-q3zia-cai
 - Backend live: ksicd-uqaaa-aaaak-qy63a-cai
 - Canister IDs injected at build time via Vite plugin reading canister-ids.json
+- Canister ID resolution precedence: build-pipeline env vars (CANISTER_ID_BACKEND / CANISTER_ID_FRONTEND) take precedence at build time; canister-ids.json is a fallback only (local dev / pipeline gaps), not the source of truth
 - env.json is dead code — never use it
 
 ## 3. BACKEND FILE MAP
@@ -143,11 +144,15 @@ Rule: AuthContext ONLY. No exceptions.
 
 ## 6. ADMIN LIFECYCLE
 
-- First-deployer claim: first authenticated login when masterAdmin is null auto-claims admin
-- getCallerProfile triggers auto-claim
-- Admin principal never hardcoded
-- Master admin: unlimited minting, unlimited slots, full collection management, admin tab in Settings
-- AccessControl.isAdmin() is single source of truth
+- Master admins are hardcoded as MASTER_ADMINS in main.mo
+- Principal IDs: 62vwb-gcj3s-... (live) and 4upfr-qatay-... (draft)
+- Admin status is synced into AccessControl on every
+  getCallerProfile() call via ensureMasterAdminSynced()
+- No dynamic claiming — claimAdmin() is disabled
+- AccessControl.isAdmin() is single source of truth for all
+  runtime permission checks
+- Master admin: unlimited minting, unlimited slots, full
+  collection management, admin tab in Settings
 
 ## 7. USER REGISTRATION LIFECYCLE
 
@@ -194,6 +199,12 @@ Critical: Never use sessionStorage snapshots as primary display. Always refetch 
 5. Stale canister deployment — always confirm module hash
 6. invalidateQueries is fire-and-forget — use await refetchQueries
 7. Anonymous actor calls from multiple paths + cached singleton (fixed v112-v114)
+8. canister-ids.json went stale on draft canister rotation since it was previously the sole source of truth for canister ID resolution — fixed: build-pipeline env vars now take precedence (see Section 2).
+9. Phantom admin bug — main.mo passed adminPrincipal by value
+   (disconnected copy) into UserMixin, allowing a second caller to claim
+   admin while AccessControl already had one. Fixed: dynamic claiming
+   removed, master admins hardcoded in MASTER_ADMINS constant, synced
+   idempotently on every getCallerProfile() call.
 
 ## 12. DEPLOYMENT RULES
 
@@ -203,14 +214,19 @@ Critical: Never use sessionStorage snapshots as primary display. Always refetch 
 - Always test on draft URL before going live
 - Confirm which canister a transaction hits before debugging
 - Draft canister ID may change — live never changes
+- Draft canister IDs rotate on inactivity. At the start of every new draft session confirm current draft canister IDs with Caffeine and update canister-ids.json before building. Never assume draft IDs are stable between sessions.
 
 ## 13. SESSION RULES FOR CAFFEINE
 
 - Read this file at start of every session
 - Never hardcode canister IDs or principal IDs
-- Never hardcode admin principal
+- Master admin principals are hardcoded in MASTER_ADMINS
+  (main.mo) — do not add, remove, or change these without an
+  explicit architecture decision.
 - Single actor creation path: AuthContext only
-- Single admin authority: AccessControl.isAdmin() only
+- Single admin authority: AccessControl.isAdmin() only —
+  ensureMasterAdminSynced() is the only write path into admin
+  role state.
 - Auto-register users silently
 - Draft calls draft, live calls live
 - Confirm deployment target before every deploy
@@ -236,5 +252,5 @@ Backend critical:
 
 ---
 
-Document version: v122 baseline
-Last updated: 2026-06-19
+Document version: v125
+Last updated: 2026-06-23

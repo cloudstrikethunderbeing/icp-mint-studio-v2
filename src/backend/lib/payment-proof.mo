@@ -4,7 +4,6 @@ import Principal "mo:core/Principal";
 import Time "mo:core/Time";
 import Common "../types/common";
 import Types "../types/payment-proof";
-import Debug "mo:core/Debug";
 import List "mo:core/List";
 
 module {

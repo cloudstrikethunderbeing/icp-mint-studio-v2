@@ -27,6 +27,7 @@ type VerifyResult =
    owner: principal;
    rewardTier: RewardTier;
    status: NftStatus;
+   supplyLimit: nat;
    tags: vec text;
    tokenId: nat;
    website: opt text;
@@ -88,10 +89,15 @@ type RewardTier =
    platinum;
    silver;
  };
-type Result_8 = 
+type Result_9 = 
  variant {
    err: Error;
    ok;
+ };
+type Result_8 = 
+ variant {
+   err: text;
+   ok: Nft;
  };
 type Result_7 = 
  variant {
@@ -101,7 +107,7 @@ type Result_7 =
 type Result_6 = 
  variant {
    err: text;
-   ok: Nft;
+   ok: ClaimPreview;
  };
 type Result_5 = 
  variant {
@@ -187,6 +193,7 @@ type Nft =
    ownerId: principal;
    rewardTier: RewardTier;
    status: NftStatus;
+   supplyLimit: nat;
    tags: vec text;
    title: text;
    website: opt text;
@@ -250,8 +257,10 @@ type Collection =
  };
 type ClaimToken = 
  record {
+   claimedCount: nat;
    createdAt: int;
    nftId: nat;
+   supplyLimit: nat;
    token: text;
    usedAt: opt int;
    usedBy: opt principal;
@@ -260,7 +269,15 @@ type ClaimStatus =
  record {
    claimed: bool;
    claimedBy: opt principal;
+   claimedCount: nat;
+   supplyLimit: nat;
    token: text;
+ };
+type ClaimPreview = 
+ record {
+   claimedCount: nat;
+   nft: Nft;
+   supplyLimit: nat;
  };
 type AuditEntry = 
  record {
@@ -328,14 +345,14 @@ service : {
    (_ImmutableObjectStorageRefillResult);
   _immutableObjectStorageUpdateGatewayPrincipals: () -> ();
   _initialize_access_control: () -> ();
-  _internet_identity_sign_in_finish: () -> (Result_8);
+  _internet_identity_sign_in_finish: () -> (Result_9);
   _internet_identity_sign_in_start: () -> (blob);
   addNftToCollection: (nftId: nat, collectionId: nat) -> (Result_2);
   approvePaymentProof: (proofId: text) -> (Result_3);
   assignCallerUserRole: (user: principal, role: UserRole) -> ();
   burnNft: (id: nat) -> (Result_2);
   claimAdmin: () -> (bool);
-  claimNft: (token: text) -> (Result_6);
+  claimNft: (token: text) -> (Result_8);
   createCheckoutSession: (_items: vec record {
                                         name: text;
                                         price: nat;
@@ -354,7 +371,6 @@ service : {
   deleteCollectionAndUnassignNfts: (collectionId: CollectionId) ->
    (CollectionSummary);
   deleteNft: (id: nat) -> (Result_2);
-  forceResyncAdmin: () -> ();
   generateClaimLink: (nftId: nat) -> (Result_3);
   getAdminPrincipal: () -> (opt principal) query;
   getCallerProfile: () -> (UserProfile);
@@ -392,9 +408,9 @@ service : {
   listMyNfts: () -> (vec Nft) query;
   listPaymentProofs: () -> (vec PaymentProof) query;
   mintNft: (imageBlob: ExternalBlob, assetHash: text, title: text,
-   description: text, edition: text, collectionId: opt nat, businessName:
-   opt text, website: opt text, discountCode: opt text, membershipId:
-   opt text) -> (Result_4);
+   description: text, collectionId: opt nat, businessName: opt text, website:
+   opt text, discountCode: opt text, membershipId: opt text, supplyLimit:
+   nat) -> (Result_4);
   rejectPaymentProof: (proofId: text, reason: text) -> (Result_3);
   removeNftFromCollection: (nftId: nat, collectionId: nat) -> (Result_2);
   renameCollection: (request: RenameCollectionRequest) -> (CollectionSummary);

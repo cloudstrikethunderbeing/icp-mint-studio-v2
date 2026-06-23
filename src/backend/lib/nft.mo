@@ -9,7 +9,6 @@ import Common "../types/common";
 import Types "../types/nft";
 import Iter "mo:core/Iter";
 import Array "mo:core/Array";
-import Debug "mo:core/Debug";
 import Char "mo:core/Char";
 import Result "mo:core/Result";
 
@@ -49,7 +48,6 @@ module {
       case (#creator) { 10 };
       case (#pro) { 100 };
       case (#org) { 500 };
-      case (#admin) { 999999 };
     }
   };
 
@@ -59,7 +57,6 @@ module {
       case (#creator) { 10 };
       case (#pro) { 100 };
       case (#org) { 500 };
-      case (#admin) { 999999 };
     }
   };
 
@@ -69,7 +66,7 @@ module {
     activeCount < maxSize
   };
 
-  public func createNft(store : NftStore, id : Nat, ownerId : Principal, creatorId : Common.CreatorId, imageBlob : Storage.ExternalBlob, assetHash : Text, title : Text, description : Text, edition : Text, timestamp : Common.Timestamp, collectionId : ?Nat, businessName : ?Text, website : ?Text, discountCode : ?Text, membershipId : ?Text, canisterId : Text) : Types.Nft {
+  public func createNft(store : NftStore, id : Nat, ownerId : Principal, creatorId : Common.CreatorId, imageBlob : Storage.ExternalBlob, assetHash : Text, title : Text, description : Text, edition : Text, timestamp : Common.Timestamp, collectionId : ?Nat, businessName : ?Text, website : ?Text, discountCode : ?Text, membershipId : ?Text, canisterId : Text, supplyLimit : Nat) : Types.Nft {
     let sanitizedTitle = sanitizeText(title, 100);
     let sanitizedDesc = sanitizeText(description, 1000);
     let sanitizedBusinessName = switch (businessName) {
@@ -110,6 +107,7 @@ module {
       rewardTier = #none;
       tags = [];
       nftUniqueId;
+      supplyLimit;
     };
     store.add(id, nft);
     nft
@@ -180,7 +178,7 @@ module {
   public func countActiveNftsByOwner(store : NftStore, ownerId : Principal) : Nat {
     var count = 0;
     for ((_, nft) in store.entries()) {
-      if (Principal.equal(nft.ownerId, ownerId) and nft.status == #active) {
+      if (Principal.equal(nft.ownerId, ownerId) and nft.status == #active and nft.claimedAt == null) {
         count += 1;
       };
     };
@@ -250,6 +248,7 @@ module {
           rewardTier = nft.rewardTier;
           nftUniqueId;
           tags = nft.tags;
+          supplyLimit = nft.supplyLimit;
           status = nft.status;
         }
       };

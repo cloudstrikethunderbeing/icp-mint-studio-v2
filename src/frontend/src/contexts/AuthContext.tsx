@@ -25,9 +25,6 @@ interface AuthContextValue {
   logout: () => void;
   isAdmin: boolean;
   isCollector: boolean;
-  showAdminBanner: boolean;
-  dismissAdminBanner: () => void;
-  claimAdmin: () => Promise<void>;
   isAdminLoading: boolean;
   subscriptionTier: import("@/backend").SubscriptionTier | null;
   isPaidTier: boolean;
@@ -45,9 +42,6 @@ const AuthContext = createContext<AuthContextValue>({
   logout: () => {},
   isAdmin: false,
   isCollector: false,
-  showAdminBanner: false,
-  dismissAdminBanner: () => {},
-  claimAdmin: async () => {},
   isAdminLoading: false,
   subscriptionTier: null,
   isPaidTier: false,
@@ -116,43 +110,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAuthState("ready");
   }, [identity]);
 
-  const [showAdminBanner, setShowAdminBanner] = useState(false);
   const [isAdminLoading, setIsAdminLoading] = useState(true);
 
-  // hasAdmin query — true if an admin is already configured
-  const { data: hasAdminData } = useQuery<boolean>({
-    queryKey: ["adminPrincipal", principal],
-    queryFn: async () => {
-      if (!actor) return true;
-      const admin = await actor.getAdminPrincipal();
-      return admin !== null;
-    },
-    staleTime: Number.POSITIVE_INFINITY,
-    enabled: !!actor && isAuthenticated,
-  });
-
-  const hasAdminBannerRef = useRef(false);
-  useEffect(() => {
-    if (
-      isAuthenticated &&
-      hasAdminData === false &&
-      !hasAdminBannerRef.current
-    ) {
-      hasAdminBannerRef.current = true;
-      setShowAdminBanner(true);
-    }
-  }, [isAuthenticated, hasAdminData]);
-  const [_adminBannerDismissed, setAdminBannerDismissed] = useState(false);
-
-  // Admin detection — cached via React Query (staleTime: Infinity)
+  // Admin detection — refetch periodically so frontend reflects current backend state
   const { data: isAdmin = false, isLoading: isAdminQueryLoading } =
     useQuery<boolean>({
       queryKey: ["isAdmin", principal],
       queryFn: async () => {
         if (!actor) return false;
-        return actor.isCallerAdmin();
+        return actor.isAdmin();
       },
-      staleTime: Number.POSITIVE_INFINITY,
+      staleTime: 5 * 60 * 1000, // 5 minutes
       enabled: !!actor && isAuthenticated,
     });
 
@@ -228,8 +196,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     if (!isAuthenticated && !cancelled) {
-      setShowAdminBanner(false);
-      hasAdminBannerRef.current = false;
       setAuthState("unauthenticated");
     }
     return () => {
@@ -253,16 +219,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthenticated, principal, authState, navigate]);
 
-  const dismissAdminBanner = useCallback(() => {
-    setShowAdminBanner(false);
-    setAdminBannerDismissed(true);
-  }, []);
-
-  const claimAdmin = useCallback(async () => {
-    if (!actor) throw new Error("No actor");
-    await actor.claimAdmin();
-  }, [actor]);
-
   const logout = useCallback(() => {
     try {
       resetNftHydration();
@@ -285,9 +241,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         logout,
         isAdmin,
         isCollector: isCollector ?? false,
-        showAdminBanner,
-        dismissAdminBanner,
-        claimAdmin,
         isAdminLoading,
         subscriptionTier,
         isPaidTier,

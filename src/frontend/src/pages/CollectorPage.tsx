@@ -45,6 +45,7 @@ import {
   useBurnNft,
   useCollections,
   useCreateCollection,
+  useDeleteCollection,
   useDeleteNft,
   useMyActiveNfts,
   useRemoveNftFromCollection,
@@ -470,28 +471,12 @@ function CollectorSkeleton() {
   );
 }
 
-const ALL_TABS: { key: TabKey; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "collections", label: "Collections" },
-  { key: "claimed", label: "Claimed" },
-  { key: "created", label: "Created" },
-  { key: "recent", label: "Recent" },
-];
-
-const FREE_TABS: { key: TabKey; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "claimed", label: "Claimed" },
-  { key: "created", label: "Created" },
-  { key: "recent", label: "Recent" },
-];
-
 export default function CollectorPage() {
   const { isAuthenticated, principal, authState } = useAuth();
   const canCreateCollections = authState === "ready";
 
-  const TABS = authState === "ready" ? ALL_TABS : FREE_TABS;
-
   const [activeTab, setActiveTab] = useState<TabKey>("all");
+
   const [selectedNft, setSelectedNft] = useState<Nft | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -511,13 +496,48 @@ export default function CollectorPage() {
   const removeFromCollection = useRemoveNftFromCollection();
   const createCollection = useCreateCollection();
   const addToCollection = useAddNftToCollection();
+  const deleteCollection = useDeleteCollection();
 
   const principalText = principal ?? "";
+
+  const ALL_TABS: { key: TabKey; label: string }[] = [
+    { key: "all", label: "All" },
+    { key: "collections", label: "Collections" },
+    { key: "claimed", label: "Claimed" },
+    { key: "created", label: "Created" },
+    { key: "recent", label: "Recent" },
+  ];
+
+  const FREE_TABS: { key: TabKey; label: string }[] = [
+    { key: "all", label: "All" },
+    { key: "claimed", label: "Claimed" },
+    { key: "created", label: "Created" },
+    { key: "recent", label: "Recent" },
+  ];
+
+  const TABS = authState === "ready" ? ALL_TABS : FREE_TABS;
 
   const claimedNfts = useMemo(
     () => nfts.filter((nft) => nft.ownerId.toText() !== nft.creatorId),
     [nfts],
   );
+
+  function getTabCount(key: TabKey): number {
+    switch (key) {
+      case "all":
+        return nfts.length;
+      case "collections":
+        return collections.length;
+      case "claimed":
+        return claimedNfts.length;
+      case "created":
+        return nfts.filter((nft) => nft.creatorId === principalText).length;
+      case "recent":
+        return nfts.length;
+      default:
+        return 0;
+    }
+  }
 
   const collectionFilteredNfts = useMemo(() => {
     if (selectedCollectionId === null) return nfts;
@@ -609,19 +629,6 @@ export default function CollectorPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {canCreateCollections && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1.5 text-xs"
-              data-ocid="collector.create_collection_button"
-              onClick={() => setCreateDialogOpen(true)}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Create
-            </Button>
-          )}
           <Link to="/verify">
             <Button
               type="button"
@@ -637,118 +644,20 @@ export default function CollectorPage() {
         </div>
       </div>
 
-      {/* Collections inline section */}
-      <div className="mb-4" data-ocid="collector.collections_section">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-foreground">Collections</h2>
-        </div>
-        <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide snap-x snap-mandatory">
-          {/* All NFTs card */}
-          <button
-            type="button"
-            onClick={() => setSelectedCollectionId(null)}
-            className={`shrink-0 w-28 snap-start rounded-lg border overflow-hidden text-left transition-all duration-200 ${
-              selectedCollectionId === null
-                ? "border-primary ring-1 ring-primary"
-                : "border-border hover:border-primary/50"
-            }`}
-            data-ocid="collector.collection.all_card"
-          >
-            <div className="aspect-square bg-muted relative overflow-hidden flex items-center justify-center">
-              <Layers className="w-8 h-8 text-muted-foreground" />
-              <Badge
-                variant="secondary"
-                className="absolute top-1.5 right-1.5 text-[9px] font-mono"
-              >
-                {nfts.length}
-              </Badge>
-            </div>
-            <div className="p-2">
-              <p className="text-xs font-semibold truncate text-foreground">
-                All NFTs
-              </p>
-            </div>
-          </button>
-
-          {/* Claimed system card */}
-          <button
-            type="button"
-            onClick={() => setSelectedCollectionId("claimed")}
-            className={`shrink-0 w-28 snap-start rounded-lg border overflow-hidden text-left transition-all duration-200 ${
-              selectedCollectionId === "claimed"
-                ? "border-primary ring-1 ring-primary"
-                : "border-border hover:border-primary/50"
-            }`}
-            data-ocid="collector.collection.claimed_card"
-          >
-            <div className="aspect-square bg-muted relative overflow-hidden flex items-center justify-center">
-              <Wallet className="w-8 h-8 text-blue-500" />
-              <Badge
-                variant="secondary"
-                className="absolute top-1.5 right-1.5 text-[9px] font-mono"
-              >
-                {claimedNfts.length}
-              </Badge>
-            </div>
-            <div className="p-2">
-              <p className="text-xs font-semibold truncate text-foreground">
-                Claimed
-              </p>
-            </div>
-          </button>
-
-          {/* User collections */}
-          {collections.map((collection, index) => (
-            <button
-              key={String(collection.id)}
-              type="button"
-              onClick={() => setSelectedCollectionId(collection.id)}
-              className={`shrink-0 w-28 snap-start rounded-lg border overflow-hidden text-left transition-all duration-200 ${
-                selectedCollectionId === collection.id
-                  ? "border-primary ring-1 ring-primary"
-                  : "border-border hover:border-primary/50"
-              }`}
-              data-ocid={`collector.collection.item.${index + 1}`}
-            >
-              <div className="aspect-square bg-muted relative overflow-hidden">
-                {collection.previewImage ? (
-                  <img
-                    src={collection.previewImage}
-                    alt={collection.name}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display =
-                        "none";
-                    }}
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <Folder className="w-8 h-8 text-muted-foreground" />
-                  </div>
-                )}
-                <Badge
-                  variant="secondary"
-                  className="absolute top-1.5 right-1.5 text-[9px] font-mono"
-                >
-                  {String(collection.nftCount)}
-                </Badge>
-              </div>
-              <div className="p-2">
-                <p className="text-xs font-semibold truncate text-foreground">
-                  {collection.name}
-                </p>
-              </div>
-            </button>
-          ))}
-
-          {collectionsLoading && (
-            <div className="shrink-0 w-28 snap-start">
-              <Skeleton className="aspect-square rounded-lg" />
-              <Skeleton className="h-3 w-3/4 mt-2" />
-            </div>
-          )}
-        </div>
+      {/* Stats line */}
+      <div
+        className="flex items-center gap-3 mb-3 text-xs text-muted-foreground"
+        data-ocid="collector.stats_line"
+      >
+        <span>
+          {nfts.length} NFT{nfts.length !== 1 ? "s" : ""}
+        </span>
+        <span>·</span>
+        <span>
+          {collections.length} Collection{collections.length !== 1 ? "s" : ""}
+        </span>
+        <span>·</span>
+        <span>{claimedNfts.length} Claimed</span>
       </div>
 
       {/* Tabs */}
@@ -771,13 +680,119 @@ export default function CollectorPage() {
             }`}
             data-ocid={`collector.tab.${tab.key}`}
           >
-            {tab.label}
+            {tab.label} ({getTabCount(tab.key)})
           </button>
         ))}
       </div>
 
       {/* Content */}
-      {isLoading ? (
+      {activeTab === "collections" ? (
+        <div className="space-y-3" data-ocid="collector.collections.list">
+          {canCreateCollections && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs"
+              data-ocid="collector.create_collection_button"
+              onClick={() => setCreateDialogOpen(true)}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Create Collection
+            </Button>
+          )}
+          {collectionsLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: skeleton placeholder
+                <Skeleton key={i} className="h-12 w-full rounded-lg" />
+              ))}
+            </div>
+          ) : collections.length === 0 ? (
+            <div className="flex flex-col items-center justify-center min-h-[30vh] gap-3 text-center">
+              <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                <Folder className="w-5 h-5 text-muted-foreground" />
+              </div>
+              <p className="text-sm text-muted-foreground">
+                No collections yet
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {collections.map((collection) => {
+                const hasNfts = Number(collection.nftCount) > 0;
+                const previewUrl = collection.previewImage ?? "";
+                return (
+                  <button
+                    key={String(collection.id)}
+                    type="button"
+                    className="group relative rounded-xl border border-border bg-card overflow-hidden cursor-pointer hover:shadow-md transition-shadow duration-200 text-left w-full"
+                    onClick={() => setSelectedCollectionId(collection.id)}
+                    data-ocid={`collector.collection.item.${Number(collection.id)}`}
+                  >
+                    {/* Cover image or placeholder */}
+                    <div className="aspect-[4/3] bg-muted relative overflow-hidden">
+                      {previewUrl ? (
+                        <img
+                          src={previewUrl}
+                          alt={collection.name}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          loading="lazy"
+                          onError={(e) => {
+                            (
+                              e.currentTarget as HTMLImageElement
+                            ).style.display = "none";
+                          }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-muted-foreground">
+                          <FolderOpen className="w-8 h-8" />
+                          <span className="text-xs">No preview</span>
+                        </div>
+                      )}
+                      {/* NFT count badge */}
+                      <div className="absolute top-2 right-2">
+                        <Badge
+                          variant="secondary"
+                          className="text-[10px] font-mono"
+                        >
+                          {collection.nftCount.toString()} NFT
+                          {Number(collection.nftCount) !== 1 ? "s" : ""}
+                        </Badge>
+                      </div>
+                    </div>
+                    {/* Card body */}
+                    <div className="p-3">
+                      <p
+                        className="text-sm font-semibold truncate text-foreground"
+                        title={collection.name}
+                      >
+                        {collection.name}
+                      </p>
+                    </div>
+                    {/* Delete button */}
+                    <button
+                      type="button"
+                      disabled={hasNfts}
+                      title={
+                        hasNfts ? "Remove all NFTs first" : "Delete collection"
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!hasNfts) deleteCollection.mutate(collection.id);
+                      }}
+                      className="absolute bottom-3 right-3 p-1.5 rounded-md text-destructive hover:bg-destructive/10 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                      data-ocid={`collector.collection.delete_button.${Number(collection.id)}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : isLoading ? (
         <CollectorSkeleton />
       ) : filteredNfts.length === 0 ? (
         <div

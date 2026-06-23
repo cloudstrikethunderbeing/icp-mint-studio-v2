@@ -5,6 +5,7 @@ import AccessControl "mo:caffeineai-authorization/access-control";
 import StripeLib "../lib/stripe";
 import Common "../types/common";
 import Queue "mo:core/Queue";
+import Int "mo:core/Int";
 
 mixin (
   accessControlState : AccessControl.AccessControlState,
@@ -40,7 +41,7 @@ mixin (
     Runtime.trap("Stripe checkout not available");
   };
 
-  public func getStripeSessionStatus(_sessionId : Text) : async { status : Text } {
+  public shared ({ caller }) func getStripeSessionStatus(_sessionId : Text) : async { status : Text } {
     Runtime.trap("Stripe status check not available");
   };
 

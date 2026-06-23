@@ -9,8 +9,6 @@ import Types "../types/payment-proof";
 import PaymentProofLib "../lib/payment-proof";
 import UserLib "../lib/user";
 import Queue "mo:core/Queue";
-import Debug "mo:core/Debug";
-import Int "mo:core/Int";
 import NftLib "../lib/nft";
 
 mixin (

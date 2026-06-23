@@ -1,4 +1,4 @@
-import { ExternalBlob } from "@/backend";
+import { ExternalBlob, type SubscriptionTier } from "@/backend";
 import type { CollectionWithCount, Nft } from "@/backend";
 import { NftDetailModal } from "@/components/NftDetailModal";
 import { Button } from "@/components/ui/button";
@@ -95,12 +95,12 @@ type MintParams = {
   file: File;
   title: string;
   description: string;
-  edition: string;
   collectionId?: bigint;
   businessName?: string;
   website?: string;
   discountCode?: string;
   membershipId?: string;
+  supplyLimit?: bigint;
 };
 
 function buildGrid(nfts: Nft[]): GridSlot[] {
@@ -200,6 +200,8 @@ function UploadCard({
   isAuthenticated,
   actor,
   profileReady,
+  subscriptionTier,
+  isAdmin,
 }: {
   collections: CollectionWithCount[];
   onMint: (params: MintParams) => void;
@@ -213,13 +215,14 @@ function UploadCard({
   isAuthenticated: boolean;
   actor: unknown;
   profileReady: boolean;
+  subscriptionTier: SubscriptionTier | null;
+  isAdmin?: boolean;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [edition, setEdition] = useState("1/1");
   const [collectionId, setCollectionId] = useState<string>("");
   const [businessName, setBusinessName] = useState("");
   const [website, setWebsite] = useState("");
@@ -228,6 +231,34 @@ function UploadCard({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const dragCounterRef = useRef(0);
+
+  const tierMax = useMemo(() => {
+    if (isAdmin) return 500;
+    switch (subscriptionTier) {
+      case "free":
+        return 1;
+      case "creator":
+        return 10;
+      case "pro":
+        return 100;
+      case "org":
+        return 500;
+      default:
+        return 1;
+    }
+  }, [subscriptionTier, isAdmin]);
+
+  const [supplyLimit, setSupplyLimit] = useState<number>(tierMax);
+  const [supplyLimitStr, setSupplyLimitStr] = useState<string>(
+    tierMax.toString(),
+  );
+
+  useEffect(() => {
+    if (mintDialogOpen) {
+      setSupplyLimit(tierMax);
+      setSupplyLimitStr(tierMax.toString());
+    }
+  }, [tierMax, mintDialogOpen]);
   // isMintingLocal removed — use mintMutation.isPending as the single source of truth
 
   useEffect(() => {
@@ -237,7 +268,6 @@ function UploadCard({
       setPreview(null);
       setTitle("");
       setDescription("");
-      setEdition("1/1");
       setCollectionId("");
       setBusinessName("");
       setWebsite("");
@@ -245,8 +275,10 @@ function UploadCard({
       setMembershipId("");
       setShowAdvanced(false);
       setMintError(null);
+      setSupplyLimit(tierMax);
+      setSupplyLimitStr(tierMax.toString());
     }
-  }, [mintSuccessSignal, setMintError, setMintDialogOpen]);
+  }, [mintSuccessSignal, setMintError, setMintDialogOpen, tierMax]);
 
   const handleFile = useCallback(
     (f: File) => {
@@ -256,8 +288,10 @@ function UploadCard({
         toast.error("Only PNG, JPG, and WEBP files are accepted.");
         return;
       }
-      if (f.size > 5 * 1024 * 1024) {
-        toast.error("File must be under 5MB.");
+      if (f.size > 1887436) {
+        toast.error(
+          "Image is too large. Please use an image under 1.8MB. Try compressing at squoosh.app or tinypng.com before uploading.",
+        );
         return;
       }
       setFile(f);
@@ -310,12 +344,12 @@ function UploadCard({
       file,
       title,
       description,
-      edition: edition || "1/1",
       collectionId: collectionId ? BigInt(collectionId) : undefined,
       businessName: businessName.trim() || undefined,
       website: website.trim() || undefined,
       discountCode: discountCode.trim() || undefined,
       membershipId: membershipId.trim() || undefined,
+      supplyLimit: BigInt(supplyLimit),
     });
   }
 
@@ -325,7 +359,6 @@ function UploadCard({
     setPreview(null);
     setTitle("");
     setDescription("");
-    setEdition("1/1");
     setCollectionId("");
     setBusinessName("");
     setWebsite("");
@@ -391,7 +424,6 @@ function UploadCard({
             setPreview(null);
             setTitle("");
             setDescription("");
-            setEdition("1/1");
             setCollectionId("");
             setBusinessName("");
             setWebsite("");
@@ -399,6 +431,7 @@ function UploadCard({
             setMembershipId("");
             setShowAdvanced(false);
             setMintError(null);
+            setSupplyLimit(tierMax);
           }
         }}
       >
@@ -436,17 +469,6 @@ function UploadCard({
               />
             </div>
             <div>
-              <Label htmlFor="mint-edition">Edition</Label>
-              <Input
-                id="mint-edition"
-                value={edition}
-                onChange={(e) => setEdition(e.target.value.slice(0, 20))}
-                placeholder="1/1"
-                maxLength={20}
-                data-ocid="home.mint_edition_input"
-              />
-            </div>
-            <div>
               <Label htmlFor="mint-desc">Description</Label>
               <Textarea
                 id="mint-desc"
@@ -477,6 +499,39 @@ function UploadCard({
                 </Select>
               </div>
             )}
+            <div>
+              <Label htmlFor="mint-supply">Edition Size</Label>
+              <Input
+                id="mint-supply"
+                type="number"
+                min={1}
+                max={tierMax}
+                value={supplyLimitStr}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setSupplyLimitStr(raw);
+                  const val = Number(raw);
+                  if (!Number.isNaN(val) && raw !== "") {
+                    setSupplyLimit(Math.max(1, Math.min(tierMax, val)));
+                  }
+                }}
+                onBlur={() => {
+                  const val = Number(supplyLimitStr);
+                  if (Number.isNaN(val) || supplyLimitStr === "") {
+                    setSupplyLimitStr(tierMax.toString());
+                    setSupplyLimit(tierMax);
+                  } else {
+                    const clamped = Math.max(1, Math.min(tierMax, val));
+                    setSupplyLimitStr(clamped.toString());
+                    setSupplyLimit(clamped);
+                  }
+                }}
+                data-ocid="home.mint_supply_input"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                {isAdmin ? "Max 500 (admin)" : `Max ${tierMax} for your tier`}
+              </p>
+            </div>
             <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
               <CollapsibleTrigger asChild>
                 <button
@@ -608,6 +663,7 @@ export default function HomePage() {
     authState,
     profileReady,
     creatorId,
+    subscriptionTier,
   } = useAuth();
   const { isAdmin, isAdminLoading, canMint } = usePermissions();
 
@@ -720,12 +776,12 @@ export default function HomePage() {
         assetHash,
         params.title.trim(),
         params.description.trim(),
-        params.edition.trim() || "1/1",
         params.collectionId ?? null,
         params.businessName ?? null,
         params.website ?? null,
         params.discountCode ?? null,
         params.membershipId ?? null,
+        params.supplyLimit ?? 1n,
       );
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(
@@ -1130,6 +1186,8 @@ export default function HomePage() {
                   isAuthenticated={isAuthenticated}
                   actor={actor}
                   profileReady={profileReady}
+                  subscriptionTier={subscriptionTier}
+                  isAdmin={isAdmin}
                 />
               );
             }

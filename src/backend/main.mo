@@ -13,7 +13,7 @@ import UserLib "lib/user";
 import NftMixin "mixins/nft-api";
 import UserMixin "mixins/user-api";
 
-import Runtime "mo:core/Runtime";
+import _Runtime "mo:core/Runtime";
 
 
 import Principal "mo:core/Principal";
@@ -24,13 +24,14 @@ import _PaymentProofTypes "types/payment-proof";
 import PaymentProofLib "lib/payment-proof";
 import PaymentProofMixin "mixins/payment-proof-api";
 import Int "mo:core/Int";
-import Time "mo:core/Time";
 import Nat "mo:core/Nat";
 import Result "mo:core/Result";
 import _ClaimTypes "types/claim-link";
 import ClaimLinkLib "lib/claim-link";
 import ClaimLinkMixin "mixins/claim-link-api";
 import CollectionMixin "mixins/collections-api";
+import Array "mo:core/Array";
+import MasterAdmins "lib/master-admins";
 
 actor Main {
   let accessControlState : AccessControl.AccessControlState;
@@ -41,7 +42,7 @@ actor Main {
 
   let nextNftId : { var value : Nat };
   let nextCollectionId : { var value : Nat };
-  stable var adminPrincipal : ?Principal;
+  let adminPrincipal : ?Principal;
   let selfCanisterId : { var value : Text };
   let rateLimitStore : Map.Map<Principal, {var count : Nat; var windowStart : Nat}>;
   let stripeConfigStore : { var secretKey : ?Text; var publicKey : ?Text };
@@ -55,14 +56,33 @@ actor Main {
   let nftToClaimToken : ClaimLinkLib.NftToClaimStore;
 
 
-  include ClaimLinkMixin(accessControlState, nftStore, claimTokenStore, nftToClaimToken, globalAuditLog, userStore);
+  // MASTER_ADMINS moved to lib/master-admins.mo module
+      // Master admin principals defined in MasterAdmins module
+      // See lib/master-admins.mo
+  // End MASTER_ADMINS
+
+  func isMasterAdmin(p : Principal) : Bool {
+    switch (MasterAdmins.getMasterAdmins().find<Principal>(func(a) { Principal.equal(a, p) })) {
+      case (?_) true;
+      case null false;
+    }
+  };
+
+  func ensureMasterAdminSynced(caller : Principal) {
+    if (isMasterAdmin(caller)) {
+      accessControlState.userRoles.add(caller, #admin);
+      accessControlState.adminAssigned := true;
+    };
+  };
+
+  include ClaimLinkMixin(accessControlState, nftStore, claimTokenStore, nftToClaimToken, globalAuditLog, userStore, nextNftId, selfCanisterId);
   include MixinAuthorization(accessControlState, null);
   include MixinObjectStorage();
 
   include MixinViews();
 
   include NftMixin(accessControlState, nftStore, collectionStore, nextNftId, nextCollectionId, rateLimitStore, userStore, selfCanisterId, creatorIndex, claimTokenStore, nftToClaimToken, adminPrincipal);
-  include UserMixin(accessControlState, userStore, nftStore, globalAuditLog, selfCanisterId, { var value = adminPrincipal });
+  include UserMixin(accessControlState, userStore, nftStore, globalAuditLog, selfCanisterId, adminPrincipal, ensureMasterAdminSynced);
   include PaymentProofMixin(accessControlState, paymentProofStore, userStore, globalAuditLog, adminPrincipal);
   include StripeMixin(accessControlState, stripeConfigStore, globalAuditLog);
   include CollectionMixin(accessControlState, collectionStore, nftStore);
@@ -73,10 +93,7 @@ actor Main {
   };
 
   public query ({ caller }) func isAdmin() : async Bool {
-    switch (adminPrincipal) {
-      case (?admin) { Principal.equal(admin, caller) };
-      case (null) { false };
-    }
+    AccessControl.isAdmin(accessControlState, caller)
   };
 
   public query ({ caller }) func debugAdminState() : async {
@@ -101,45 +118,14 @@ actor Main {
     }
   };
 
-  public shared ({ caller }) func forceResyncAdmin() : async () {
-    switch (adminPrincipal) {
-      case (?p) {
-        accessControlState.userRoles.add(p, #admin);
-        accessControlState.adminAssigned := true;
-      };
-      case null {};
-    };
-  };
-
   public shared ({ caller }) func claimAdmin() : async Bool {
-    switch (adminPrincipal) {
-      case (?_) { false };
-      case (null) {
-        adminPrincipal := ?caller;
-        // Sync admin into AccessControl state — make AccessControl canonical
-        accessControlState.userRoles.add(caller, #admin);
-        accessControlState.adminAssigned := true;
-        // Update caller's profile to set role = #admin, keep tier = #free
-        let profile = switch (UserLib.getProfile(userStore, caller)) {
-          case (?p) { p };
-          case (null) {
-            let timestamp = Int.abs(Time.now());
-            let creatorId = NftLib.generateCreatorId(caller);
-            UserLib.createProfile(userStore, caller, creatorId, timestamp)
-          };
-        };
-        let updated = { profile with role = #admin; updatedAt = Int.abs(Time.now()) };
-        UserLib.updateProfile(userStore, caller, updated);
-        true
-      };
-    }
+    // Admin is determined by hardcoded MASTER_ADMINS list.
+    // Dynamic claiming is disabled.
+    false
   };
 
   public query func hasAdmin() : async Bool {
-    switch (adminPrincipal) {
-      case (?_) { true };
-      case (null) { false };
-    }
+    accessControlState.adminAssigned
   };
 
   public query func getCanisterId() : async Text {
@@ -161,13 +147,8 @@ actor Main {
   };
 
   public query ({ caller }) func verifyNftByCreatorIdWithHistory(creatorId : Text) : async Result.Result<[NftTypes.VerifyResult], Text> {
-    switch (adminPrincipal) {
-      case (null) { return #err("Unauthorized: Admin only") };
-      case (?admin) {
-        if (not Principal.equal(caller, admin)) {
-          return #err("Unauthorized: Admin only");
-        };
-      };
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      return #err("Unauthorized: Admin only");
     };
     verifyNftByCreatorIdWithHistoryInternal(creatorId, Principal.fromActor(Main).toText())
   };

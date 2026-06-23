@@ -66,6 +66,11 @@
       "sourceType": "github",
       "computedHash": "2279db393bc2b436b3fdbcc8e50a99695e46ac0ee992566e55e163dae8dd25e0"
     },
+    "extension-oql": {
+      "source": "caffeinelabs/skills",
+      "sourceType": "github",
+      "computedHash": "bd14078e85ad2a9cc8b63dc409bc0cf07632e210cba94c9726cd7815aa67dd8b"
+    },
     "extension-posting-to-x": {
       "source": "caffeinelabs/skills",
       "sourceType": "github",

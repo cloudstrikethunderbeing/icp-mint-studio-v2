@@ -30,6 +30,7 @@ module {
     rewardTier : Common.RewardTier;
     nftUniqueId : Text;
     tags : [Text];
+    supplyLimit : Nat;
   };
 
   public type Collection = {
@@ -61,6 +62,7 @@ module {
     rewardTier : Common.RewardTier;
     nftUniqueId : Text;
     tags : [Text];
+    supplyLimit : Nat;
     status : NftStatus;
   };
 }

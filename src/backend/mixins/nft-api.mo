@@ -11,11 +11,10 @@ import Common "../types/common";
 import Types "../types/nft";
 import NftLib "../lib/nft";
 import UserLib "../lib/user";
-import Debug "mo:core/Debug";
 import Result "mo:core/Result";
-import Error "mo:core/Error";
 import Random "mo:core/Random";
 import ClaimLib "../lib/claim-link";
+import Debug "mo:core/Debug";
 
 mixin (
   accessControlState : AccessControl.AccessControlState,
@@ -82,12 +81,12 @@ mixin (
     assetHash : Text,
     title : Text,
     description : Text,
-    edition : Text,
     collectionId : ?Nat,
     businessName : ?Text,
     website : ?Text,
     discountCode : ?Text,
     membershipId : ?Text,
+    supplyLimit : Nat,
   ) : async Result.Result<{ id : Nat; tokenId : Nat; nftUniqueId : Text; collectionId : ?Nat }, { message : Text }> {
     if (caller.isAnonymous()) {
       return #err({ message = "Must be authenticated to mint" });
@@ -103,9 +102,12 @@ mixin (
       };
     };
 
-    switch (checkRateLimit(caller)) {
-      case (#err(msg)) { return #err({ message = msg }) };
-      case (#ok) {};
+    // Admin bypass: skip rate limit entirely
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      switch (checkRateLimit(caller)) {
+        case (#err(msg)) { return #err({ message = msg }) };
+        case (#ok) {};
+      };
     };
 
     if (not NftLib.validateAssetHash(assetHash)) {
@@ -123,12 +125,7 @@ mixin (
     // businessName, website, discountCode, membershipId are optional — no validation required
     // They are passed through as-is (null or value) without validation errors
 
-    switch (NftLib.validateEdition(edition)) {
-      case (#err(msg)) { return #err({ message = msg }) };
-      case (#ok(_)) {};
-    };
-
-    switch (collectionId) {
+    let edition = switch (collectionId) {
       case (?cid) {
         switch (collectionStore.get(cid)) {
           case (null) {
@@ -142,10 +139,14 @@ mixin (
             if (nftCount >= col.maxSize) {
               return #err({ message = "Collection is full" });
             };
+            if (nftCount >= 99) {
+              return #err({ message = "Collection edition limit reached (max 99)" });
+            };
+            (nftCount + 1).toText() # "/99"
           };
         };
       };
-      case (null) {};
+      case (null) { "1/1" }
     };
 
     let timestamp = Int.abs(Time.now());
@@ -169,8 +170,8 @@ mixin (
     Debug.print(debug_show(caller));
     Debug.print(debug_show(AccessControl.isAdmin(accessControlState, caller)));
     Debug.print(debug_show(adminPrincipal));
-    let isAdmin = AccessControl.isAdmin(accessControlState, caller);
-    if (isAdmin) {
+    // Admin bypass: skip all tier-based mint restrictions
+    if (AccessControl.isAdmin(accessControlState, caller)) {
       let id = if (nextNftId.value == 0) { nextNftId.value := 1; 1 } else { nextNftId.value };
       nextNftId.value := id + 1;
       let creatorId = profile.creatorId;
@@ -178,7 +179,8 @@ mixin (
       let nft = NftLib.createNft(
         nftStore, id, caller, creatorId, imageBlob, assetHash,
         sanitizedTitle, description, edition, timestamp,
-        collectionId, businessName, website, discountCode, membershipId, selfCanisterId.value
+        collectionId, businessName, website, discountCode, membershipId, selfCanisterId.value,
+        supplyLimit
       );
 
       let entry : Common.AuditEntry = {
@@ -207,9 +209,21 @@ mixin (
       let randomBytes = await Random.blob();
       let token = ClaimLib.buildToken(randomBytes);
       let now = Time.now();
-      ClaimLib.storeToken(claimTokenStore, nftToClaimToken, id, token, now);
+      ClaimLib.storeToken(claimTokenStore, nftToClaimToken, id, token, now, supplyLimit, 0);
       return #ok({ id; tokenId = id; nftUniqueId; collectionId });
     };
+
+    // Validate supplyLimit against caller's subscription tier
+    let maxSupply = switch (tier) {
+      case (#free) { 1 };
+      case (#creator) { 10 };
+      case (#pro) { 100 };
+      case (#org) { 500 };
+    };
+    if (supplyLimit > maxSupply) {
+      return #err({ message = "Supply limit exceeds tier maximum" });
+    };
+
     let maxSize = tierInfo.maxSlots * tierInfo.maxNFTsPerSlot;
     let activeCount = NftLib.countActiveNftsByOwner(nftStore, caller);
     if (activeCount >= maxSize) {
@@ -225,7 +239,8 @@ mixin (
     let nft = NftLib.createNft(
       nftStore, id, caller, creatorId, imageBlob, assetHash,
       sanitizedTitle, description, edition, timestamp,
-      collectionId, businessName, website, discountCode, membershipId, selfCanisterId.value
+      collectionId, businessName, website, discountCode, membershipId, selfCanisterId.value,
+      supplyLimit
     );
 
     try {
@@ -272,7 +287,7 @@ mixin (
         let randomBytes = await Random.blob();
         let token = ClaimLib.buildToken(randomBytes);
         let now = Time.now();
-        ClaimLib.storeToken(claimTokenStore, nftToClaimToken, id, token, now);
+        ClaimLib.storeToken(claimTokenStore, nftToClaimToken, id, token, now, supplyLimit, 0);
       };
       #ok({ id; tokenId = id; nftUniqueId; collectionId })
     } catch (e) {
@@ -360,7 +375,7 @@ mixin (
     if (partList.size() < 3) {
       return #err("NFT_NOT_FOUND_OR_INCOMPLETE");
     };
-    let tokenIdText = switch (partList.get(partList.size() - 1)) {
+    let tokenIdText = switch (partList.get(partList.size() - 1 : Nat)) {
       case (?t) t;
       case (null) { return #err("NFT_NOT_FOUND_OR_INCOMPLETE") };
     };
