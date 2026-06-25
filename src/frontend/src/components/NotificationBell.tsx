@@ -1,6 +1,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/hooks/useNotifications";
 import type { AppNotification, NotificationType } from "@/types";
+import { useNavigate } from "@tanstack/react-router";
 import { AlertTriangle, Bell, BellOff, Info, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -37,13 +38,41 @@ function typeIcon(type: NotificationType): React.ReactNode {
   }
 }
 
-function NotificationItem({ notif }: { notif: AppNotification }) {
+function NotificationItem({
+  notif,
+  onClick,
+}: {
+  notif: AppNotification;
+  onClick?: () => void;
+}) {
+  const isClickable = !!notif.navigationTarget;
   return (
     <div
-      className={`px-3 py-2.5 ${typeColor(notif.type)} ${notif.read ? "opacity-60" : ""}`}
+      role={isClickable ? "button" : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      onKeyDown={
+        isClickable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") onClick?.();
+            }
+          : undefined
+      }
+      onClick={isClickable ? onClick : undefined}
+      className={`px-3 py-2.5 ${typeColor(notif.type)} ${
+        notif.read ? "opacity-60" : ""
+      } ${isClickable ? "cursor-pointer hover:brightness-110 transition-all" : ""}`}
     >
       <div className="flex items-start gap-2">
-        {typeIcon(notif.type)}
+        {notif.imageUrl ? (
+          <img
+            src={notif.imageUrl}
+            alt=""
+            aria-hidden="true"
+            className="w-10 h-10 rounded-sm object-cover shrink-0 mt-0.5"
+          />
+        ) : (
+          typeIcon(notif.type)
+        )}
         <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold text-foreground leading-tight">
             {notif.title}
@@ -62,10 +91,11 @@ function NotificationItem({ notif }: { notif: AppNotification }) {
 
 export function NotificationBell() {
   const { principal } = useAuth();
-  const { notifications, unreadCount, markAllRead } =
+  const { notifications, unreadCount, markAllRead, clearAll } =
     useNotifications(principal);
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -80,6 +110,13 @@ export function NotificationBell() {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [open]);
+
+  function handleNotifClick(notif: AppNotification) {
+    if (!notif.navigationTarget) return;
+    markAllRead();
+    setOpen(false);
+    navigate({ to: notif.navigationTarget });
+  }
 
   return (
     <div className="relative" ref={panelRef}>
@@ -105,16 +142,30 @@ export function NotificationBell() {
               Notifications
             </span>
             {notifications.length > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  markAllRead();
-                }}
-                className="text-[11px] text-primary hover:underline"
-                data-ocid="header.mark_all_read_button"
-              >
-                Mark all as read
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    markAllRead();
+                  }}
+                  className="text-[11px] text-primary hover:underline"
+                  data-ocid="header.mark_all_read_button"
+                >
+                  Mark all as read
+                </button>
+                <span className="text-muted-foreground/40 text-[11px]">·</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearAll();
+                    setOpen(false);
+                  }}
+                  className="text-[11px] text-destructive hover:underline"
+                  data-ocid="header.clear_all_button"
+                >
+                  Clear All
+                </button>
+              </div>
             )}
           </div>
           <div className="max-h-80 overflow-y-auto">
@@ -127,7 +178,11 @@ export function NotificationBell() {
               </div>
             ) : (
               notifications.map((notif) => (
-                <NotificationItem key={notif.id} notif={notif} />
+                <NotificationItem
+                  key={notif.id}
+                  notif={notif}
+                  onClick={() => handleNotifClick(notif)}
+                />
               ))
             )}
           </div>

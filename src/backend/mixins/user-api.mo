@@ -2,7 +2,7 @@ import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
 import Time "mo:core/Time";
 import Text "mo:core/Text";
-import AccessControl "mo:caffeineai-authorization/access-control";
+import Auth "../lib/auth";
 import Common "../types/common";
 import Types "../types/user";
 import UserLib "../lib/user";
@@ -12,29 +12,22 @@ import Result "mo:core/Result";
 import Queue "mo:core/Queue";
 
 mixin (
-  accessControlState : AccessControl.AccessControlState,
   userStore : UserLib.UserStore,
   nftStore : NftLib.NftStore,
   globalAuditLog : Queue.Queue<Common.AuditEntry>,
   selfCanisterId : { var value : Text },
-  adminPrincipal : ?Principal,
-  ensureMasterAdminSynced : Principal -> (),
+  admins : [Principal],
 ) {
   public shared ({ caller }) func getCallerProfile() : async Types.UserProfile {
     if (caller.isAnonymous()) {
       Runtime.trap("Unauthorized: Anonymous caller");
     };
-    // Sync master admin status on every profile load
-    ensureMasterAdminSynced(caller);
     switch (UserLib.getProfile(userStore, caller)) {
-      case (?profile) {
-        profile
-      };
+      case (?profile) { profile };
       case (null) {
         let timestamp = Int.abs(Time.now());
         let creatorId = NftLib.generateCreatorId(caller);
-        let profile = UserLib.createProfile(userStore, caller, creatorId, timestamp);
-        profile
+        UserLib.createProfile(userStore, caller, creatorId, timestamp)
       };
     };
   };
@@ -155,7 +148,7 @@ mixin (
     if (caller.isAnonymous()) {
       return #err("Unauthorized: Anonymous caller");
     };
-    if (not AccessControl.isAdmin(accessControlState, caller)) {
+    if (not Auth.isAdmin(caller, admins)) {
       return #err("Unauthorized: Admin only");
     };
     let valid = switch (productId) {
@@ -202,7 +195,7 @@ mixin (
     if (caller.isAnonymous()) {
       return #err("Unauthorized: Anonymous caller");
     };
-    let isAdmin = AccessControl.isAdmin(accessControlState, caller);
+    let isAdmin = Auth.isAdmin(caller, admins);
     UserLib.createSlot(userStore, caller, isAdmin)
   };
 

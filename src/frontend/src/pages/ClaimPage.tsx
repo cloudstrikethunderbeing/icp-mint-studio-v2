@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CANISTERS } from "@/config/canisters";
 import { useAuth } from "@/contexts/AuthContext";
+import { addNotification } from "@/hooks/useNotifications";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import {
@@ -140,15 +141,39 @@ export default function ClaimPage() {
           queryKey: ["nftDetail", nftUniqueId],
           exact: true,
         });
+        const claimedImageUrl =
+          result.ok.imageBlob?.getDirectURL?.() ?? undefined;
+        addNotification({
+          type: "info",
+          title: "NFT Claimed",
+          message: `${result.ok.title} claimed successfully`,
+          navigationTarget: "/",
+          imageUrl: claimedImageUrl || undefined,
+        });
         navigate({
           to: "/claim/$claimToken/success",
           params: { claimToken },
         });
       } else {
-        setClaimError(result.err ?? "Unable to claim this NFT.");
+        const errMsg = result.err ?? "Unable to claim this NFT.";
+        setClaimError(errMsg);
+        addNotification({
+          type: "critical",
+          title: "Claim Failed",
+          message: errMsg,
+        });
       }
-    } catch {
-      setClaimError("Something went wrong. Please try again.");
+    } catch (err) {
+      const errMsg =
+        err instanceof Error
+          ? err.message
+          : "Something went wrong. Please try again.";
+      setClaimError(errMsg);
+      addNotification({
+        type: "critical",
+        title: "Claim Failed",
+        message: errMsg,
+      });
     } finally {
       setIsClaiming(false);
     }

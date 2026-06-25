@@ -6,22 +6,57 @@ import fs from "fs";
 import path from "path";
 
 const network = process.env.DFX_NETWORK || "local";
-const envKey = network === "ic" ? "live" : "draft";
+const isLive = network === "ic" || network === "live";
+const envKey = isLive ? "live" : "draft";
 
-const canisterIdsPath = path.resolve("canister-ids.json");
-let canisterIds = {};
-if (fs.existsSync(canisterIdsPath)) {
-  try {
-    canisterIds = JSON.parse(fs.readFileSync(canisterIdsPath, "utf-8"));
-  } catch {
-    // ignore parse errors
-  }
+// ── Hardcoded live canister IDs ──
+const LIVE_BACKEND_ID = "ksicd-uqaaa-aaaak-qy63a-cai";
+const LIVE_FRONTEND_ID = "k3lj7-cyaaa-aaaak-qy62q-cai";
+
+// ── Banner ──
+if (isLive) {
+  console.log("╔══════════════════════════════════════╗");
+  console.log("║      BUILDING FOR LIVE               ║");
+  console.log("╚══════════════════════════════════════╝");
+} else {
+  console.log("╔══════════════════════════════════════╗");
+  console.log("║      BUILDING FOR DRAFT              ║");
+  console.log("╚══════════════════════════════════════╝");
 }
 
-const ids = canisterIds[envKey] || {};
+let backendId;
+let frontendId;
 
-const backendId = process.env.CANISTER_ID_BACKEND || ids.backend || "";
-const frontendId = process.env.CANISTER_ID_FRONTEND || ids.frontend || "";
+if (isLive) {
+  backendId = LIVE_BACKEND_ID;
+  frontendId = LIVE_FRONTEND_ID;
+  console.log("[vite.config] Using hardcoded LIVE canister IDs");
+} else {
+  const canisterIdsPath = path.resolve("canister-ids.json");
+  let canisterIds = {};
+  if (fs.existsSync(canisterIdsPath)) {
+    try {
+      canisterIds = JSON.parse(fs.readFileSync(canisterIdsPath, "utf-8"));
+    } catch {
+      // ignore parse errors
+    }
+  }
+  const ids = canisterIds[envKey] || {};
+  backendId = ids.backend || "";
+  frontendId = ids.frontend || "";
+  console.log("[vite.config] Using canister-ids.json fallback for draft build");
+}
+
+if (!backendId || !frontendId) {
+  console.error("[vite.config] ERROR: Canister IDs are empty. Build cannot proceed.");
+  console.error(`  backendId: ${backendId || "<empty>"}`);
+  console.error(`  frontendId: ${frontendId || "<empty>"}`);
+  process.exit(1);
+}
+
+console.log(`[vite.config] Network: ${network}`);
+console.log(`[vite.config] CANISTER_ID_BACKEND: ${backendId}`);
+console.log(`[vite.config] CANISTER_ID_FRONTEND: ${frontendId}`);
 
 const ii_url =
   process.env.DFX_NETWORK === "local"
@@ -32,9 +67,9 @@ process.env.II_URL = process.env.II_URL || ii_url;
 process.env.STORAGE_GATEWAY_URL =
   process.env.STORAGE_GATEWAY_URL || "https://blob.caffeine.ai";
 
-// Build pipeline must set CANISTER_ID_BACKEND and CANISTER_ID_FRONTEND
-// for draft vs live environments. These are injected by vite-plugin-environment.
-// Fallbacks are defined in src/config/canisters.ts if env vars are missing.
+// CANISTER_ID_BACKEND and CANISTER_ID_FRONTEND are read from process.env.
+// If not present, they fall back to canister-ids.json (draft/live key).
+// Env vars take precedence so Caffeine builds never need manual canister-ids.json updates.
 
 export default defineConfig({
   logLevel: "error",

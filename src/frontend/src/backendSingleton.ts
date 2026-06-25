@@ -28,11 +28,9 @@ export function createAuthenticatedActor(identity: Identity): backendInterface {
     );
   }
 
-  // HARD GUARD 3: Log for debugging (non-anonymous only)
-  console.log("ICP_GUARD", {
-    principal: principalText,
-    isAnonymous: principal.isAnonymous(),
-  });
+  // TEMP LOG: actor creation lifecycle
+  console.log("[BACKEND] creating actor for principal:", principalText);
+  console.log("[BACKEND] target canisterId:", CANISTERS.backend);
 
   // Create actor with identity-bound agent
   // This is the ONLY call to createActor in the entire app
@@ -53,5 +51,9 @@ export function createAuthenticatedActor(identity: Identity): backendInterface {
     },
   );
 
+  console.log(
+    "[BACKEND] actor created successfully for principal:",
+    principalText,
+  );
   return actor;
 }

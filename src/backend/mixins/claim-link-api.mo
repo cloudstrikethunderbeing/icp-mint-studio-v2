@@ -1,6 +1,7 @@
 import Queue "mo:core/Queue";
 import Result "mo:core/Result";
 import Principal "mo:core/Principal";
+import Auth "../lib/auth";
 import NftLib "../lib/nft";
 import ClaimLib "../lib/claim-link";
 import NftTypes "../types/nft";
@@ -8,11 +9,9 @@ import ClaimTypes "../types/claim-link";
 import Common "../types/common";
 import Time "mo:core/Time";
 import UserLib "../lib/user";
-import AccessControl "mo:caffeineai-authorization/access-control";
 import Random "mo:core/Random";
 
 mixin (
-  accessControlState : AccessControl.AccessControlState,
   nftStore : NftLib.NftStore,
   claimTokenStore : ClaimLib.ClaimTokenStore,
   nftToClaimToken : ClaimLib.NftToClaimStore,
@@ -20,13 +19,14 @@ mixin (
   userStore : UserLib.UserStore,
   nextNftId : { var value : Nat },
   selfCanisterId : { var value : Text },
+  admins : [Principal],
 ) {
 
   /// Admin-only: generate a shareable claim URL for a specific NFT.
   /// Returns the relative path "/claim/" # token.
   public shared ({ caller }) func generateClaimLink(nftId : Nat) : async Result.Result<Text, Text> {
     // Admin check FIRST — bypass profile fetch and tier check entirely
-    if (not AccessControl.isAdmin(accessControlState, caller)) {
+    if (not Auth.isAdmin(caller, admins)) {
       // Non-admin: fetch profile and enforce tier restriction
       let callerProfile = switch (UserLib.getProfile(userStore, caller)) {
         case (?profile) { profile };
@@ -63,8 +63,8 @@ mixin (
 
   /// Admin-only: return claim status for a given NFT.
   public query ({ caller }) func getClaimStatus(nftId : Nat) : async Result.Result<ClaimTypes.ClaimStatus, Text> {
-    // Admin-only guard using AccessControl
-    if (not AccessControl.isAdmin(accessControlState, caller)) {
+    // Admin-only guard using Auth
+    if (not Auth.isAdmin(caller, admins)) {
       return #err("Unauthorized: Admin only");
     };
     switch (ClaimLib.getTokenForNft(nftToClaimToken, nftId)) {

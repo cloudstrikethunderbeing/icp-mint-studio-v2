@@ -6,7 +6,7 @@ import Time "mo:core/Time";
 import Nat "mo:core/Nat";
 import Text "mo:core/Text";
 import Storage "mo:caffeineai-object-storage/Storage";
-import AccessControl "mo:caffeineai-authorization/access-control";
+import Auth "../lib/auth";
 import Common "../types/common";
 import Types "../types/nft";
 import NftLib "../lib/nft";
@@ -14,10 +14,8 @@ import UserLib "../lib/user";
 import Result "mo:core/Result";
 import Random "mo:core/Random";
 import ClaimLib "../lib/claim-link";
-import Debug "mo:core/Debug";
 
 mixin (
-  accessControlState : AccessControl.AccessControlState,
   nftStore : NftLib.NftStore,
   collectionStore : NftLib.CollectionStore,
   nextNftId : { var value : Nat },
@@ -28,7 +26,7 @@ mixin (
   creatorIndex : Map.Map<Text, List.List<Nat>>,
   claimTokenStore : ClaimLib.ClaimTokenStore,
   nftToClaimToken : ClaimLib.NftToClaimStore,
-  adminPrincipal : ?Principal,
+  admins : [Principal],
 ) {
   func computeNftUniqueId(canisterId : Text, _collectionId : ?Nat, tokenId : Nat) : Text {
     if (canisterId == "") {
@@ -103,7 +101,7 @@ mixin (
     };
 
     // Admin bypass: skip rate limit entirely
-    if (not AccessControl.isAdmin(accessControlState, caller)) {
+    if (not Auth.isAdmin(caller, admins)) {
       switch (checkRateLimit(caller)) {
         case (#err(msg)) { return #err({ message = msg }) };
         case (#ok) {};
@@ -166,12 +164,7 @@ mixin (
     let tier = tierInfo.tier;
 
     // Admin bypass: skip all tier-based mint restrictions
-    Debug.print("MINT_GATE_CHECK");
-    Debug.print(debug_show(caller));
-    Debug.print(debug_show(AccessControl.isAdmin(accessControlState, caller)));
-    Debug.print(debug_show(adminPrincipal));
-    // Admin bypass: skip all tier-based mint restrictions
-    if (AccessControl.isAdmin(accessControlState, caller)) {
+    if (Auth.isAdmin(caller, admins)) {
       let id = if (nextNftId.value == 0) { nextNftId.value := 1; 1 } else { nextNftId.value };
       nextNftId.value := id + 1;
       let creatorId = profile.creatorId;
@@ -474,7 +467,7 @@ mixin (
       return #err("Name is required");
     };
 
-    let isAdmin = AccessControl.isAdmin(accessControlState, caller);
+    let isAdmin = Auth.isAdmin(caller, admins);
     if (isAdmin) {
       let id = nextCollectionId.value;
       nextCollectionId.value += 1;
@@ -633,7 +626,7 @@ mixin (
           return #err("NFT is not active");
         };
         let isOwner = Principal.equal(nft.ownerId, caller);
-        let isAdmin = AccessControl.isAdmin(accessControlState, caller);
+        let isAdmin = Auth.isAdmin(caller, admins);
         if (not isOwner and not isAdmin) {
           return #err("Unauthorized: Only the owner or admin can update metadata");
         };
@@ -675,7 +668,7 @@ mixin (
   };
 
   public query ({ caller }) func searchNfts(searchTerm : Text) : async [Types.Nft] {
-    let isAdmin = AccessControl.isAdmin(accessControlState, caller);
+    let isAdmin = Auth.isAdmin(caller, admins);
     if (not isAdmin) {
       Runtime.trap("Unauthorized: Admin only");
     };

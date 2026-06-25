@@ -3,7 +3,7 @@ import Runtime "mo:core/Runtime";
 import Time "mo:core/Time";
 import Text "mo:core/Text";
 import Result "mo:core/Result";
-import AccessControl "mo:caffeineai-authorization/access-control";
+import Auth "../lib/auth";
 import Common "../types/common";
 import Types "../types/payment-proof";
 import PaymentProofLib "../lib/payment-proof";
@@ -12,11 +12,10 @@ import Queue "mo:core/Queue";
 import NftLib "../lib/nft";
 
 mixin (
-  accessControlState : AccessControl.AccessControlState,
   paymentProofStore : PaymentProofLib.PaymentProofStore,
   userStore : UserLib.UserStore,
   globalAuditLog : Queue.Queue<Common.AuditEntry>,
-  adminPrincipal : ?Principal,
+  admins : [Principal],
 ) {
   public shared ({ caller }) func submitPaymentProof(
     txHash : Text,
@@ -66,7 +65,7 @@ mixin (
     if (caller.isAnonymous()) {
       return #err("Unauthorized: Anonymous caller");
     };
-    if (not AccessControl.isAdmin(accessControlState, caller)) {
+    if (not Auth.isAdmin(caller, admins)) {
       return #err("Unauthorized: Admin only");
     };
     switch (PaymentProofLib.getProof(paymentProofStore, proofId)) {
@@ -110,7 +109,7 @@ mixin (
     if (caller.isAnonymous()) {
       return #err("Unauthorized: Anonymous caller");
     };
-    if (not AccessControl.isAdmin(accessControlState, caller)) {
+    if (not Auth.isAdmin(caller, admins)) {
       return #err("Unauthorized: Admin only");
     };
     switch (PaymentProofLib.getProof(paymentProofStore, proofId)) {
@@ -147,7 +146,7 @@ mixin (
     if (caller.isAnonymous()) {
       return [];
     };
-    if (not AccessControl.isAdmin(accessControlState, caller)) {
+    if (not Auth.isAdmin(caller, admins)) {
       return [];
     };
     PaymentProofLib.listAllProofs(paymentProofStore)

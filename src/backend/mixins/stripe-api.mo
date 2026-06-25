@@ -1,23 +1,23 @@
 import Runtime "mo:core/Runtime";
 import Principal "mo:core/Principal";
 import Time "mo:core/Time";
-import AccessControl "mo:caffeineai-authorization/access-control";
+import Auth "../lib/auth";
 import StripeLib "../lib/stripe";
 import Common "../types/common";
 import Queue "mo:core/Queue";
 import Int "mo:core/Int";
 
 mixin (
-  accessControlState : AccessControl.AccessControlState,
   stripeConfigStore : StripeLib.StripeConfigStore,
   globalAuditLog : Queue.Queue<Common.AuditEntry>,
+  admins : [Principal],
 ) {
   public query func isStripeConfigured() : async Bool {
     StripeLib.isConfigured(stripeConfigStore);
   };
 
   public shared ({ caller }) func setStripeConfiguration(secretKey : Text, publicKey : Text) : async () {
-    if (not AccessControl.isAdmin(accessControlState, caller)) {
+    if (not Auth.isAdmin(caller, admins)) {
       Runtime.trap("Unauthorized: Only admins can configure Stripe");
     };
     StripeLib.setConfig(stripeConfigStore, secretKey, publicKey);

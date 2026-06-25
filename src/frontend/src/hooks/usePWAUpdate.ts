@@ -55,9 +55,8 @@ export function usePWAUpdate(): UsePWAUpdateReturn {
             }
           });
         });
-      } catch (err) {
+      } catch {
         // SW registration failed — not a blocking error
-        console.warn("[PWA] Service worker registration failed:", err);
       }
     };
 

@@ -72,22 +72,19 @@ export interface CollectionWithCount {
   'maxSize' : bigint,
 }
 export type CreatorId = string;
-export type Error = { 'FrontendOriginsNotConfigured' : null } |
-  {
-    'MixedSsoSources' : {
-      'otherKeys' : Array<string>,
-      'ssoKeys' : Array<string>,
-    }
-  } |
-  { 'Stale' : { 'ageNs' : bigint } } |
-  { 'MalformedCandid' : null } |
-  { 'AmbiguousAttribute' : { 'field' : string, 'sources' : Array<string> } } |
-  { 'NoAttributes' : null } |
-  { 'UnknownNonce' : null } |
-  { 'UntrustedSsoSource' : { 'domain' : string } } |
-  { 'MissingField' : string } |
-  { 'FrontendOriginMismatch' : { 'got' : string, 'expected' : Array<string> } };
 export type ExternalBlob = Uint8Array;
+export interface HealthMetrics {
+  'claimedNfts' : bigint,
+  'storageUsage' : bigint,
+  'totalCreators' : bigint,
+  'totalNfts' : bigint,
+  'totalCollections' : bigint,
+  'availableNfts' : bigint,
+  'backendBuildTimestamp' : bigint,
+  'totalClaims' : bigint,
+  'activeNfts' : bigint,
+  'canisterId' : string,
+}
 export interface Nft {
   'id' : bigint,
   'status' : NftStatus,
@@ -158,8 +155,6 @@ export type Result_7 = { 'ok' : bigint } |
   { 'err' : string };
 export type Result_8 = { 'ok' : Nft } |
   { 'err' : string };
-export type Result_9 = { 'ok' : null } |
-  { 'err' : Error };
 export type RewardTier = { 'bronze' : null } |
   { 'gold' : null } |
   { 'none' : null } |
@@ -189,8 +184,6 @@ export interface UserProfile {
   'emailAlerts' : Array<AlertType>,
   'maxSlots' : bigint,
   'createdAt' : Timestamp,
-  'role' : { 'creator' : null } |
-    { 'admin' : null },
   'subscriptionTier' : SubscriptionTier,
   'creatorId' : CreatorId,
   'email' : [] | [string],
@@ -200,9 +193,6 @@ export interface UserProfile {
   'principalId' : Principal,
   'creditsResetAt' : Timestamp,
 }
-export type UserRole = { 'admin' : null } |
-  { 'user' : null } |
-  { 'guest' : null };
 export interface VerifyResult {
   'status' : NftStatus,
   'supplyLimit' : bigint,
@@ -235,8 +225,11 @@ export interface _ImmutableObjectStorageRefillResult {
   'topped_up_amount' : [] | [bigint],
 }
 export interface _SERVICE {
-  '__accessControlState' : ActorMethod<[], any>,
-  '__adminPrincipal' : ActorMethod<[], [] | [Principal]>,
+  '__adminPrincipals' : ActorMethod<
+    [[] | [bigint], [] | [bigint]],
+    Array<Principal>
+  >,
+  '__backendBuildTimestamp' : ActorMethod<[], any>,
   '__claimTokenStore' : ActorMethod<
     [[] | [string], [] | [bigint]],
     Array<[string, ClaimToken]>
@@ -292,12 +285,8 @@ export interface _SERVICE {
     _ImmutableObjectStorageRefillResult
   >,
   '_immutableObjectStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
-  '_initialize_access_control' : ActorMethod<[], undefined>,
-  '_internet_identity_sign_in_finish' : ActorMethod<[], Result_9>,
-  '_internet_identity_sign_in_start' : ActorMethod<[], Uint8Array>,
   'addNftToCollection' : ActorMethod<[bigint, bigint], Result_2>,
   'approvePaymentProof' : ActorMethod<[string], Result_3>,
-  'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
   'burnNft' : ActorMethod<[bigint], Result_2>,
   'claimAdmin' : ActorMethod<[], boolean>,
   'claimNft' : ActorMethod<[string], Result_8>,
@@ -307,15 +296,7 @@ export interface _SERVICE {
   >,
   'createCollection' : ActorMethod<[string, string], Result_7>,
   'createSlot' : ActorMethod<[], Result_7>,
-  'debugAdminState' : ActorMethod<
-    [],
-    {
-      'adminPrincipalValue' : [] | [string],
-      'accessControlIsAdmin' : boolean,
-      'adminPrincipalMatchesCaller' : boolean,
-      'caller' : string,
-    }
-  >,
+  'debugAuth' : ActorMethod<[], string>,
   'deleteCollection' : ActorMethod<[bigint], undefined>,
   'deleteCollectionAndUnassignNfts' : ActorMethod<
     [CollectionId],
@@ -323,33 +304,42 @@ export interface _SERVICE {
   >,
   'deleteNft' : ActorMethod<[bigint], Result_2>,
   'generateClaimLink' : ActorMethod<[bigint], Result_3>,
-  'getAdminPrincipal' : ActorMethod<[], [] | [Principal]>,
+  'getActiveNfts' : ActorMethod<[], bigint>,
+  'getAvailableNfts' : ActorMethod<[], bigint>,
+  'getBackendBuildTimestamp' : ActorMethod<[], bigint>,
   'getCallerProfile' : ActorMethod<[], UserProfile>,
-  'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getCanisterId' : ActorMethod<[], string>,
+  'getCanisterIdSafe' : ActorMethod<[], string>,
   'getClaimPreview' : ActorMethod<[string], Result_6>,
   'getClaimStatus' : ActorMethod<[bigint], Result_5>,
+  'getClaimedNfts' : ActorMethod<[], bigint>,
   'getCollection' : ActorMethod<[bigint], [] | [Collection]>,
   'getCollectionIdByName' : ActorMethod<[string], [] | [CollectionId]>,
   'getCreditsStatus' : ActorMethod<
     [],
     { 'total' : bigint, 'used' : bigint, 'remaining' : bigint }
   >,
+  'getHealthMetrics' : ActorMethod<[], HealthMetrics>,
+  'getMetricsCanisterId' : ActorMethod<[], string>,
   'getMyPaymentProofs' : ActorMethod<[], Array<PaymentProof>>,
   'getNft' : ActorMethod<[bigint], [] | [Nft]>,
   'getSlotsStatus' : ActorMethod<
     [],
     { 'total' : bigint, 'used' : bigint, 'remaining' : bigint }
   >,
+  'getStorageUsage' : ActorMethod<[], bigint>,
   'getStripeSessionStatus' : ActorMethod<[string], { 'status' : string }>,
   'getStripeStatus' : ActorMethod<
     [],
     { 'mode' : string, 'configured' : boolean }
   >,
+  'getTotalClaims' : ActorMethod<[], bigint>,
+  'getTotalCollections' : ActorMethod<[], bigint>,
+  'getTotalCreators' : ActorMethod<[], bigint>,
   'getTotalMinted' : ActorMethod<[], bigint>,
+  'getTotalNfts' : ActorMethod<[], bigint>,
   'hasAdmin' : ActorMethod<[], boolean>,
   'isAdmin' : ActorMethod<[], boolean>,
-  'isCallerAdmin' : ActorMethod<[], boolean>,
   'isStripeConfigured' : ActorMethod<[], boolean>,
   'listMyActiveNfts' : ActorMethod<[], Array<Nft>>,
   'listMyCollections' : ActorMethod<[], Array<CollectionWithCount>>,

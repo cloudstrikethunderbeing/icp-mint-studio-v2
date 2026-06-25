@@ -3,6 +3,8 @@ import Set "mo:core/Set";
 import Principal "mo:core/Principal";
 import Nat "mo:core/Nat";
 import Text "mo:core/Text";
+import Queue "mo:core/Queue";
+import List "mo:core/List";
 
 module {
   public type UserRole = { #admin; #user; #guest };
@@ -12,6 +14,20 @@ module {
   public type SubscriptionTier = { #free; #creator; #pro; #org; #admin };
   public type AuditEntry = { action : Text; caller : Principal; timestamp : Nat; details : ?Text };
   public type NftStatus = { #active; #deleted; #burned };
+
+  public type PaymentProofStatus = { #pending; #approved; #rejected };
+  public type PaymentProof = {
+    id : Text; principal : Principal; txHash : Text; tierRequested : Text; networkType : Text;
+    status : PaymentProofStatus; submittedAt : Int; reviewedAt : ?Int; reviewedBy : ?Principal;
+    rejectionReason : ?Text
+  };
+  public type ClaimToken = {
+    nftId : Nat;
+    token : Text;
+    createdAt : Int;
+    usedBy : ?Principal;
+    usedAt : ?Int;
+  };
 
   // Old Nft without assetHash (matches 20250613 NewActor / .most snapshot)
   public type OldNft = { id : Nat; ownerId : Principal; creatorId : Text; imageBlob : Blob; title : Text; description : Text; edition : Text; mintDate : Nat; status : NftStatus; auditHistory : [AuditEntry] };
@@ -40,6 +56,13 @@ module {
     adminPrincipal : ?Principal;
     lastMintTime : { var value : Int };
     mintCount : { var value : Nat };
+    selfCanisterId : { var value : Text };
+    globalAuditLog : Queue.Queue<AuditEntry>;
+    paymentProofStore : Map.Map<Text, PaymentProof>;
+    creatorIndex : Map.Map<Text, List.List<Nat>>;
+    claimTokenStore : Map.Map<Text, ClaimToken>;
+    backendBuildTimestamp : { var value : Nat };
+    nftToClaimToken : Map.Map<Nat, Text>;
   };
 
   // New Nft with assetHash (matches current main.mo)
@@ -65,6 +88,12 @@ module {
     lastMintTime : { var value : Int };
     mintCount : { var value : Nat };
     selfCanisterId : { var value : Text };
+    globalAuditLog : Queue.Queue<AuditEntry>;
+    paymentProofStore : Map.Map<Text, PaymentProof>;
+    creatorIndex : Map.Map<Text, List.List<Nat>>;
+    claimTokenStore : Map.Map<Text, ClaimToken>;
+    backendBuildTimestamp : { var value : Nat };
+    nftToClaimToken : Map.Map<Nat, Text>;
   };
 
   func getMaxSlotsForTier(tier : SubscriptionTier) : Nat {
@@ -121,7 +150,13 @@ module {
       adminPrincipal = old.adminPrincipal;
       lastMintTime = old.lastMintTime;
       mintCount = old.mintCount;
-      selfCanisterId = { var value = "" };
+      selfCanisterId = old.selfCanisterId;
+      globalAuditLog = old.globalAuditLog;
+      paymentProofStore = old.paymentProofStore;
+      creatorIndex = old.creatorIndex;
+      claimTokenStore = old.claimTokenStore;
+      backendBuildTimestamp = old.backendBuildTimestamp;
+      nftToClaimToken = old.nftToClaimToken;
     }
   };
 }

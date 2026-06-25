@@ -40,7 +40,6 @@ module {
       email = null;
       emailAlerts = [];
       subscriptionTier = #free;
-      role = #creator;
       creditsUsed = 0;
       creditsTotal = NftLib.getTierCredits(#free);
       creditsResetAt = timestamp;
@@ -186,7 +185,7 @@ module {
     switch (store.get(principalId)) {
       case (null) { #err("User not found") };
       case (?profile) {
-        if (isAdmin or profile.role == #admin) {
+        if (isAdmin) {
           let newMaxSlots = profile.maxSlots + 1;
           store.add(principalId, { profile with maxSlots = newMaxSlots });
           #ok(newMaxSlots)

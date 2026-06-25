@@ -32,12 +32,6 @@ type VerifyResult =
    tokenId: nat;
    website: opt text;
  };
-type UserRole = 
- variant {
-   admin;
-   guest;
-   user;
- };
 type UserProfile = 
  record {
    activeSlots: nat;
@@ -51,10 +45,6 @@ type UserProfile =
    maxSlots: nat;
    oisyWalletAddress: opt text;
    principalId: principal;
-   role: variant {
-           admin;
-           creator;
-         };
    stripeProductId: opt text;
    subscriptionTier: SubscriptionTier;
  };
@@ -88,11 +78,6 @@ type RewardTier =
    none;
    platinum;
    silver;
- };
-type Result_9 = 
- variant {
-   err: Error;
-   ok;
  };
 type Result_8 = 
  variant {
@@ -198,29 +183,20 @@ type Nft =
    title: text;
    website: opt text;
  };
-type ExternalBlob = blob;
-type Error = 
- variant {
-   AmbiguousAttribute: record {
-                         field: text;
-                         sources: vec text;
-                       };
-   FrontendOriginMismatch: record {
-                             expected: vec text;
-                             got: text;
-                           };
-   FrontendOriginsNotConfigured;
-   MalformedCandid;
-   MissingField: text;
-   MixedSsoSources: record {
-                      otherKeys: vec text;
-                      ssoKeys: vec text;
-                    };
-   NoAttributes;
-   Stale: record {ageNs: nat;};
-   UnknownNonce;
-   UntrustedSsoSource: record {domain: text;};
+type HealthMetrics = 
+ record {
+   activeNfts: nat;
+   availableNfts: nat;
+   backendBuildTimestamp: nat;
+   canisterId: text;
+   claimedNfts: nat;
+   storageUsage: nat;
+   totalClaims: nat;
+   totalCollections: nat;
+   totalCreators: nat;
+   totalNfts: nat;
  };
+type ExternalBlob = blob;
 type CreatorId = text;
 type CollectionWithCount = 
  record {
@@ -294,8 +270,8 @@ type AlertType =
    transfer_window;
  };
 service : {
-  __accessControlState: () -> (reserved) query;
-  __adminPrincipal: () -> (opt principal) query;
+  __adminPrincipals: (io: opt nat, count: opt nat) -> (vec principal) query;
+  __backendBuildTimestamp: () -> (reserved) query;
   __claimTokenStore: (ko: opt text, count: opt nat) ->
    (vec record {
           text;
@@ -344,12 +320,8 @@ service : {
    opt _ImmutableObjectStorageRefillInformation) ->
    (_ImmutableObjectStorageRefillResult);
   _immutableObjectStorageUpdateGatewayPrincipals: () -> ();
-  _initialize_access_control: () -> ();
-  _internet_identity_sign_in_finish: () -> (Result_9);
-  _internet_identity_sign_in_start: () -> (blob);
   addNftToCollection: (nftId: nat, collectionId: nat) -> (Result_2);
   approvePaymentProof: (proofId: text) -> (Result_3);
-  assignCallerUserRole: (user: principal, role: UserRole) -> ();
   burnNft: (id: nat) -> (Result_2);
   claimAdmin: () -> (bool);
   claimNft: (token: text) -> (Result_8);
@@ -360,24 +332,21 @@ service : {
    text) -> (text);
   createCollection: (name: text, description: text) -> (Result_7);
   createSlot: () -> (Result_7);
-  debugAdminState: () ->
-   (record {
-      accessControlIsAdmin: bool;
-      adminPrincipalMatchesCaller: bool;
-      adminPrincipalValue: opt text;
-      caller: text;
-    }) query;
+  debugAuth: () -> (text) query;
   deleteCollection: (id: nat) -> ();
   deleteCollectionAndUnassignNfts: (collectionId: CollectionId) ->
    (CollectionSummary);
   deleteNft: (id: nat) -> (Result_2);
   generateClaimLink: (nftId: nat) -> (Result_3);
-  getAdminPrincipal: () -> (opt principal) query;
+  getActiveNfts: () -> (nat) query;
+  getAvailableNfts: () -> (nat) query;
+  getBackendBuildTimestamp: () -> (nat) query;
   getCallerProfile: () -> (UserProfile);
-  getCallerUserRole: () -> (UserRole) query;
   getCanisterId: () -> (text) query;
+  getCanisterIdSafe: () -> (text) query;
   getClaimPreview: (token: text) -> (Result_6) query;
   getClaimStatus: (nftId: nat) -> (Result_5) query;
+  getClaimedNfts: () -> (nat) query;
   getCollection: (id: nat) -> (opt Collection) query;
   getCollectionIdByName: (name: text) -> (opt CollectionId) query;
   getCreditsStatus: () ->
@@ -386,6 +355,8 @@ service : {
       total: nat;
       used: nat;
     }) query;
+  getHealthMetrics: () -> (HealthMetrics) query;
+  getMetricsCanisterId: () -> (text) query;
   getMyPaymentProofs: () -> (vec PaymentProof) query;
   getNft: (id: nat) -> (opt Nft) query;
   getSlotsStatus: () -> (record {
@@ -393,15 +364,19 @@ service : {
                            total: nat;
                            used: nat;
                          }) query;
+  getStorageUsage: () -> (nat) query;
   getStripeSessionStatus: (_sessionId: text) -> (record {status: text;});
   getStripeStatus: () -> (record {
                             configured: bool;
                             mode: text;
                           }) query;
+  getTotalClaims: () -> (nat) query;
+  getTotalCollections: () -> (nat) query;
+  getTotalCreators: () -> (nat) query;
   getTotalMinted: () -> (nat) query;
+  getTotalNfts: () -> (nat) query;
   hasAdmin: () -> (bool) query;
   isAdmin: () -> (bool) query;
-  isCallerAdmin: () -> (bool) query;
   isStripeConfigured: () -> (bool) query;
   listMyActiveNfts: () -> (vec Nft) query;
   listMyCollections: () -> (vec CollectionWithCount) query;

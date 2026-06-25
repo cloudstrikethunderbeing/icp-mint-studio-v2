@@ -1,21 +1,20 @@
 {
-  "overview": "ICP Mint Studio is a mobile-first NFT minting, management, and verification platform on the Internet Computer Protocol.",
+  "overview": "ICP Mint Studio is an NFT minting and distribution platform on the Internet Computer with collections, claim links, and subscription tiers.",
   "features": [
-    "NFT minting and management",
-    "Collection organization",
-    "Secure claim links",
-    "Role-based access control",
-    "Mobile-optimized UI",
-    "PWA support"
+    "Mint and manage NFTs",
+    "Create and manage collections",
+    "Generate claim links for NFT distribution",
+    "Subscription tier management",
+    "Notification bell with full activity history",
+    "Admin dashboard with health metrics"
   ],
-  "category": "productivity",
+  "category": "nft-platform",
   "tags": [
     "nft",
-    "icp",
+    "internet-computer",
     "minting",
     "collections",
-    "verification",
-    "pwa"
+    "notifications"
   ],
-  "last_updated": "2026-06-17T23:30:10.063Z"
+  "last_updated": "2026-06-24T07:21:59.262Z"
 }

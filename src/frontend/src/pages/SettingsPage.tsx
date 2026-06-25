@@ -1,44 +1,69 @@
+import HealthTab from "@/components/HealthTab";
 import { VersionIndicator } from "@/components/VersionIndicator";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CANISTERS } from "@/config/canisters";
 import { useAuth } from "@/contexts/AuthContext";
 import {
+  useActiveNfts,
   useApprovePaymentProof,
+  useAvailableNfts,
+  useBackendBuildTimestamp,
+  useClaimedNfts,
+  useHealthMetrics,
   useListPaymentProofs,
+  useMetricsCanisterId,
   useMyPaymentProofs,
   useRejectPaymentProof,
   useSetUserStripeProductId,
+  useStorageUsage,
   useSubmitPaymentProof,
+  useTotalClaims,
+  useTotalCollections,
+  useTotalCreators,
+  useTotalNfts,
 } from "@/hooks/useQueries";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
   AlertCircle,
+  BarChart3,
   Bitcoin,
+  Box,
+  Boxes,
   Building,
   Check,
   CheckCircle,
   Circle,
   ClipboardCheck,
   Copy,
+  Cpu,
   CreditCard,
+  Database,
   Eye,
   EyeOff,
   Fingerprint,
+  HardDrive,
+  Hash,
   HelpCircle,
   Layers,
   Link2,
   Loader2,
   Lock,
+  Package,
   PenTool,
   RefreshCw,
   Rocket,
   Send,
   Settings,
   Shield,
+  ShieldCheck,
   Sprout,
   UserCog,
+  Users,
+  Wallet,
   X,
   XCircle,
 } from "lucide-react";
@@ -65,7 +90,6 @@ function truncateText(text: string, start = 10, end = 5): string {
 }
 import type { UserProfile } from "@/backend";
 import { addNotification } from "@/hooks/useNotifications";
-import { usePermissions } from "@/hooks/usePermissions";
 import type { PaymentProof } from "@/types";
 import BrandedAuthGate from "../components/BrandedAuthGate";
 import InstallAppPrompt from "../components/InstallAppPrompt";
@@ -170,18 +194,21 @@ function CopyBtn({ value, ocid }: { value: string; ocid?: string }) {
 }
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<"general" | "admin">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "admin" | "health">(
+    "general",
+  );
   const [principalCopied, setPrincipalCopied] = useState(false);
-  const { isAuthenticated, actor, principal } = useAuth();
-  const { isAdmin, isAdminLoading } = usePermissions();
+  const { isAuthenticated, actor, principal, isAdmin, isAdminLoading } =
+    useAuth();
 
   const queryClient = useQueryClient();
 
   // InstallAppPrompt component handles PWA install state
 
-  // Redirect to general tab if user is not admin and somehow on admin tab
+  // Redirect to general tab if user is not admin and somehow on admin/health tab
   useEffect(() => {
-    if (!isAdmin && activeTab === "admin") setActiveTab("general");
+    if (!isAdmin && (activeTab === "admin" || activeTab === "health"))
+      setActiveTab("general");
   }, [isAdmin, activeTab]);
 
   // ── Stripe state ─────────────────────────────────────────────────────────
@@ -195,6 +222,21 @@ export default function SettingsPage() {
   const [savedSkPrefix, setSavedSkPrefix] = useState("");
   const [savedPkPrefix, setSavedPkPrefix] = useState("");
   const [keysSubmitted, setKeysSubmitted] = useState(false);
+
+  // ── Missing state declarations ───────────────────────────────────────────
+  const [canisterIdCopied, setCanisterIdCopied] = useState(false);
+  const [collectionIdCopied, setCollectionIdCopied] = useState(false);
+  const [proofTxHash, setProofTxHash] = useState("");
+  const [proofError, setProofError] = useState("");
+  const [proofSuccess, setProofSuccess] = useState("");
+  const [proofNetwork, setProofNetwork] = useState("icp");
+  const [proofTier, setProofTier] = useState("prod_UgpxVvHHogE6Qx");
+  const [tierUserPrincipal, setTierUserPrincipal] = useState("");
+  const [tierProductId, setTierProductId] = useState("prod_UgpwDUBgXdz0K5");
+  const [tierAssignError, setTierAssignError] = useState("");
+  const [tierAssignSuccess, setTierAssignSuccess] = useState("");
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   // ── Caller profile query (for live tier badge) ──────────────────────────
   const profileQuery = useQuery<UserProfile>({
@@ -211,94 +253,6 @@ export default function SettingsPage() {
   const subscriptionDisplay =
     TIER_NAMES[profileQuery.data?.stripeProductId ?? ""] || "Free";
 
-  // ── Stripe status query ───────────────────────────────────────────────────
-  const stripeStatusQuery = useQuery<StripeStatus>({
-    queryKey: ["stripeStatus"],
-    queryFn: async () => {
-      if (!actor) throw new Error("Actor not ready");
-      return await actor.getStripeStatus();
-    },
-    enabled: !!actor && isAuthenticated && isAdmin,
-    staleTime: 5 * 60 * 1000,
-    retry: 1,
-  });
-
-  // ── Stripe save mutation ──────────────────────────────────────────────────
-  const stripeMutation = useMutation({
-    mutationFn: async ({ sk, pk }: { sk: string; pk: string }) => {
-      if (!actor) throw new Error("No actor — please reconnect.");
-      await actor.setStripeConfiguration(sk, pk);
-    },
-    onSuccess: (_, { sk, pk }) => {
-      // Derive masked prefixes before clearing inputs
-      const skPrefix = sk.startsWith("sk_live_") ? "sk_live_" : "sk_test_";
-      const pkPrefix = pk.startsWith("pk_live_") ? "pk_live_" : "pk_test_";
-      setSavedSkPrefix(skPrefix);
-      setSavedPkPrefix(pkPrefix);
-      setSecretKey("");
-      setPublicKey("");
-      setKeysSubmitted(true);
-      setStripeInlineSuccess("Stripe keys saved successfully.");
-      setStripeInlineError("");
-      queryClient.invalidateQueries({ queryKey: ["stripeStatus"] });
-      stripeStatusQuery.refetch();
-    },
-    onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      setStripeInlineError(`Failed to save Stripe keys: ${msg}`);
-      setStripeInlineSuccess("");
-    },
-  });
-
-  function handleStripeSave() {
-    const sk = secretKey.trim();
-    const pk = publicKey.trim();
-    setStripeInlineError("");
-    setStripeInlineSuccess("");
-    if (!sk.startsWith("sk_test_") && !sk.startsWith("sk_live_")) {
-      setStripeInlineError("Secret key must start with sk_test_ or sk_live_");
-      return;
-    }
-    if (!pk.startsWith("pk_test_") && !pk.startsWith("pk_live_")) {
-      setStripeInlineError("Public key must start with pk_test_ or pk_live_");
-      return;
-    }
-    if (sk.startsWith("sk_live_") !== pk.startsWith("pk_live_")) {
-      setStripeInlineError(
-        "Secret and public keys must both be test or both be live",
-      );
-      return;
-    }
-    stripeMutation.mutate({ sk, pk });
-  }
-
-  // ── Collection Discovery state ────────────────────────────────────────────
-  const [canisterIdCopied, setCanisterIdCopied] = useState(false);
-  const [collectionIdCopied, setCollectionIdCopied] = useState(false);
-
-  // ── Manual Tier Assignment state ────────────────────────────────────────
-  const [tierUserPrincipal, setTierUserPrincipal] = useState("");
-  const [tierProductId, setTierProductId] = useState("prod_UgpwDUBgXdz0K5");
-  const [tierAssignError, setTierAssignError] = useState("");
-  const [tierAssignSuccess, setTierAssignSuccess] = useState("");
-
-  const setUserStripeProductId = useSetUserStripeProductId();
-
-  // ── Payment Proof state ───────────────────────────────────────────────────
-  const [proofTxHash, setProofTxHash] = useState("");
-  const [proofNetwork, setProofNetwork] = useState("icp");
-  const [proofTier, setProofTier] = useState("prod_UgpxVvHHogE6Qx");
-  const [proofError, setProofError] = useState("");
-  const [proofSuccess, setProofSuccess] = useState("");
-  const [rejectReason, setRejectReason] = useState("");
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
-
-  const submitPaymentProof = useSubmitPaymentProof();
-  const approvePaymentProof = useApprovePaymentProof();
-  const rejectPaymentProof = useRejectPaymentProof();
-  const myProofsQuery = useMyPaymentProofs(principal);
-  const listProofsQuery = useListPaymentProofs(isAdmin);
-
   // ── Canister ID query ───────────────────────────────────────────────────
   const canisterIdQuery = useQuery<string>({
     queryKey: ["canisterId"],
@@ -312,11 +266,22 @@ export default function SettingsPage() {
     staleTime: Number.POSITIVE_INFINITY,
   });
 
-  const canisterIdDisplay = canisterIdQuery.isLoading
-    ? "Loading..."
-    : canisterIdQuery.data && canisterIdQuery.data.trim().length > 0
-      ? canisterIdQuery.data
-      : "Unavailable";
+  // ── Canister ID with multiple fallback sources ──────────────────────────
+  const FALLBACK_CANISTER_ID = "4j4fw-fyaaa-aaaah-argua-cai";
+
+  const canisterIdDisplay = (() => {
+    if (canisterIdQuery.isLoading) return "Loading...";
+    const actorId = canisterIdQuery.data?.trim();
+    if (actorId && actorId.length > 0) return actorId;
+    const envId = CANISTERS.backend?.trim();
+    if (envId && envId.length > 0) return envId;
+    return FALLBACK_CANISTER_ID;
+  })();
+
+  const effectiveCanisterId =
+    canisterIdQuery.data?.trim() ||
+    CANISTERS.backend?.trim() ||
+    FALLBACK_CANISTER_ID;
 
   // ── Collection ID query ─────────────────────────────────────────────────
   const collectionIdQuery = useQuery<string | null>({
@@ -331,6 +296,73 @@ export default function SettingsPage() {
     enabled: !!actor && isAuthenticated,
     staleTime: Number.POSITIVE_INFINITY,
   });
+
+  // ── Payment proof queries ───────────────────────────────────────────────
+  const myProofsQuery = useMyPaymentProofs(principal);
+  const listProofsQuery = useListPaymentProofs(isAdmin);
+
+  // ── Payment proof mutations ─────────────────────────────────────────────
+  const submitPaymentProof = useSubmitPaymentProof();
+  const approvePaymentProof = useApprovePaymentProof();
+  const rejectPaymentProof = useRejectPaymentProof();
+
+  // ── Tier assignment mutation ────────────────────────────────────────────
+  const setUserStripeProductId = useSetUserStripeProductId();
+
+  // ── Stripe status query ─────────────────────────────────────────────────
+  const stripeStatusQuery = useQuery<{ configured: boolean; mode: string }>({
+    queryKey: ["stripeStatus"],
+    queryFn: async () => {
+      if (!actor) throw new Error("No actor");
+      return actor.getStripeStatus();
+    },
+    enabled: !!actor && isAuthenticated,
+    staleTime: 30 * 1000,
+  });
+
+  // ── Stripe save mutation ────────────────────────────────────────────────
+  const stripeMutation = useMutation({
+    mutationFn: async ({
+      secretKey,
+      publicKey,
+    }: {
+      secretKey: string;
+      publicKey: string;
+    }) => {
+      if (!actor) throw new Error("No actor");
+      return actor.setStripeConfiguration(secretKey, publicKey);
+    },
+    onSuccess: () => {
+      setStripeInlineSuccess("Stripe keys saved successfully.");
+      setStripeInlineError("");
+      setKeysSubmitted(true);
+      // Extract prefix before the last underscore for display
+      const skPrefix = secretKey.slice(0, secretKey.lastIndexOf("_") + 1);
+      const pkPrefix = publicKey.slice(0, publicKey.lastIndexOf("_") + 1);
+      setSavedSkPrefix(skPrefix);
+      setSavedPkPrefix(pkPrefix);
+      setSecretKey("");
+      setPublicKey("");
+      queryClient.invalidateQueries({ queryKey: ["stripeStatus"] });
+    },
+    onError: (err: Error) => {
+      setStripeInlineError(err.message || "Failed to save Stripe keys.");
+      setStripeInlineSuccess("");
+    },
+  });
+
+  const handleStripeSave = () => {
+    setStripeInlineSuccess("");
+    setStripeInlineError("");
+    if (!secretKey.trim() || !publicKey.trim()) {
+      setStripeInlineError("Both Secret Key and Public Key are required.");
+      return;
+    }
+    stripeMutation.mutate({
+      secretKey: secretKey.trim(),
+      publicKey: publicKey.trim(),
+    });
+  };
 
   if (!isAuthenticated) {
     return <BrandedAuthGate subtitle="Connect to access settings." />;
@@ -376,6 +408,18 @@ export default function SettingsPage() {
           >
             Admin
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("health")}
+            className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === "health"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80"
+            }`}
+            data-ocid="settings.health_tab"
+          >
+            Health
+          </button>
         </div>
       )}
 
@@ -396,9 +440,11 @@ export default function SettingsPage() {
                   </p>
                 ) : (
                   <>
-                    <div className="text-lg font-semibold">{roleDisplay}</div>
+                    <div className="text-lg font-semibold">
+                      {isAdmin ? "Master Admin" : roleDisplay}
+                    </div>
                     <div className="text-sm text-muted-foreground">
-                      {subscriptionDisplay}
+                      {isAdmin ? "Admin" : subscriptionDisplay}
                     </div>
                   </>
                 )}
@@ -412,7 +458,7 @@ export default function SettingsPage() {
               }`}
               data-ocid="settings.tier_badge"
             >
-              {isAdmin ? roleDisplay : subscriptionDisplay}
+              {isAdmin ? "Master Admin" : subscriptionDisplay}
             </Badge>
           </div>
 
@@ -487,8 +533,8 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (canisterIdQuery.data) {
-                        navigator.clipboard.writeText(canisterIdQuery.data);
+                      if (effectiveCanisterId) {
+                        navigator.clipboard.writeText(effectiveCanisterId);
                         setCanisterIdCopied(true);
                         setTimeout(() => setCanisterIdCopied(false), 2000);
                       }
@@ -805,7 +851,7 @@ export default function SettingsPage() {
           {/* ── Install App Prompt ─────────────────────────────────────────────── */}
           <InstallAppPrompt />
         </div>
-      ) : isAdmin ? (
+      ) : isAdmin && activeTab === "admin" ? (
         <div className="space-y-5" data-ocid="settings.admin_panel">
           {/* ── Claim Link Manager (admin only — informational) ─────────────── */}
           <div
@@ -894,6 +940,7 @@ export default function SettingsPage() {
                     setTierAssignError("User Principal ID is required.");
                     return;
                   }
+                  const tierName = TIER_NAMES[tierProductId] || tierProductId;
                   setUserStripeProductId.mutate(
                     {
                       userPrincipal: tierUserPrincipal.trim(),
@@ -903,6 +950,12 @@ export default function SettingsPage() {
                       onSuccess: () => {
                         setTierAssignSuccess("Tier assigned successfully.");
                         setTierUserPrincipal("");
+                        addNotification({
+                          type: "info",
+                          title: "Plan Upgraded",
+                          message: `Upgraded to ${tierName}`,
+                          navigationTarget: "/settings",
+                        });
                       },
                       onError: (err: Error) => {
                         setTierAssignError(
@@ -1345,6 +1398,8 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+      ) : isAdmin && activeTab === "health" ? (
+        <HealthTab />
       ) : (
         <div
           className="flex flex-col items-center justify-center py-12 gap-3"

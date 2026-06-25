@@ -42,6 +42,15 @@ module {
   public type StripeConfigStore = { var secretKey : ?Text; var publicKey : ?Text };
   public type RateLimitEntry = { var count : Nat; var windowStart : Nat };
 
+  public type ClaimToken = {
+    nftId : Nat;
+    token : Text;
+    createdAt : Int;
+    usedBy : ?Principal;
+    usedAt : ?Int;
+  };
+
+  // OldActor = NewActor of 20250624_000000_AddBackendBuildTimestamp
   public type OldActor = {
     accessControlState : AccessControlState;
     nftStore : Map.Map<Nat, Nft>;
@@ -58,8 +67,13 @@ module {
     selfCanisterId : { var value : Text };
     globalAuditLog : Queue.Queue<AuditEntry>;
     paymentProofStore : Map.Map<Text, PaymentProof>;
+    backendBuildTimestamp : { var value : Nat };
+    claimTokenStore : Map.Map<Text, ClaimToken>;
+    creatorIndex : Map.Map<Text, List.List<Nat>>;
+    nftToClaimToken : Map.Map<Nat, Text>;
   };
 
+  // NewActor adds creatorIndex (all current fields)
   public type NewActor = {
     accessControlState : AccessControlState;
     nftStore : Map.Map<Nat, Nft>;
@@ -76,7 +90,10 @@ module {
     selfCanisterId : { var value : Text };
     globalAuditLog : Queue.Queue<AuditEntry>;
     paymentProofStore : Map.Map<Text, PaymentProof>;
+    backendBuildTimestamp : { var value : Nat };
     creatorIndex : Map.Map<Text, List.List<Nat>>;
+    claimTokenStore : Map.Map<Text, ClaimToken>;
+    nftToClaimToken : Map.Map<Nat, Text>;
   };
 
   public func migration(old : OldActor) : NewActor {
@@ -112,7 +129,10 @@ module {
       selfCanisterId = old.selfCanisterId;
       globalAuditLog = old.globalAuditLog;
       paymentProofStore = old.paymentProofStore;
+      backendBuildTimestamp = old.backendBuildTimestamp;
       creatorIndex = newCreatorIndex;
+      claimTokenStore = old.claimTokenStore;
+      nftToClaimToken = old.nftToClaimToken;
     }
   };
 }

@@ -1,4 +1,4 @@
-import { ExternalBlob, type SubscriptionTier } from "@/backend";
+import { ExternalBlob } from "@/backend";
 import type { CollectionWithCount, Nft } from "@/backend";
 import { NftDetailModal } from "@/components/NftDetailModal";
 import { Button } from "@/components/ui/button";
@@ -29,7 +29,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/hooks/useNotifications";
-import { usePermissions } from "@/hooks/usePermissions";
 import {
   useCreateSlot,
   useGenerateClaimLink,
@@ -63,7 +62,6 @@ const UPLOAD_SLOT_IDX = 4; // center of 3x3 grid (0-indexed)
 
 function buildAdminGrid(nfts: Nft[]): GridSlot[] {
   if (!Array.isArray(nfts)) {
-    console.error("INVALID NFT INPUT:", nfts);
     return [];
   }
   const safeNfts = nfts.filter((item): item is Nft => item != null);
@@ -199,8 +197,6 @@ function UploadCard({
   setMintDialogOpen,
   isAuthenticated,
   actor,
-  profileReady,
-  subscriptionTier,
   isAdmin,
 }: {
   collections: CollectionWithCount[];
@@ -214,8 +210,6 @@ function UploadCard({
   setMintDialogOpen: (v: boolean) => void;
   isAuthenticated: boolean;
   actor: unknown;
-  profileReady: boolean;
-  subscriptionTier: SubscriptionTier | null;
   isAdmin?: boolean;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -234,19 +228,8 @@ function UploadCard({
 
   const tierMax = useMemo(() => {
     if (isAdmin) return 500;
-    switch (subscriptionTier) {
-      case "free":
-        return 1;
-      case "creator":
-        return 10;
-      case "pro":
-        return 100;
-      case "org":
-        return 500;
-      default:
-        return 1;
-    }
-  }, [subscriptionTier, isAdmin]);
+    return 1;
+  }, [isAdmin]);
 
   const [supplyLimit, setSupplyLimit] = useState<number>(tierMax);
   const [supplyLimitStr, setSupplyLimitStr] = useState<string>(
@@ -336,7 +319,7 @@ function UploadCard({
 
   function handleMint() {
     if (!file || !title.trim()) return;
-    if (!isAuthenticated || !actor || !profileReady) {
+    if (!isAuthenticated || !actor) {
       toast.error("Connect your wallet to mint NFTs.");
       return;
     }
@@ -627,11 +610,7 @@ function UploadCard({
               type="button"
               onClick={handleMint}
               disabled={
-                !title.trim() ||
-                isMinting ||
-                !isAuthenticated ||
-                !actor ||
-                !profileReady
+                !title.trim() || isMinting || !isAuthenticated || !actor
               }
               data-ocid="home.mint_submit_button"
             >
@@ -661,11 +640,9 @@ export default function HomePage() {
     actor,
     principal,
     authState,
-    profileReady,
-    creatorId,
-    subscriptionTier,
+    isAdmin,
+    isAdminLoading,
   } = useAuth();
-  const { isAdmin, isAdminLoading, canMint } = usePermissions();
 
   const queryClient = useQueryClient();
   const _createSlotMutation = useCreateSlot();
@@ -720,7 +697,7 @@ export default function HomePage() {
     setMintOverlayDismissVisible(false);
   }, [mintTransition.stage]);
 
-  const { data: nfts = [], isLoading } = useMyActiveNfts();
+  const { data: nfts = [], isLoading } = useMyActiveNfts(principal);
 
   const { data: searchResults = [], isLoading: isSearchLoading } =
     useSearchNfts(debouncedSearch.trim(), isAdmin && isSearchActive);
@@ -862,17 +839,13 @@ export default function HomePage() {
         setTimeout(() => setSlotFlash(null), 600);
       }
       // Auto-generate claim link for admin or paid tiers after successful mint
-      if (canMint && nftUniqueId && ok?.id !== undefined) {
+      if (isAdmin && nftUniqueId && ok?.id !== undefined) {
         generateClaimLinkForAdmin
           .mutateAsync(ok.id)
           .then((url: string) => {
             setMintedClaimUrl(url);
           })
-          .catch((err: Error) => {
-            console.warn(
-              "[Admin] Auto-generate claim link failed (non-critical):",
-              err,
-            );
+          .catch(() => {
             // Auto-dismiss only when no claim URL was captured
             setTimeout(() => setMintTransition({ stage: "idle" }), 2500);
           });
@@ -954,7 +927,7 @@ export default function HomePage() {
     },
     onSuccess: (_data, id: bigint) => {
       addNotification({
-        type: "critical",
+        type: "warning",
         title: "NFT Burned",
         message: "NFT has been permanently destroyed.",
       });
@@ -1000,7 +973,11 @@ export default function HomePage() {
   const displayLoading =
     isAdmin && isSearchActive ? isSearchLoading : isLoading;
 
-  const stableNfts = useMemo(() => displayNfts ?? [], [displayNfts]);
+  const unclaimedNfts = useMemo(
+    () => (displayNfts ?? []).filter((nft) => !nft.claimedAt),
+    [displayNfts],
+  );
+  const stableNfts = useMemo(() => unclaimedNfts, [unclaimedNfts]);
   const gridSlots = useMemo(() => {
     if (isAdmin) {
       return buildAdminGrid(stableNfts);
@@ -1009,7 +986,6 @@ export default function HomePage() {
   }, [stableNfts, isAdmin]);
 
   // 3-tier auth gating for Mint UI
-  const _effectiveCreatorId = creatorId ?? principal ?? "";
 
   if (authState === "loading") {
     return (
@@ -1044,22 +1020,8 @@ export default function HomePage() {
   }
 
   // authState === "ready"
-  if (!profileReady) {
-    return (
-      <div className="flex flex-col gap-4 p-3 max-w-xl mx-auto w-full pb-24">
-        <BrandedAuthGate subtitle="Mint, claim, and collect NFTs on the Internet Computer." />
-        <div
-          className="flex flex-col items-center justify-center py-20 gap-3"
-          data-ocid="home.profile_loading_state"
-        >
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Creating profile...</p>
-        </div>
-      </div>
-    );
-  }
 
-  // Full Mint UI — authState === "ready" && profileReady
+  // Full Mint UI — authState === "ready"
   return (
     <div className="flex flex-col gap-4 p-3 max-w-xl mx-auto w-full pb-24">
       {/* Hero branding — persistent on mint screen */}
@@ -1185,8 +1147,6 @@ export default function HomePage() {
                   mintSuccessSignal={mintSuccessSignal}
                   isAuthenticated={isAuthenticated}
                   actor={actor}
-                  profileReady={profileReady}
-                  subscriptionTier={subscriptionTier}
                   isAdmin={isAdmin}
                 />
               );

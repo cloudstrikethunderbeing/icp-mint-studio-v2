@@ -8,7 +8,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
-import { usePermissions } from "@/hooks/usePermissions";
 import { useParams, useSearch } from "@tanstack/react-router";
 import {
   AlertCircle,
@@ -358,8 +357,7 @@ function NotFoundState() {
 }
 
 export default function VerifyPage() {
-  const { actor } = useAuth();
-  const { isAdmin } = usePermissions();
+  const { actor, isAdmin } = useAuth();
 
   // Read ?id=canisterId:0:tokenId from URL search params
   const search = useSearch({ strict: false }) as Record<string, string>;

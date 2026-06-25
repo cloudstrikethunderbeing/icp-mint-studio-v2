@@ -73,7 +73,7 @@ function setStore(principalId: string | null, next: AppNotification[]) {
 export function addNotification(
   notif: Omit<AppNotification, "id" | "read" | "timestamp">,
   principalId: string | null = null,
-) {
+): string {
   const next: AppNotification = {
     ...notif,
     id: generateId(),
@@ -92,6 +92,12 @@ export function markAllRead(principalId: string | null = null) {
     principalId,
     current.map((n) => ({ ...n, read: true })),
   );
+}
+export function clearAll(principalId: string | null = null) {
+  const key = resolveKey(principalId);
+  stores.set(key, []);
+  saveToStorage(principalId, []);
+  emit();
 }
 
 // Clear in-memory store for a principal (e.g. on logout).
@@ -151,10 +157,15 @@ export function useNotifications(principalId: string | null = null) {
     markAllRead(effectivePrincipal);
   }, [effectivePrincipal]);
 
+  const clearAllNotifs = useCallback(() => {
+    clearAll(effectivePrincipal);
+  }, [effectivePrincipal]);
+
   return {
     notifications,
     unreadCount,
     addNotification: addNotif,
     markAllRead: markRead,
+    clearAll: clearAllNotifs,
   };
 }

@@ -5,8 +5,6 @@ import Set "mo:core/Set";
 import Principal "mo:core/Principal";
 
 module {
-  // ── Shared types (inlined — no project imports allowed) ──────────────────
-
   public type UserRole = { #admin; #user; #guest };
   public type AccessControlState = { var adminAssigned : Bool; userRoles : Map.Map<Principal, UserRole> };
   public type VerifiedEmailsState = { verifiedEmails : Set.Set<Text> };
@@ -46,7 +44,6 @@ module {
   public type StripeConfigStore = { var secretKey : ?Text; var publicKey : ?Text };
   public type RateLimitEntry = { var count : Nat; var windowStart : Nat };
 
-  // ── NEW: ClaimToken type ─────────────────────────────────────────────────
   public type ClaimToken = {
     nftId : Nat;
     token : Text;
@@ -55,7 +52,7 @@ module {
     usedAt : ?Int;
   };
 
-  // ── OldActor = NewActor of 20250625_000000_AddCollectionNftFields ────────
+  // OldActor = NewActor of 20250625_000000_AddCollectionNftFields
   public type OldActor = {
     accessControlState : AccessControlState;
     nftStore : Map.Map<Nat, Nft>;
@@ -72,10 +69,12 @@ module {
     selfCanisterId : { var value : Text };
     globalAuditLog : Queue.Queue<AuditEntry>;
     paymentProofStore : Map.Map<Text, PaymentProof>;
+    backendBuildTimestamp : { var value : Nat };
     creatorIndex : Map.Map<Text, List.List<Nat>>;
+    claimTokenStore : Map.Map<Text, ClaimToken>;
+    nftToClaimToken : Map.Map<Nat, Text>;
   };
 
-  // ── NewActor adds the two claim-link stores ──────────────────────────────
   public type NewActor = {
     accessControlState : AccessControlState;
     nftStore : Map.Map<Nat, Nft>;
@@ -92,6 +91,7 @@ module {
     selfCanisterId : { var value : Text };
     globalAuditLog : Queue.Queue<AuditEntry>;
     paymentProofStore : Map.Map<Text, PaymentProof>;
+    backendBuildTimestamp : { var value : Nat };
     creatorIndex : Map.Map<Text, List.List<Nat>>;
     claimTokenStore : Map.Map<Text, ClaimToken>;
     nftToClaimToken : Map.Map<Nat, Text>;
@@ -114,9 +114,10 @@ module {
       selfCanisterId = old.selfCanisterId;
       globalAuditLog = old.globalAuditLog;
       paymentProofStore = old.paymentProofStore;
+      backendBuildTimestamp = old.backendBuildTimestamp;
       creatorIndex = old.creatorIndex;
-      claimTokenStore = Map.empty<Text, ClaimToken>();
-      nftToClaimToken = Map.empty<Nat, Text>();
+      claimTokenStore = old.claimTokenStore;
+      nftToClaimToken = old.nftToClaimToken;
     }
   };
 }

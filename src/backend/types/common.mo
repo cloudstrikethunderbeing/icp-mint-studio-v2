@@ -1,4 +1,3 @@
-import Debug "mo:core/Debug";
 module {
   public type UserId = Principal;
   public type Timestamp = Nat;

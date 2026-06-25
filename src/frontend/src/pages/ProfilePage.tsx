@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
-import { usePermissions } from "@/hooks/usePermissions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -16,11 +15,8 @@ function truncatePrincipal(pid: string) {
 }
 
 function RoleBadge() {
-  const { effectiveRole, isAdmin, isAdminLoading } = usePermissions();
+  const { isAdmin, isAdminLoading } = useAuth();
 
-  // Show skeleton while loading; never hide the badge entirely —
-  // this prevents the "missing admin indicator" bug when the query
-  // is still in-flight.
   if (isAdminLoading) {
     return (
       <div
@@ -33,33 +29,15 @@ function RoleBadge() {
     );
   }
 
-  const badgeMap: Record<
-    string,
-    { icon: string; label: string; className: string }
-  > = {
-    admin: {
-      icon: "",
-      label: "Master Admin",
-      className: "bg-amber-500/15 text-amber-400 border-amber-500/30",
-    },
-    paidCreator: {
-      icon: "",
-      label: "Creator",
-      className: "bg-primary/15 text-primary border-primary/30",
-    },
-    freeCreator: {
-      icon: "",
-      label: "Creator (Free)",
-      className: "bg-muted text-muted-foreground border-border",
-    },
-    collector: {
-      icon: "",
-      label: "Collector",
-      className: "bg-secondary/15 text-secondary-foreground border-border",
-    },
-  };
-
-  const badge = badgeMap[effectiveRole] ?? badgeMap.collector;
+  const badge = isAdmin
+    ? {
+        label: "Master Admin",
+        className: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+      }
+    : {
+        label: "Creator",
+        className: "bg-primary/15 text-primary border-primary/30",
+      };
 
   return (
     <div
@@ -79,14 +57,6 @@ function RoleBadge() {
           <p className="text-xs text-foreground">
             Effective permissions:{" "}
             <span className="font-medium">Administrator</span>
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Subscription:{" "}
-            <span className="font-mono">
-              {effectiveRole === "freeCreator" || effectiveRole === "collector"
-                ? "Free"
-                : effectiveRole}
-            </span>
           </p>
         </div>
       )}
@@ -202,8 +172,8 @@ export default function ProfilePage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["callerProfile"] });
     },
-    onError: (err: Error) => {
-      console.error("Oisy save failed:", err);
+    onError: () => {
+      // silently handled
     },
   });
 
@@ -216,8 +186,8 @@ export default function ProfilePage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["callerProfile"] });
     },
-    onError: (err: Error) => {
-      console.error("Email save failed:", err);
+    onError: () => {
+      // silently handled
     },
   });
 

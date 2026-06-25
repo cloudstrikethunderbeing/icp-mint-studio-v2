@@ -35,13 +35,6 @@ export type Result_5 = {
     __kind__: "err";
     err: string;
 };
-export type Result_1 = {
-    __kind__: "ok";
-    ok: Array<VerifyResult>;
-} | {
-    __kind__: "err";
-    err: string;
-};
 export interface CollectionWithCount {
     id: bigint;
     previewImage?: string;
@@ -54,6 +47,13 @@ export interface CollectionWithCount {
     nftCount: bigint;
     maxSize: bigint;
 }
+export type Result_1 = {
+    __kind__: "ok";
+    ok: Array<VerifyResult>;
+} | {
+    __kind__: "err";
+    err: string;
+};
 export type Result_4 = {
     __kind__: "ok";
     ok: {
@@ -103,6 +103,11 @@ export interface Nft {
     membershipId?: string;
     nftUniqueId: string;
 }
+export interface TransferResult {
+    newOwnerPrincipal?: string;
+    error?: string;
+    success: boolean;
+}
 export interface UpdateMetadataRequest {
     discountCode?: string;
     tags?: Array<string>;
@@ -110,11 +115,6 @@ export interface UpdateMetadataRequest {
     website?: string;
     rewardTier?: RewardTier;
     membershipId?: string;
-}
-export interface TransferResult {
-    newOwnerPrincipal?: string;
-    error?: string;
-    success: boolean;
 }
 export interface ClaimStatus {
     supplyLimit: bigint;
@@ -173,58 +173,18 @@ export interface CollectionSummary {
     name: string;
     nftCount: bigint;
 }
-export type Error_ = {
-    __kind__: "FrontendOriginsNotConfigured";
-    FrontendOriginsNotConfigured: null;
-} | {
-    __kind__: "MixedSsoSources";
-    MixedSsoSources: {
-        otherKeys: Array<string>;
-        ssoKeys: Array<string>;
-    };
-} | {
-    __kind__: "Stale";
-    Stale: {
-        ageNs: bigint;
-    };
-} | {
-    __kind__: "MalformedCandid";
-    MalformedCandid: null;
-} | {
-    __kind__: "AmbiguousAttribute";
-    AmbiguousAttribute: {
-        field: string;
-        sources: Array<string>;
-    };
-} | {
-    __kind__: "NoAttributes";
-    NoAttributes: null;
-} | {
-    __kind__: "UnknownNonce";
-    UnknownNonce: null;
-} | {
-    __kind__: "UntrustedSsoSource";
-    UntrustedSsoSource: {
-        domain: string;
-    };
-} | {
-    __kind__: "MissingField";
-    MissingField: string;
-} | {
-    __kind__: "FrontendOriginMismatch";
-    FrontendOriginMismatch: {
-        got: string;
-        expected: Array<string>;
-    };
-};
-export type Result_9 = {
-    __kind__: "ok";
-    ok: null;
-} | {
-    __kind__: "err";
-    err: Error_;
-};
-export type CreatorId = string;
+export interface HealthMetrics {
+    claimedNfts: bigint;
+    storageUsage: bigint;
+    totalCreators: bigint;
+    totalNfts: bigint;
+    totalCollections: bigint;
+    availableNfts: bigint;
+    backendBuildTimestamp: bigint;
+    totalClaims: bigint;
+    activeNfts: bigint;
+    canisterId: string;
+}
 export interface ClaimToken {
     supplyLimit: bigint;
     token: string;
@@ -234,6 +194,7 @@ export interface ClaimToken {
     nftId: bigint;
     claimedCount: bigint;
 }
+export type CreatorId = string;
 export type Result = {
     __kind__: "ok";
     ok: VerifyResult;
@@ -272,7 +233,6 @@ export interface UserProfile {
     emailAlerts: Array<AlertType>;
     maxSlots: bigint;
     createdAt: Timestamp;
-    role: Variant_creator_admin;
     subscriptionTier: SubscriptionTier;
     creatorId: CreatorId;
     email?: string;
@@ -311,19 +271,9 @@ export enum SubscriptionTier {
     creator = "creator",
     free = "free"
 }
-export enum UserRole {
-    admin = "admin",
-    user = "user",
-    guest = "guest"
-}
-export enum Variant_creator_admin {
-    creator = "creator",
-    admin = "admin"
-}
 export interface backendInterface {
     addNftToCollection(nftId: bigint, collectionId: bigint): Promise<Result_2>;
     approvePaymentProof(proofId: string): Promise<Result_3>;
-    assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
     burnNft(id: bigint): Promise<Result_2>;
     claimAdmin(): Promise<boolean>;
     claimNft(token: string): Promise<Result_8>;
@@ -333,22 +283,20 @@ export interface backendInterface {
     }>, _successUrl: string, _cancelUrl: string): Promise<string>;
     createCollection(name: string, description: string): Promise<Result_7>;
     createSlot(): Promise<Result_7>;
-    debugAdminState(): Promise<{
-        adminPrincipalValue?: string;
-        accessControlIsAdmin: boolean;
-        adminPrincipalMatchesCaller: boolean;
-        caller: string;
-    }>;
+    debugAuth(): Promise<string>;
     deleteCollection(id: bigint): Promise<void>;
     deleteCollectionAndUnassignNfts(collectionId: CollectionId): Promise<CollectionSummary>;
     deleteNft(id: bigint): Promise<Result_2>;
     generateClaimLink(nftId: bigint): Promise<Result_3>;
-    getAdminPrincipal(): Promise<Principal | null>;
+    getActiveNfts(): Promise<bigint>;
+    getAvailableNfts(): Promise<bigint>;
+    getBackendBuildTimestamp(): Promise<bigint>;
     getCallerProfile(): Promise<UserProfile>;
-    getCallerUserRole(): Promise<UserRole>;
     getCanisterId(): Promise<string>;
+    getCanisterIdSafe(): Promise<string>;
     getClaimPreview(token: string): Promise<Result_6>;
     getClaimStatus(nftId: bigint): Promise<Result_5>;
+    getClaimedNfts(): Promise<bigint>;
     getCollection(id: bigint): Promise<Collection | null>;
     getCollectionIdByName(name: string): Promise<CollectionId | null>;
     getCreditsStatus(): Promise<{
@@ -356,6 +304,8 @@ export interface backendInterface {
         used: bigint;
         remaining: bigint;
     }>;
+    getHealthMetrics(): Promise<HealthMetrics>;
+    getMetricsCanisterId(): Promise<string>;
     getMyPaymentProofs(): Promise<Array<PaymentProof>>;
     getNft(id: bigint): Promise<Nft | null>;
     getSlotsStatus(): Promise<{
@@ -363,6 +313,7 @@ export interface backendInterface {
         used: bigint;
         remaining: bigint;
     }>;
+    getStorageUsage(): Promise<bigint>;
     getStripeSessionStatus(_sessionId: string): Promise<{
         status: string;
     }>;
@@ -370,10 +321,13 @@ export interface backendInterface {
         mode: string;
         configured: boolean;
     }>;
+    getTotalClaims(): Promise<bigint>;
+    getTotalCollections(): Promise<bigint>;
+    getTotalCreators(): Promise<bigint>;
     getTotalMinted(): Promise<bigint>;
+    getTotalNfts(): Promise<bigint>;
     hasAdmin(): Promise<boolean>;
     isAdmin(): Promise<boolean>;
-    isCallerAdmin(): Promise<boolean>;
     isStripeConfigured(): Promise<boolean>;
     listMyActiveNfts(): Promise<Array<Nft>>;
     listMyCollections(): Promise<Array<CollectionWithCount>>;

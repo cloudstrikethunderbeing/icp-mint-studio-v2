@@ -1,3 +1,4 @@
+import type { HealthMetrics } from "@/backend";
 import type { CollectionWithCount, Nft, VerifyResult } from "@/backend";
 import { useAuth } from "@/contexts/AuthContext";
 import { addNotification } from "@/hooks/useNotifications";
@@ -7,6 +8,160 @@ import { Principal } from "@icp-sdk/core/principal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { normalizeNFTResponse } from "../utils/nftNormalization";
+export function useHealthMetrics(isAdmin: boolean) {
+  const { actor } = useAuth();
+
+  return useQuery<HealthMetrics>({
+    queryKey: ["healthMetrics"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor unavailable");
+      return await actor.getHealthMetrics();
+    },
+    enabled: !!actor && isAdmin,
+    staleTime: 30_000,
+  });
+}
+
+export function useTotalNfts(isAdmin: boolean) {
+  const { actor } = useAuth();
+
+  return useQuery<bigint>({
+    queryKey: ["totalNfts"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor unavailable");
+      return await actor.getTotalNfts();
+    },
+    enabled: !!actor && isAdmin,
+    staleTime: 30_000,
+  });
+}
+
+export function useActiveNfts(isAdmin: boolean) {
+  const { actor } = useAuth();
+
+  return useQuery<bigint>({
+    queryKey: ["activeNfts"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor unavailable");
+      return await actor.getActiveNfts();
+    },
+    enabled: !!actor && isAdmin,
+    staleTime: 30_000,
+  });
+}
+
+export function useClaimedNfts(isAdmin: boolean) {
+  const { actor } = useAuth();
+
+  return useQuery<bigint>({
+    queryKey: ["claimedNfts"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor unavailable");
+      return await actor.getClaimedNfts();
+    },
+    enabled: !!actor && isAdmin,
+    staleTime: 30_000,
+  });
+}
+
+export function useAvailableNfts(isAdmin: boolean) {
+  const { actor } = useAuth();
+
+  return useQuery<bigint>({
+    queryKey: ["availableNfts"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor unavailable");
+      return await actor.getAvailableNfts();
+    },
+    enabled: !!actor && isAdmin,
+    staleTime: 30_000,
+  });
+}
+
+export function useTotalCollections(isAdmin: boolean) {
+  const { actor } = useAuth();
+
+  return useQuery<bigint>({
+    queryKey: ["totalCollections"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor unavailable");
+      return await actor.getTotalCollections();
+    },
+    enabled: !!actor && isAdmin,
+    staleTime: 30_000,
+  });
+}
+
+export function useTotalCreators(isAdmin: boolean) {
+  const { actor } = useAuth();
+
+  return useQuery<bigint>({
+    queryKey: ["totalCreators"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor unavailable");
+      return await actor.getTotalCreators();
+    },
+    enabled: !!actor && isAdmin,
+    staleTime: 30_000,
+  });
+}
+
+export function useTotalClaims(isAdmin: boolean) {
+  const { actor } = useAuth();
+
+  return useQuery<bigint>({
+    queryKey: ["totalClaims"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor unavailable");
+      return await actor.getTotalClaims();
+    },
+    enabled: !!actor && isAdmin,
+    staleTime: 30_000,
+  });
+}
+
+export function useMetricsCanisterId(isAdmin: boolean) {
+  const { actor } = useAuth();
+
+  return useQuery<string>({
+    queryKey: ["metricsCanisterId"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor unavailable");
+      return await actor.getMetricsCanisterId();
+    },
+    enabled: !!actor && isAdmin,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+export function useBackendBuildTimestamp(isAdmin: boolean) {
+  const { actor } = useAuth();
+
+  return useQuery<bigint>({
+    queryKey: ["backendBuildTimestamp"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor unavailable");
+      return await actor.getBackendBuildTimestamp();
+    },
+    enabled: !!actor && isAdmin,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+export function useStorageUsage(isAdmin: boolean) {
+  const { actor } = useAuth();
+
+  return useQuery<bigint>({
+    queryKey: ["storageUsage"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor unavailable");
+      return await actor.getStorageUsage();
+    },
+    enabled: !!actor && isAdmin,
+    staleTime: 30_000,
+  });
+}
+
 export function useTransferNft() {
   const { actor } = useAuth();
   const queryClient = useQueryClient();
@@ -37,17 +192,15 @@ export function useTransferNft() {
         title: "NFT Transferred",
         message: "Your NFT was transferred successfully.",
       });
-      toast.success("NFT transferred successfully!");
       queryClient.invalidateQueries({ queryKey: ["nfts"] });
       queryClient.invalidateQueries({ queryKey: ["collections"] });
     },
-    onError: (err: Error) => {
+    onError: (_err: Error) => {
       addNotification({
         type: "critical",
         title: "Transfer Failed",
         message: "The transfer could not be completed.",
       });
-      toast.error(err.message || "Transfer failed");
     },
   });
 }
@@ -277,37 +430,6 @@ export function useVerifyNftByCreatorId() {
   });
 }
 
-export function useGetAdminPrincipal() {
-  const { actor } = useAuth();
-
-  return useQuery<string | null>({
-    queryKey: ["adminPrincipal"],
-    queryFn: async () => {
-      if (!actor) throw new Error("Actor unavailable");
-      const result = await actor.getAdminPrincipal();
-      return result === null ? null : result.toString();
-    },
-    enabled: !!actor,
-    staleTime: Number.POSITIVE_INFINITY,
-    gcTime: Number.POSITIVE_INFINITY,
-  });
-}
-
-export function useIsAdmin() {
-  const { actor } = useAuth();
-
-  return useQuery<boolean>({
-    queryKey: ["isAdmin"],
-    queryFn: async () => {
-      if (!actor) throw new Error("Actor unavailable");
-      return await actor.isAdmin();
-    },
-    enabled: !!actor,
-    staleTime: Number.POSITIVE_INFINITY,
-    gcTime: Number.POSITIVE_INFINITY,
-  });
-}
-
 export function useCreateSlot() {
   const { actor } = useAuth();
   const queryClient = useQueryClient();
@@ -396,18 +518,16 @@ export function useBurnNft() {
         title: "NFT Burned",
         message: "Your NFT has been permanently burned.",
       });
-      toast.success("NFT burned successfully");
       queryClient.invalidateQueries({ queryKey: ["nfts"] });
       queryClient.invalidateQueries({ queryKey: ["myActiveNfts"] });
       queryClient.invalidateQueries({ queryKey: ["collections"] });
     },
-    onError: (err: Error) => {
+    onError: (_err: Error) => {
       addNotification({
         type: "critical",
         title: "Burn Failed",
         message: "The NFT could not be burned.",
       });
-      toast.error(err.message || "Failed to burn NFT");
     },
   });
 }
@@ -430,18 +550,16 @@ export function useDeleteNft() {
         title: "NFT Deleted",
         message: "Your NFT has been deleted.",
       });
-      toast.success("NFT deleted successfully");
       queryClient.invalidateQueries({ queryKey: ["nfts"] });
       queryClient.invalidateQueries({ queryKey: ["myActiveNfts"] });
       queryClient.invalidateQueries({ queryKey: ["collections"] });
     },
-    onError: (err: Error) => {
+    onError: (_err: Error) => {
       addNotification({
         type: "critical",
         title: "Delete Failed",
         message: "The NFT could not be deleted.",
       });
-      toast.error(err.message || "Failed to delete NFT");
     },
   });
 }
@@ -467,6 +585,12 @@ export function useCreateCollection() {
     },
     onSuccess: () => {
       toast.success("Collection created");
+      addNotification({
+        type: "info",
+        title: "Collection Created",
+        message: "Collection created successfully",
+        navigationTarget: "/",
+      });
       queryClient.invalidateQueries({ queryKey: ["collections"] });
       queryClient.invalidateQueries({ queryKey: ["callerProfile"] });
       queryClient.invalidateQueries({ queryKey: ["myActiveNfts"] });
@@ -522,6 +646,11 @@ export function useDeleteCollection() {
     },
     onSuccess: async () => {
       toast.success("Collection deleted");
+      addNotification({
+        type: "warning",
+        title: "Collection Deleted",
+        message: "Collection deleted",
+      });
       await queryClient.refetchQueries({
         queryKey: ["collections"],
         exact: true,
@@ -534,30 +663,20 @@ export function useDeleteCollection() {
   });
 }
 
-/** Module-level hydration flag — survives React re-renders and route changes.
- * Reset to false on logout (see AuthContext). */
-let nftHydrated = false;
-
-/** Call this on explicit logout to allow fresh hydration on next login. */
-export function resetNftHydration() {
-  nftHydrated = false;
-}
-
-export function useMyActiveNfts() {
+export function useMyActiveNfts(principal: string | null) {
   const { actor } = useAuth();
 
   return useQuery<Nft[]>({
-    queryKey: ["myActiveNfts"],
+    queryKey: ["myActiveNfts", principal ?? "anonymous"],
     queryFn: async () => {
       if (!actor) throw new Error("Actor unavailable");
       const result = await actor.listMyActiveNfts();
       const normalized = normalizeNFTResponse(result);
-      // Mark hydrated so subsequent renders skip re-fetch
-      nftHydrated = true;
       return normalized;
     },
     enabled: !!actor,
-    staleTime: nftHydrated ? Number.POSITIVE_INFINITY : 30_000,
+    staleTime: 0,
+    gcTime: 0,
   });
 }
 
@@ -611,8 +730,21 @@ export function useGenerateClaimLink() {
       return result.ok;
     },
     onSuccess: (_data, nftId) => {
+      addNotification({
+        type: "info",
+        title: "Claim Link Created",
+        message: "Claim link generated successfully",
+        navigationTarget: "/",
+      });
       queryClient.invalidateQueries({
         queryKey: ["claimStatus", nftId.toString()],
+      });
+    },
+    onError: (err: Error) => {
+      addNotification({
+        type: "critical",
+        title: "Claim Link Failed",
+        message: err.message,
       });
     },
   });

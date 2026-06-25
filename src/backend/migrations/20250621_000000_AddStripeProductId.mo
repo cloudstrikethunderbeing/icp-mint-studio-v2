@@ -48,6 +48,13 @@ module {
     stripeProductId : ?Text
   };
 
+  public type PaymentProofStatus = { #pending; #approved; #rejected };
+  public type PaymentProof = {
+    id : Text; principal : Principal; txHash : Text; tierRequested : Text; networkType : Text;
+    status : PaymentProofStatus; submittedAt : Int; reviewedAt : ?Int; reviewedBy : ?Principal;
+    rejectionReason : ?Text
+  };
+
   public type StripeConfigStore = { var secretKey : ?Text; var publicKey : ?Text };
   public type RateLimitEntry = { var count : Nat; var windowStart : Nat };
 
@@ -66,6 +73,7 @@ module {
     mintCount : { var value : Nat };
     selfCanisterId : { var value : Text };
     globalAuditLog : Queue.Queue<AuditEntry>;
+    paymentProofStore : Map.Map<Text, PaymentProof>;
   };
 
   public type NewActor = {
@@ -83,6 +91,7 @@ module {
     mintCount : { var value : Nat };
     selfCanisterId : { var value : Text };
     globalAuditLog : Queue.Queue<AuditEntry>;
+    paymentProofStore : Map.Map<Text, PaymentProof>;
   };
 
   public func migration(old : OldActor) : NewActor {
@@ -118,6 +127,7 @@ module {
       mintCount = old.mintCount;
       selfCanisterId = old.selfCanisterId;
       globalAuditLog = old.globalAuditLog;
+      paymentProofStore = old.paymentProofStore;
     }
   };
 }

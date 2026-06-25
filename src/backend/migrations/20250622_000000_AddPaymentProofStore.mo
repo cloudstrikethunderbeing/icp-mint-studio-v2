@@ -56,6 +56,7 @@ module {
     mintCount : { var value : Nat };
     selfCanisterId : { var value : Text };
     globalAuditLog : Queue.Queue<AuditEntry>;
+    paymentProofStore : Map.Map<Text, PaymentProof>;
   };
 
   public type NewActor = {

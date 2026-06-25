@@ -10,6 +10,8 @@ export interface AppNotification {
   message: string;
   timestamp: number;
   read: boolean;
+  navigationTarget?: string;
+  imageUrl?: string;
 }
 
 export type RewardTier = "none" | "bronze" | "silver" | "gold" | "platinum";

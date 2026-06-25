@@ -76,6 +76,7 @@ module {
     creatorIndex : Map.Map<Text, List.List<Nat>>;
     claimTokenStore : Map.Map<Text, ClaimToken>;
     nftToClaimToken : Map.Map<Nat, Text>;
+    backendBuildTimestamp : { var value : Nat };
   };
 
   public type NewActor = {
@@ -97,6 +98,7 @@ module {
     creatorIndex : Map.Map<Text, List.List<Nat>>;
     claimTokenStore : Map.Map<Text, ClaimToken>;
     nftToClaimToken : Map.Map<Nat, Text>;
+    backendBuildTimestamp : { var value : Nat };
   };
 
   public func migration(old : OldActor) : NewActor {
@@ -119,6 +121,7 @@ module {
       creatorIndex = old.creatorIndex;
       claimTokenStore = old.claimTokenStore;
       nftToClaimToken = old.nftToClaimToken;
+      backendBuildTimestamp = old.backendBuildTimestamp;
     }
   };
 }

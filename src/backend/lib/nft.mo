@@ -167,7 +167,7 @@ module {
   public func listActiveNftsByOwner(store : NftStore, ownerId : Principal, canisterId : Text) : [Types.Nft] {
     let results = List.empty<Types.Nft>();
     for ((_, nft) in store.entries()) {
-      if (Principal.equal(nft.ownerId, ownerId) and nft.status == #active) {
+      if (Principal.equal(nft.ownerId, ownerId) and nft.status == #active and nft.claimedAt == null) {
         let nftUniqueId = canisterId # ":0:" # nft.id.toText();
         results.add({ nft with nftUniqueId });
       };

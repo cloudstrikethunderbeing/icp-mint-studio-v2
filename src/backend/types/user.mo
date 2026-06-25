@@ -15,6 +15,5 @@ module {
     maxSlots : Nat;
     createdAt : Common.Timestamp;
     stripeProductId : ?Text;
-    role : { #admin; #creator };
   };
 }

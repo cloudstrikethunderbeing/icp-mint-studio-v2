@@ -1,5 +1,15 @@
 import type { CollectionWithCount, Nft } from "@/backend";
 import { NftDetailModal } from "@/components/NftDetailModal";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
 import { Link } from "@tanstack/react-router";
 import {
   CheckCircle2,
@@ -39,7 +50,6 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import BrandedAuthGate from "../components/BrandedAuthGate";
-import { usePermissions } from "../hooks/usePermissions";
 import {
   useAddNftToCollection,
   useBurnNft,
@@ -50,6 +60,12 @@ import {
   useMyActiveNfts,
   useRemoveNftFromCollection,
 } from "../hooks/useQueries";
+
+function resolveImageUrl(hashOrUrl: string | undefined): string {
+  if (!hashOrUrl) return "";
+  if (/^https?:\/\//i.test(hashOrUrl)) return hashOrUrl;
+  return `https://blob.caffeine.ai/${hashOrUrl}`;
+}
 
 type TabKey = "all" | "collections" | "claimed" | "created" | "recent";
 
@@ -360,8 +376,8 @@ function NftCard({
         </DropdownMenu>
       </div>
 
-      {/* Quick-action overlay — appears on hover, always visible on mobile */}
-      <div className="absolute top-1.5 left-1.5 z-10 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 sm:opacity-100">
+      {/* Quick-action overlay — always visible */}
+      <div className="absolute top-1.5 left-1.5 z-10 flex gap-1 opacity-100 transition-opacity duration-200">
         {/* Remove from collection — only if inside a collection */}
         {hasCollection && onRemoveFromCollection && (
           <button
@@ -485,8 +501,12 @@ export default function CollectorPage() {
   const [selectedCollectionId, setSelectedCollectionId] = useState<
     bigint | "claimed" | null
   >(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [pendingDeleteCollection, setPendingDeleteCollection] =
+    useState<CollectionWithCount | null>(null);
 
-  const { data: nfts = [], isLoading: nftsLoading } = useMyActiveNfts();
+  const { data: nfts = [], isLoading: nftsLoading } =
+    useMyActiveNfts(principal);
   const { data: collections = [], isLoading: collectionsLoading } =
     useCollections();
 
@@ -676,7 +696,9 @@ export default function CollectorPage() {
             className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors duration-200 ${
               activeTab === tab.key && selectedCollectionId === null
                 ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:bg-muted/80"
+                : selectedCollectionId !== null && tab.key === "all"
+                  ? "bg-muted text-muted-foreground hover:bg-muted/80"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
             }`}
             data-ocid={`collector.tab.${tab.key}`}
           >
@@ -684,6 +706,34 @@ export default function CollectorPage() {
           </button>
         ))}
       </div>
+
+      {/* Viewing indicator */}
+      {selectedCollectionId !== null && (
+        <div
+          className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20 text-sm"
+          data-ocid="collector.viewing_indicator"
+        >
+          <Layers className="w-4 h-4 text-primary" />
+          <span className="text-foreground font-medium">
+            Viewing {filteredNfts.length} NFT
+            {filteredNfts.length !== 1 ? "s" : ""}
+            {selectedCollectionId !== "claimed" &&
+            collections.find((c) => c.id === selectedCollectionId)?.name
+              ? ` in "${collections.find((c) => c.id === selectedCollectionId)?.name}"`
+              : selectedCollectionId === "claimed"
+                ? " from Claimed"
+                : ""}
+          </span>
+          <button
+            type="button"
+            onClick={() => setSelectedCollectionId(null)}
+            className="ml-auto text-xs text-muted-foreground hover:text-foreground underline"
+            data-ocid="collector.clear_collection_filter_button"
+          >
+            Show all
+          </button>
+        </div>
+      )}
 
       {/* Content */}
       {activeTab === "collections" ? (
@@ -720,16 +770,38 @@ export default function CollectorPage() {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
               {collections.map((collection) => {
-                const hasNfts = Number(collection.nftCount) > 0;
-                const previewUrl = collection.previewImage ?? "";
+                const _hasNfts = Number(collection.nftCount) > 0;
+                const previewUrl = resolveImageUrl(collection.previewImage);
                 return (
-                  <button
+                  <div
                     key={String(collection.id)}
-                    type="button"
-                    className="group relative rounded-xl border border-border bg-card overflow-hidden cursor-pointer hover:shadow-md transition-shadow duration-200 text-left w-full"
+                    // biome-ignore lint/a11y/useSemanticElements: intentional div-with-role-button to avoid nested buttons
+                    role="button"
+                    tabIndex={0}
+                    className={cn(
+                      "group relative rounded-xl border overflow-hidden cursor-pointer transition-all duration-200 text-left w-full",
+                      selectedCollectionId === collection.id
+                        ? "border-primary ring-2 ring-primary/30 bg-primary/5 shadow-md"
+                        : "border-border bg-card hover:shadow-md hover:border-primary/40",
+                    )}
                     onClick={() => setSelectedCollectionId(collection.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedCollectionId(collection.id);
+                      }
+                    }}
                     data-ocid={`collector.collection.item.${Number(collection.id)}`}
                   >
+                    {/* Selected indicator */}
+                    {selectedCollectionId === collection.id && (
+                      <div className="absolute top-2 left-2 z-10">
+                        <Badge className="text-[10px] gap-0.5 px-1.5 py-0.5 bg-primary text-primary-foreground">
+                          <Layers className="w-2.5 h-2.5" />
+                          Viewing
+                        </Badge>
+                      </div>
+                    )}
                     {/* Cover image or placeholder */}
                     <div className="aspect-[4/3] bg-muted relative overflow-hidden">
                       {previewUrl ? (
@@ -773,20 +845,18 @@ export default function CollectorPage() {
                     {/* Delete button */}
                     <button
                       type="button"
-                      disabled={hasNfts}
-                      title={
-                        hasNfts ? "Remove all NFTs first" : "Delete collection"
-                      }
+                      title="Delete collection"
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (!hasNfts) deleteCollection.mutate(collection.id);
+                        setPendingDeleteCollection(collection);
+                        setDeleteConfirmOpen(true);
                       }}
-                      className="absolute bottom-3 right-3 p-1.5 rounded-md text-destructive hover:bg-destructive/10 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+                      className="absolute bottom-3 right-3 p-1.5 rounded-md text-destructive hover:bg-destructive/10 transition-colors"
                       data-ocid={`collector.collection.delete_button.${Number(collection.id)}`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -920,6 +990,44 @@ export default function CollectorPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Collection Confirmation Dialog */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent data-ocid="collector.delete_collection_dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Collection</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDeleteCollection &&
+              Number(pendingDeleteCollection.nftCount) > 0
+                ? `This collection has ${pendingDeleteCollection.nftCount.toString()} NFT${Number(pendingDeleteCollection.nftCount) !== 1 ? "s" : ""}. Deleting it will remove all NFTs from this collection. Are you sure?`
+                : "Are you sure you want to delete this collection?"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                setPendingDeleteCollection(null);
+                setDeleteConfirmOpen(false);
+              }}
+              data-ocid="collector.delete_collection_cancel_button"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingDeleteCollection) {
+                  deleteCollection.mutate(pendingDeleteCollection.id);
+                }
+                setPendingDeleteCollection(null);
+                setDeleteConfirmOpen(false);
+              }}
+              data-ocid="collector.delete_collection_confirm_button"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Read-only NFT Detail Modal */}
       {selectedNft && (

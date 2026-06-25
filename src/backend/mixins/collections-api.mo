@@ -1,12 +1,10 @@
 import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
-import AccessControl "mo:caffeineai-authorization/access-control";
 import CollectionTypes "../types/collections";
 import CollectionLib "../lib/collections";
 import NftLib "../lib/nft";
 
 mixin (
-  accessControlState : AccessControl.AccessControlState,
   collectionStore : CollectionLib.CollectionStore,
   nftStore : CollectionLib.NftStore,
 ) {

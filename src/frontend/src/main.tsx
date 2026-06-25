@@ -25,6 +25,11 @@ const queryClient = new QueryClient({
   },
 });
 
+// TEMP LOG: verify which canister the frontend is wired to at boot
+import { CANISTERS } from "@/config/canisters";
+console.log("[MAIN] CANISTERS.backend:", CANISTERS.backend);
+console.log("[MAIN] CANISTERS.frontend:", CANISTERS.frontend);
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <QueryClientProvider client={queryClient}>
     <InternetIdentityProvider>

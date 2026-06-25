@@ -36,7 +36,6 @@ import "@/components/ui/select";
 import "@/components/ui/textarea";
 
 import { useAuth } from "@/contexts/AuthContext";
-import { usePermissions } from "@/hooks/usePermissions";
 import {
   Check,
   Copy,
@@ -100,9 +99,9 @@ export function NftDetailModal({
 
   const [verifyLinkCopied, setVerifyLinkCopied] = useState(false);
 
-  // Claim link state (admin or paid tiers only)
-  const { canMint } = usePermissions();
-  const canGenerateClaimLink = canMint;
+  // Claim link state (admin only)
+  const { isAdmin } = useAuth();
+  const canGenerateClaimLink = isAdmin;
   const [claimUrlCopied, setClaimUrlCopied] = useState(false);
   const [generatedClaimPath, setGeneratedClaimPath] = useState<string | null>(
     null,
@@ -466,7 +465,6 @@ export function NftDetailModal({
                             nftId: nft.id,
                             collectionId: nft.collectionId!,
                           });
-                          toast.success("NFT removed from collection");
                           setTimeout(() => {
                             onClose();
                           }, 800);
@@ -527,7 +525,6 @@ export function NftDetailModal({
                             collectionId: BigInt(selectedCollectionId),
                           });
                           setSelectedCollectionId("none");
-                          toast.success("NFT assigned to collection");
                           setTimeout(() => {
                             onClose();
                           }, 800);

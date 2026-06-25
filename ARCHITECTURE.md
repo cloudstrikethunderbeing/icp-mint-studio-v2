@@ -13,7 +13,7 @@ Three shells:
 - Claim (/claim/:token): Shareable secure NFT claim links
 
 Draft vs Live:
-- Draft canister: rqo43-haaaa-aaaai-q3zia-cai (ephemeral)
+- Draft canister: 4j4fw-fyaaa-aaaah-argua-cai (ephemeral)
 - Live canister: ksicd-uqaaa-aaaak-qy63a-cai (permanent)
 - Draft URL: https://pretty-amber-68k-draft.caffeine.xyz/
 - Live URL: https://icp-mint-studio-n3x.caffeine.xyz/
@@ -21,8 +21,8 @@ Draft vs Live:
 
 ## 2. CANISTER STRUCTURE
 
-- Frontend canister: nzbzg-eiaaa-aaaai-q34ua-cai (draft) / k3lj7-cyaaa-aaaak-qy62q-cai (live)
-- Backend draft: rqo43-haaaa-aaaai-q3zia-cai
+- Frontend canister: utecd-uyaaa-aaaaj-qnqxa-cai (draft) / k3lj7-cyaaa-aaaak-qy62q-cai (live)
+- Backend draft: 4j4fw-fyaaa-aaaah-argua-cai
 - Backend live: ksicd-uqaaa-aaaak-qy63a-cai
 - Canister IDs injected at build time via Vite plugin reading canister-ids.json
 - Canister ID resolution precedence: build-pipeline env vars (CANISTER_ID_BACKEND / CANISTER_ID_FRONTEND) take precedence at build time; canister-ids.json is a fallback only (local dev / pipeline gaps), not the source of truth
@@ -215,6 +215,7 @@ Critical: Never use sessionStorage snapshots as primary display. Always refetch 
 - Confirm which canister a transaction hits before debugging
 - Draft canister ID may change — live never changes
 - Draft canister IDs rotate on inactivity. At the start of every new draft session confirm current draft canister IDs with Caffeine and update canister-ids.json before building. Never assume draft IDs are stable between sessions.
+- canister-ids.json must have current draft IDs under the draft key only. Never use an ic key for draft — vite.config.js only reads draft and live keys. If a third key appears, remove it and move values to draft.
 
 ## 13. SESSION RULES FOR CAFFEINE
 
@@ -252,5 +253,5 @@ Backend critical:
 
 ---
 
-Document version: v125
-Last updated: 2026-06-23
+Document version: v126
+Last updated: 2026-06-24

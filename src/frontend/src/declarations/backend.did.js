@@ -107,7 +107,6 @@ export const UserProfile = IDL.Record({
   'emailAlerts' : IDL.Vec(AlertType),
   'maxSlots' : IDL.Nat,
   'createdAt' : Timestamp,
-  'role' : IDL.Variant({ 'creator' : IDL.Null, 'admin' : IDL.Null }),
   'subscriptionTier' : SubscriptionTier,
   'creatorId' : CreatorId,
   'email' : IDL.Opt(IDL.Text),
@@ -128,35 +127,8 @@ export const _ImmutableObjectStorageRefillResult = IDL.Record({
   'success' : IDL.Opt(IDL.Bool),
   'topped_up_amount' : IDL.Opt(IDL.Nat),
 });
-export const Error = IDL.Variant({
-  'FrontendOriginsNotConfigured' : IDL.Null,
-  'MixedSsoSources' : IDL.Record({
-    'otherKeys' : IDL.Vec(IDL.Text),
-    'ssoKeys' : IDL.Vec(IDL.Text),
-  }),
-  'Stale' : IDL.Record({ 'ageNs' : IDL.Nat }),
-  'MalformedCandid' : IDL.Null,
-  'AmbiguousAttribute' : IDL.Record({
-    'field' : IDL.Text,
-    'sources' : IDL.Vec(IDL.Text),
-  }),
-  'NoAttributes' : IDL.Null,
-  'UnknownNonce' : IDL.Null,
-  'UntrustedSsoSource' : IDL.Record({ 'domain' : IDL.Text }),
-  'MissingField' : IDL.Text,
-  'FrontendOriginMismatch' : IDL.Record({
-    'got' : IDL.Text,
-    'expected' : IDL.Vec(IDL.Text),
-  }),
-});
-export const Result_9 = IDL.Variant({ 'ok' : IDL.Null, 'err' : Error });
 export const Result_2 = IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text });
 export const Result_3 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
-export const UserRole = IDL.Variant({
-  'admin' : IDL.Null,
-  'user' : IDL.Null,
-  'guest' : IDL.Null,
-});
 export const Result_8 = IDL.Variant({ 'ok' : Nft, 'err' : IDL.Text });
 export const Result_7 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
 export const CollectionId = IDL.Nat;
@@ -180,6 +152,18 @@ export const ClaimStatus = IDL.Record({
   'claimedCount' : IDL.Nat,
 });
 export const Result_5 = IDL.Variant({ 'ok' : ClaimStatus, 'err' : IDL.Text });
+export const HealthMetrics = IDL.Record({
+  'claimedNfts' : IDL.Nat,
+  'storageUsage' : IDL.Nat,
+  'totalCreators' : IDL.Nat,
+  'totalNfts' : IDL.Nat,
+  'totalCollections' : IDL.Nat,
+  'availableNfts' : IDL.Nat,
+  'backendBuildTimestamp' : IDL.Nat,
+  'totalClaims' : IDL.Nat,
+  'activeNfts' : IDL.Nat,
+  'canisterId' : IDL.Text,
+});
 export const CollectionWithCount = IDL.Record({
   'id' : IDL.Nat,
   'previewImage' : IDL.Opt(IDL.Text),
@@ -245,8 +229,12 @@ export const Result_1 = IDL.Variant({
 export const Result = IDL.Variant({ 'ok' : VerifyResult, 'err' : IDL.Text });
 
 export const idlService = IDL.Service({
-  '__accessControlState' : IDL.Func([], [IDL.Reserved], ['query']),
-  '__adminPrincipal' : IDL.Func([], [IDL.Opt(IDL.Principal)], ['query']),
+  '__adminPrincipals' : IDL.Func(
+      [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
+      [IDL.Vec(IDL.Principal)],
+      ['query'],
+    ),
+  '__backendBuildTimestamp' : IDL.Func([], [IDL.Reserved], ['query']),
   '__claimTokenStore' : IDL.Func(
       [IDL.Opt(IDL.Text), IDL.Opt(IDL.Nat)],
       [IDL.Vec(IDL.Tuple(IDL.Text, ClaimToken))],
@@ -317,12 +305,8 @@ export const idlService = IDL.Service({
       [],
     ),
   '_immutableObjectStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
-  '_initialize_access_control' : IDL.Func([], [], []),
-  '_internet_identity_sign_in_finish' : IDL.Func([], [Result_9], []),
-  '_internet_identity_sign_in_start' : IDL.Func([], [IDL.Vec(IDL.Nat8)], []),
   'addNftToCollection' : IDL.Func([IDL.Nat, IDL.Nat], [Result_2], []),
   'approvePaymentProof' : IDL.Func([IDL.Text], [Result_3], []),
-  'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
   'burnNft' : IDL.Func([IDL.Nat], [Result_2], []),
   'claimAdmin' : IDL.Func([], [IDL.Bool], []),
   'claimNft' : IDL.Func([IDL.Text], [Result_8], []),
@@ -337,18 +321,7 @@ export const idlService = IDL.Service({
     ),
   'createCollection' : IDL.Func([IDL.Text, IDL.Text], [Result_7], []),
   'createSlot' : IDL.Func([], [Result_7], []),
-  'debugAdminState' : IDL.Func(
-      [],
-      [
-        IDL.Record({
-          'adminPrincipalValue' : IDL.Opt(IDL.Text),
-          'accessControlIsAdmin' : IDL.Bool,
-          'adminPrincipalMatchesCaller' : IDL.Bool,
-          'caller' : IDL.Text,
-        }),
-      ],
-      ['query'],
-    ),
+  'debugAuth' : IDL.Func([], [IDL.Text], ['query']),
   'deleteCollection' : IDL.Func([IDL.Nat], [], []),
   'deleteCollectionAndUnassignNfts' : IDL.Func(
       [CollectionId],
@@ -357,12 +330,15 @@ export const idlService = IDL.Service({
     ),
   'deleteNft' : IDL.Func([IDL.Nat], [Result_2], []),
   'generateClaimLink' : IDL.Func([IDL.Nat], [Result_3], []),
-  'getAdminPrincipal' : IDL.Func([], [IDL.Opt(IDL.Principal)], ['query']),
+  'getActiveNfts' : IDL.Func([], [IDL.Nat], ['query']),
+  'getAvailableNfts' : IDL.Func([], [IDL.Nat], ['query']),
+  'getBackendBuildTimestamp' : IDL.Func([], [IDL.Nat], ['query']),
   'getCallerProfile' : IDL.Func([], [UserProfile], []),
-  'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getCanisterId' : IDL.Func([], [IDL.Text], ['query']),
+  'getCanisterIdSafe' : IDL.Func([], [IDL.Text], ['query']),
   'getClaimPreview' : IDL.Func([IDL.Text], [Result_6], ['query']),
   'getClaimStatus' : IDL.Func([IDL.Nat], [Result_5], ['query']),
+  'getClaimedNfts' : IDL.Func([], [IDL.Nat], ['query']),
   'getCollection' : IDL.Func([IDL.Nat], [IDL.Opt(Collection)], ['query']),
   'getCollectionIdByName' : IDL.Func(
       [IDL.Text],
@@ -380,6 +356,8 @@ export const idlService = IDL.Service({
       ],
       ['query'],
     ),
+  'getHealthMetrics' : IDL.Func([], [HealthMetrics], ['query']),
+  'getMetricsCanisterId' : IDL.Func([], [IDL.Text], ['query']),
   'getMyPaymentProofs' : IDL.Func([], [IDL.Vec(PaymentProof)], ['query']),
   'getNft' : IDL.Func([IDL.Nat], [IDL.Opt(Nft)], ['query']),
   'getSlotsStatus' : IDL.Func(
@@ -393,6 +371,7 @@ export const idlService = IDL.Service({
       ],
       ['query'],
     ),
+  'getStorageUsage' : IDL.Func([], [IDL.Nat], ['query']),
   'getStripeSessionStatus' : IDL.Func(
       [IDL.Text],
       [IDL.Record({ 'status' : IDL.Text })],
@@ -403,10 +382,13 @@ export const idlService = IDL.Service({
       [IDL.Record({ 'mode' : IDL.Text, 'configured' : IDL.Bool })],
       ['query'],
     ),
+  'getTotalClaims' : IDL.Func([], [IDL.Nat], ['query']),
+  'getTotalCollections' : IDL.Func([], [IDL.Nat], ['query']),
+  'getTotalCreators' : IDL.Func([], [IDL.Nat], ['query']),
   'getTotalMinted' : IDL.Func([], [IDL.Nat], ['query']),
+  'getTotalNfts' : IDL.Func([], [IDL.Nat], ['query']),
   'hasAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'isAdmin' : IDL.Func([], [IDL.Bool], ['query']),
-  'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
   'listMyActiveNfts' : IDL.Func([], [IDL.Vec(Nft)], ['query']),
   'listMyCollections' : IDL.Func([], [IDL.Vec(CollectionWithCount)], ['query']),
@@ -569,7 +551,6 @@ export const idlFactory = ({ IDL }) => {
     'emailAlerts' : IDL.Vec(AlertType),
     'maxSlots' : IDL.Nat,
     'createdAt' : Timestamp,
-    'role' : IDL.Variant({ 'creator' : IDL.Null, 'admin' : IDL.Null }),
     'subscriptionTier' : SubscriptionTier,
     'creatorId' : CreatorId,
     'email' : IDL.Opt(IDL.Text),
@@ -590,35 +571,8 @@ export const idlFactory = ({ IDL }) => {
     'success' : IDL.Opt(IDL.Bool),
     'topped_up_amount' : IDL.Opt(IDL.Nat),
   });
-  const Error = IDL.Variant({
-    'FrontendOriginsNotConfigured' : IDL.Null,
-    'MixedSsoSources' : IDL.Record({
-      'otherKeys' : IDL.Vec(IDL.Text),
-      'ssoKeys' : IDL.Vec(IDL.Text),
-    }),
-    'Stale' : IDL.Record({ 'ageNs' : IDL.Nat }),
-    'MalformedCandid' : IDL.Null,
-    'AmbiguousAttribute' : IDL.Record({
-      'field' : IDL.Text,
-      'sources' : IDL.Vec(IDL.Text),
-    }),
-    'NoAttributes' : IDL.Null,
-    'UnknownNonce' : IDL.Null,
-    'UntrustedSsoSource' : IDL.Record({ 'domain' : IDL.Text }),
-    'MissingField' : IDL.Text,
-    'FrontendOriginMismatch' : IDL.Record({
-      'got' : IDL.Text,
-      'expected' : IDL.Vec(IDL.Text),
-    }),
-  });
-  const Result_9 = IDL.Variant({ 'ok' : IDL.Null, 'err' : Error });
   const Result_2 = IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text });
   const Result_3 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
-  const UserRole = IDL.Variant({
-    'admin' : IDL.Null,
-    'user' : IDL.Null,
-    'guest' : IDL.Null,
-  });
   const Result_8 = IDL.Variant({ 'ok' : Nft, 'err' : IDL.Text });
   const Result_7 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
   const CollectionId = IDL.Nat;
@@ -642,6 +596,18 @@ export const idlFactory = ({ IDL }) => {
     'claimedCount' : IDL.Nat,
   });
   const Result_5 = IDL.Variant({ 'ok' : ClaimStatus, 'err' : IDL.Text });
+  const HealthMetrics = IDL.Record({
+    'claimedNfts' : IDL.Nat,
+    'storageUsage' : IDL.Nat,
+    'totalCreators' : IDL.Nat,
+    'totalNfts' : IDL.Nat,
+    'totalCollections' : IDL.Nat,
+    'availableNfts' : IDL.Nat,
+    'backendBuildTimestamp' : IDL.Nat,
+    'totalClaims' : IDL.Nat,
+    'activeNfts' : IDL.Nat,
+    'canisterId' : IDL.Text,
+  });
   const CollectionWithCount = IDL.Record({
     'id' : IDL.Nat,
     'previewImage' : IDL.Opt(IDL.Text),
@@ -707,8 +673,12 @@ export const idlFactory = ({ IDL }) => {
   const Result = IDL.Variant({ 'ok' : VerifyResult, 'err' : IDL.Text });
   
   return IDL.Service({
-    '__accessControlState' : IDL.Func([], [IDL.Reserved], ['query']),
-    '__adminPrincipal' : IDL.Func([], [IDL.Opt(IDL.Principal)], ['query']),
+    '__adminPrincipals' : IDL.Func(
+        [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
+        [IDL.Vec(IDL.Principal)],
+        ['query'],
+      ),
+    '__backendBuildTimestamp' : IDL.Func([], [IDL.Reserved], ['query']),
     '__claimTokenStore' : IDL.Func(
         [IDL.Opt(IDL.Text), IDL.Opt(IDL.Nat)],
         [IDL.Vec(IDL.Tuple(IDL.Text, ClaimToken))],
@@ -779,12 +749,8 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     '_immutableObjectStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
-    '_initialize_access_control' : IDL.Func([], [], []),
-    '_internet_identity_sign_in_finish' : IDL.Func([], [Result_9], []),
-    '_internet_identity_sign_in_start' : IDL.Func([], [IDL.Vec(IDL.Nat8)], []),
     'addNftToCollection' : IDL.Func([IDL.Nat, IDL.Nat], [Result_2], []),
     'approvePaymentProof' : IDL.Func([IDL.Text], [Result_3], []),
-    'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
     'burnNft' : IDL.Func([IDL.Nat], [Result_2], []),
     'claimAdmin' : IDL.Func([], [IDL.Bool], []),
     'claimNft' : IDL.Func([IDL.Text], [Result_8], []),
@@ -799,18 +765,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     'createCollection' : IDL.Func([IDL.Text, IDL.Text], [Result_7], []),
     'createSlot' : IDL.Func([], [Result_7], []),
-    'debugAdminState' : IDL.Func(
-        [],
-        [
-          IDL.Record({
-            'adminPrincipalValue' : IDL.Opt(IDL.Text),
-            'accessControlIsAdmin' : IDL.Bool,
-            'adminPrincipalMatchesCaller' : IDL.Bool,
-            'caller' : IDL.Text,
-          }),
-        ],
-        ['query'],
-      ),
+    'debugAuth' : IDL.Func([], [IDL.Text], ['query']),
     'deleteCollection' : IDL.Func([IDL.Nat], [], []),
     'deleteCollectionAndUnassignNfts' : IDL.Func(
         [CollectionId],
@@ -819,12 +774,15 @@ export const idlFactory = ({ IDL }) => {
       ),
     'deleteNft' : IDL.Func([IDL.Nat], [Result_2], []),
     'generateClaimLink' : IDL.Func([IDL.Nat], [Result_3], []),
-    'getAdminPrincipal' : IDL.Func([], [IDL.Opt(IDL.Principal)], ['query']),
+    'getActiveNfts' : IDL.Func([], [IDL.Nat], ['query']),
+    'getAvailableNfts' : IDL.Func([], [IDL.Nat], ['query']),
+    'getBackendBuildTimestamp' : IDL.Func([], [IDL.Nat], ['query']),
     'getCallerProfile' : IDL.Func([], [UserProfile], []),
-    'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'getCanisterId' : IDL.Func([], [IDL.Text], ['query']),
+    'getCanisterIdSafe' : IDL.Func([], [IDL.Text], ['query']),
     'getClaimPreview' : IDL.Func([IDL.Text], [Result_6], ['query']),
     'getClaimStatus' : IDL.Func([IDL.Nat], [Result_5], ['query']),
+    'getClaimedNfts' : IDL.Func([], [IDL.Nat], ['query']),
     'getCollection' : IDL.Func([IDL.Nat], [IDL.Opt(Collection)], ['query']),
     'getCollectionIdByName' : IDL.Func(
         [IDL.Text],
@@ -842,6 +800,8 @@ export const idlFactory = ({ IDL }) => {
         ],
         ['query'],
       ),
+    'getHealthMetrics' : IDL.Func([], [HealthMetrics], ['query']),
+    'getMetricsCanisterId' : IDL.Func([], [IDL.Text], ['query']),
     'getMyPaymentProofs' : IDL.Func([], [IDL.Vec(PaymentProof)], ['query']),
     'getNft' : IDL.Func([IDL.Nat], [IDL.Opt(Nft)], ['query']),
     'getSlotsStatus' : IDL.Func(
@@ -855,6 +815,7 @@ export const idlFactory = ({ IDL }) => {
         ],
         ['query'],
       ),
+    'getStorageUsage' : IDL.Func([], [IDL.Nat], ['query']),
     'getStripeSessionStatus' : IDL.Func(
         [IDL.Text],
         [IDL.Record({ 'status' : IDL.Text })],
@@ -865,10 +826,13 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Record({ 'mode' : IDL.Text, 'configured' : IDL.Bool })],
         ['query'],
       ),
+    'getTotalClaims' : IDL.Func([], [IDL.Nat], ['query']),
+    'getTotalCollections' : IDL.Func([], [IDL.Nat], ['query']),
+    'getTotalCreators' : IDL.Func([], [IDL.Nat], ['query']),
     'getTotalMinted' : IDL.Func([], [IDL.Nat], ['query']),
+    'getTotalNfts' : IDL.Func([], [IDL.Nat], ['query']),
     'hasAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'isAdmin' : IDL.Func([], [IDL.Bool], ['query']),
-    'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
     'listMyActiveNfts' : IDL.Func([], [IDL.Vec(Nft)], ['query']),
     'listMyCollections' : IDL.Func(
