@@ -19,14 +19,14 @@ mixin (
   userStore : UserLib.UserStore,
   nextNftId : { var value : Nat },
   selfCanisterId : { var value : Text },
-  admins : [Principal],
+  admins : { var value : [Principal] },
 ) {
 
   /// Admin-only: generate a shareable claim URL for a specific NFT.
   /// Returns the relative path "/claim/" # token.
   public shared ({ caller }) func generateClaimLink(nftId : Nat) : async Result.Result<Text, Text> {
     // Admin check FIRST — bypass profile fetch and tier check entirely
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       // Non-admin: fetch profile and enforce tier restriction
       let callerProfile = switch (UserLib.getProfile(userStore, caller)) {
         case (?profile) { profile };
@@ -64,7 +64,7 @@ mixin (
   /// Admin-only: return claim status for a given NFT.
   public query ({ caller }) func getClaimStatus(nftId : Nat) : async Result.Result<ClaimTypes.ClaimStatus, Text> {
     // Admin-only guard using Auth
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return #err("Unauthorized: Admin only");
     };
     switch (ClaimLib.getTokenForNft(nftToClaimToken, nftId)) {

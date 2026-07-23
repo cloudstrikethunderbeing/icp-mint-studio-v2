@@ -2,6 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Diamond, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
+import { useEffect } from "react";
 import { NotificationBell } from "./NotificationBell";
 
 interface HeaderProps {
@@ -11,9 +12,29 @@ interface HeaderProps {
 
 export function Header({ hideNav = false }: HeaderProps) {
   const { isAuthenticated, login, logout } = useAuth();
+  console.log("[RENDER] Header render:", { isAuthenticated });
   const { resolvedTheme, setTheme } = useTheme();
   const navigate = useNavigate();
   const routerState = useRouterState();
+
+  // TEMP DIAGNOSTIC: observe auth button textContent changes for one test run.
+  useEffect(() => {
+    const node = document.querySelector("[data-ocid='header.auth_button']");
+    if (!node) {
+      console.log("[DOM] header.auth_button node NOT FOUND at observer setup");
+      return;
+    }
+    console.log("[DOM] header.auth_button textContent:", node.textContent);
+    const observer = new MutationObserver(() => {
+      console.log("[DOM] header.auth_button textContent:", node.textContent);
+    });
+    observer.observe(node, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, []);
 
   const handleLogoClick = () => {
     const path = routerState.location.pathname;
@@ -68,7 +89,17 @@ export function Header({ hideNav = false }: HeaderProps) {
             {isAuthenticated && <NotificationBell />}
             <button
               type="button"
-              onClick={isAuthenticated ? logout : login}
+              onClick={() => {
+                console.log("[LOGIN] click handler entry:", {
+                  isAuthenticated,
+                  willCall: isAuthenticated ? "logout" : "login",
+                });
+                if (isAuthenticated) {
+                  logout();
+                } else {
+                  login();
+                }
+              }}
               className="h-9 px-4 rounded-full text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90"
               data-ocid="header.auth_button"
             >

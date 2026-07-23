@@ -643,6 +643,12 @@ export default function HomePage() {
     isAdmin,
     isAdminLoading,
   } = useAuth();
+  console.log("[RENDER] HomePage render:", {
+    authState,
+    isAuthenticated,
+    isAdmin,
+    actor: !!actor,
+  });
 
   const queryClient = useQueryClient();
   const _createSlotMutation = useCreateSlot();

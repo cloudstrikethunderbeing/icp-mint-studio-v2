@@ -9,7 +9,7 @@ module {
   public type UserStore = Map.Map<Principal, Types.UserProfile>;
 
   public func initUserStore() : UserStore {
-    Map.empty<Principal, Types.UserProfile>()
+    Map.empty()
   };
 
   public func getMaxSlotsForTier(tier : Common.SubscriptionTier) : Nat {

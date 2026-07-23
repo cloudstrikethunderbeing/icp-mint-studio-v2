@@ -16,7 +16,7 @@ mixin (
   nftStore : NftLib.NftStore,
   globalAuditLog : Queue.Queue<Common.AuditEntry>,
   selfCanisterId : { var value : Text },
-  admins : [Principal],
+  admins : { var value : [Principal] },
 ) {
   public shared ({ caller }) func getCallerProfile() : async Types.UserProfile {
     if (caller.isAnonymous()) {
@@ -148,7 +148,7 @@ mixin (
     if (caller.isAnonymous()) {
       return #err("Unauthorized: Anonymous caller");
     };
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return #err("Unauthorized: Admin only");
     };
     let valid = switch (productId) {
@@ -195,7 +195,7 @@ mixin (
     if (caller.isAnonymous()) {
       return #err("Unauthorized: Anonymous caller");
     };
-    let isAdmin = Auth.isAdmin(caller, admins);
+    let isAdmin = Auth.isAdmin(caller, admins.value);
     UserLib.createSlot(userStore, caller, isAdmin)
   };
 

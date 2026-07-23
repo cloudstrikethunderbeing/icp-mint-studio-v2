@@ -25,74 +25,74 @@ mixin (
   globalAuditLog : Queue.Queue<Common.AuditEntry>,
   selfCanisterId : { var value : Text },
   backendBuildTimestamp : { var value : Nat },
-  admins : [Principal],
+  admins : { var value : [Principal] },
 ) {
 
   public query ({ caller }) func getTotalNfts() : async Nat {
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return 0;
     };
     MetricsLib.getTotalNfts(nftStore)
   };
 
   public query ({ caller }) func getActiveNfts() : async Nat {
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return 0;
     };
     MetricsLib.getActiveNfts(nftStore)
   };
 
   public query ({ caller }) func getClaimedNfts() : async Nat {
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return 0;
     };
     MetricsLib.getClaimedNfts(nftStore)
   };
 
   public query ({ caller }) func getAvailableNfts() : async Nat {
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return 0;
     };
     MetricsLib.getAvailableNfts(nftStore)
   };
 
   public query ({ caller }) func getTotalCollections() : async Nat {
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return 0;
     };
     MetricsLib.getTotalCollections(collectionStore)
   };
 
   public query ({ caller }) func getTotalCreators() : async Nat {
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return 0;
     };
     MetricsLib.getTotalCreators(nftStore)
   };
 
   public query ({ caller }) func getTotalClaims() : async Nat {
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return 0;
     };
     MetricsLib.getTotalClaims(claimTokenStore)
   };
 
   public query ({ caller }) func getMetricsCanisterId() : async Text {
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return "";
     };
     selfCanisterId.value
   };
 
   public query ({ caller }) func getBackendBuildTimestamp() : async Nat {
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return 0;
     };
     backendBuildTimestamp.value
   };
 
   public query ({ caller }) func getStorageUsage() : async Nat {
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return 0;
     };
     MetricsLib.getStorageUsage(
@@ -103,7 +103,7 @@ mixin (
   };
 
   public query ({ caller }) func getHealthMetrics() : async Types.HealthMetrics {
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return {
         totalNfts = 0;
         activeNfts = 0;

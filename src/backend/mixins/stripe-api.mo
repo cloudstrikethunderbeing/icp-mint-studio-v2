@@ -10,14 +10,14 @@ import Int "mo:core/Int";
 mixin (
   stripeConfigStore : StripeLib.StripeConfigStore,
   globalAuditLog : Queue.Queue<Common.AuditEntry>,
-  admins : [Principal],
+  admins : { var value : [Principal] },
 ) {
   public query func isStripeConfigured() : async Bool {
     StripeLib.isConfigured(stripeConfigStore);
   };
 
   public shared ({ caller }) func setStripeConfiguration(secretKey : Text, publicKey : Text) : async () {
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       Runtime.trap("Unauthorized: Only admins can configure Stripe");
     };
     StripeLib.setConfig(stripeConfigStore, secretKey, publicKey);

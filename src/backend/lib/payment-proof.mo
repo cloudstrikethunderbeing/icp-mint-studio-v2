@@ -10,7 +10,7 @@ module {
   public type PaymentProofStore = Map.Map<Text, Types.PaymentProof>;
 
   public func initStore() : PaymentProofStore {
-    Map.empty<Text, Types.PaymentProof>()
+    Map.empty()
   };
 
   public func createProof(

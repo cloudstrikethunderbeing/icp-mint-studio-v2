@@ -66,6 +66,11 @@ function RoleBadge() {
 
 export default function ProfilePage() {
   const { isAuthenticated, principal, identity, actor } = useAuth();
+  console.log("[RENDER] ProfilePage render:", {
+    isAuthenticated,
+    principal,
+    actor: !!actor,
+  });
   // Derive the full principal text directly from identity as the authoritative source
   const fullPrincipalText = identity
     ? identity.getPrincipal().toText()

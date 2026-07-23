@@ -489,6 +489,11 @@ function CollectorSkeleton() {
 
 export default function CollectorPage() {
   const { isAuthenticated, principal, authState } = useAuth();
+  console.log("[RENDER] CollectorPage render:", {
+    isAuthenticated,
+    authState,
+    principal,
+  });
   const canCreateCollections = authState === "ready";
 
   const [activeTab, setActiveTab] = useState<TabKey>("all");

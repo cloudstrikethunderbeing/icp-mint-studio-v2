@@ -198,8 +198,22 @@ export default function SettingsPage() {
     "general",
   );
   const [principalCopied, setPrincipalCopied] = useState(false);
-  const { isAuthenticated, actor, principal, isAdmin, isAdminLoading } =
-    useAuth();
+  const {
+    isAuthenticated,
+    actor,
+    principal,
+    isAdmin,
+    isAdminLoading,
+    hasRealAdmin,
+    hasRealAdminLoading,
+    setupAdmin,
+  } = useAuth();
+  console.log("[RENDER] SettingsPage render:", { isAuthenticated, principal });
+
+  // Draft-only one-time admin setup state
+  const IS_DRAFT = import.meta.env.IS_DRAFT as boolean;
+  const [setupAdminPending, setSetupAdminPending] = useState(false);
+  const [setupAdminError, setSetupAdminError] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -210,6 +224,27 @@ export default function SettingsPage() {
     if (!isAdmin && (activeTab === "admin" || activeTab === "health"))
       setActiveTab("general");
   }, [isAdmin, activeTab]);
+
+  const handleSetupAdmin = async () => {
+    setSetupAdminError("");
+    setSetupAdminPending(true);
+    try {
+      const ok = await setupAdmin();
+      if (!ok) {
+        // setupAdmin() resolved to false — backend rejected the request,
+        // most likely because an admin already exists.
+        setSetupAdminError("Admin setup failed: an admin may already exist");
+      }
+    } catch (err) {
+      // setupAdmin() threw — network or actor error. Surface the actual
+      // error message so the user can diagnose the failure.
+      setSetupAdminError(
+        err instanceof Error ? err.message : "Failed to set admin.",
+      );
+    } finally {
+      setSetupAdminPending(false);
+    }
+  };
 
   // ── Stripe state ─────────────────────────────────────────────────────────
   const [secretKey, setSecretKey] = useState("");
@@ -267,21 +302,17 @@ export default function SettingsPage() {
   });
 
   // ── Canister ID with multiple fallback sources ──────────────────────────
-  const FALLBACK_CANISTER_ID = "4j4fw-fyaaa-aaaah-argua-cai";
-
   const canisterIdDisplay = (() => {
     if (canisterIdQuery.isLoading) return "Loading...";
     const actorId = canisterIdQuery.data?.trim();
     if (actorId && actorId.length > 0) return actorId;
     const envId = CANISTERS.backend?.trim();
     if (envId && envId.length > 0) return envId;
-    return FALLBACK_CANISTER_ID;
+    return "Unavailable";
   })();
 
   const effectiveCanisterId =
-    canisterIdQuery.data?.trim() ||
-    CANISTERS.backend?.trim() ||
-    FALLBACK_CANISTER_ID;
+    canisterIdQuery.data?.trim() || CANISTERS.backend?.trim() || "";
 
   // ── Collection ID query ─────────────────────────────────────────────────
   const collectionIdQuery = useQuery<string | null>({
@@ -378,6 +409,104 @@ export default function SettingsPage() {
       data-ocid="settings.page"
     >
       <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+
+      {/* ── Draft-only one-time admin setup ──────────────────────────────── */}
+      {IS_DRAFT && !isAdmin && !hasRealAdmin && (
+        <div
+          className="bg-card border border-amber-500/30 rounded-xl p-4 space-y-3"
+          data-ocid="settings.setup_admin_card"
+        >
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-amber-400" />
+            Set Up Admin
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            No admin has been set on this draft canister yet. Click to set
+            yourself as admin.
+          </p>
+          <Button
+            type="button"
+            onClick={handleSetupAdmin}
+            disabled={setupAdminPending}
+            size="sm"
+            className="w-full"
+            data-ocid="settings.setup_admin_button"
+          >
+            {setupAdminPending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                Setting up...
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="w-4 h-4 mr-2" />
+                Set as Admin
+              </>
+            )}
+          </Button>
+          {setupAdminError && (
+            <p
+              className="text-xs text-destructive"
+              data-ocid="settings.setup_admin_error_state"
+            >
+              {setupAdminError}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── Draft-only: admin already set (informational + re-claim) ─────── */}
+      {IS_DRAFT && !isAdmin && hasRealAdmin && !hasRealAdminLoading && (
+        <div
+          className="bg-card border border-amber-500/30 rounded-xl p-4 space-y-3"
+          data-ocid="settings.admin_already_set_card"
+        >
+          <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Shield className="w-4 h-4 text-primary" />
+            Admin Already Set
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            An admin has already been set on this draft canister. Ask an
+            existing admin to add you.
+          </p>
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2">
+            <p className="text-xs text-amber-400">
+              Draft testing only: on draft canisters, setupAdmin() always
+              succeeds and overwrites the current admin. Use this to re-claim
+              admin on a rotated draft canister.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleSetupAdmin}
+            disabled={setupAdminPending}
+            size="sm"
+            className="w-full border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+            data-ocid="settings.reclaim_admin_button"
+          >
+            {setupAdminPending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                Re-claiming...
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="w-4 h-4 mr-2" />
+                Re-claim admin (draft testing)
+              </>
+            )}
+          </Button>
+          {setupAdminError && (
+            <p
+              className="text-xs text-destructive"
+              data-ocid="settings.reclaim_admin_error_state"
+            >
+              {setupAdminError}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* ── Tab Switcher — admin only ──────────────────────────────────── */}
 

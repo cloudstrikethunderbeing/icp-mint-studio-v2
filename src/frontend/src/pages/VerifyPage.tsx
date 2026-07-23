@@ -358,6 +358,7 @@ function NotFoundState() {
 
 export default function VerifyPage() {
   const { actor, isAdmin } = useAuth();
+  console.log("[RENDER] VerifyPage render:", { isAdmin, actor: !!actor });
 
   // Read ?id=canisterId:0:tokenId from URL search params
   const search = useSearch({ strict: false }) as Record<string, string>;

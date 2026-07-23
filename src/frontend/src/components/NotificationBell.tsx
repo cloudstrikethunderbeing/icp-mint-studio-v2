@@ -91,6 +91,7 @@ function NotificationItem({
 
 export function NotificationBell() {
   const { principal } = useAuth();
+  console.log("[RENDER] NotificationBell render:", { principal });
   const { notifications, unreadCount, markAllRead, clearAll } =
     useNotifications(principal);
   const [open, setOpen] = useState(false);

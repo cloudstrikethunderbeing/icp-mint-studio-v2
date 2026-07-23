@@ -69,6 +69,11 @@ export default function ClaimPage() {
     claimToken: string;
   };
   const { isAuthenticated, login, principal, actor, isFetching } = useAuth();
+  console.log("[RENDER] ClaimPage render:", {
+    isAuthenticated,
+    actor: !!actor,
+    isFetching,
+  });
   const navigate = useNavigate();
 
   const queryClient = useQueryClient();
@@ -253,7 +258,10 @@ export default function ClaimPage() {
               <Button
                 type="button"
                 className="w-full"
-                onClick={() => login()}
+                onClick={() => {
+                  console.log("[LOGIN] claim connect button clicked");
+                  login();
+                }}
                 data-ocid="claim.connect_wallet_button"
               >
                 Connect Wallet to Claim

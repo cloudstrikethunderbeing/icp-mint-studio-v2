@@ -101,6 +101,7 @@ export function NftDetailModal({
 
   // Claim link state (admin only)
   const { isAdmin } = useAuth();
+  console.log("[RENDER] NftDetailModal render:", { isAdmin });
   const canGenerateClaimLink = isAdmin;
   const [claimUrlCopied, setClaimUrlCopied] = useState(false);
   const [generatedClaimPath, setGeneratedClaimPath] = useState<string | null>(

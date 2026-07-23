@@ -15,7 +15,7 @@ mixin (
   paymentProofStore : PaymentProofLib.PaymentProofStore,
   userStore : UserLib.UserStore,
   globalAuditLog : Queue.Queue<Common.AuditEntry>,
-  admins : [Principal],
+  admins : { var value : [Principal] },
 ) {
   public shared ({ caller }) func submitPaymentProof(
     txHash : Text,
@@ -65,7 +65,7 @@ mixin (
     if (caller.isAnonymous()) {
       return #err("Unauthorized: Anonymous caller");
     };
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return #err("Unauthorized: Admin only");
     };
     switch (PaymentProofLib.getProof(paymentProofStore, proofId)) {
@@ -109,7 +109,7 @@ mixin (
     if (caller.isAnonymous()) {
       return #err("Unauthorized: Anonymous caller");
     };
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return #err("Unauthorized: Admin only");
     };
     switch (PaymentProofLib.getProof(paymentProofStore, proofId)) {
@@ -146,7 +146,7 @@ mixin (
     if (caller.isAnonymous()) {
       return [];
     };
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       return [];
     };
     PaymentProofLib.listAllProofs(paymentProofStore)

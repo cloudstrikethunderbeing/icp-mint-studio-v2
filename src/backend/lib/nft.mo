@@ -17,11 +17,11 @@ module {
   public type CollectionStore = Map.Map<Nat, Types.Collection>;
 
   public func initNftStore() : NftStore {
-    Map.empty<Nat, Types.Nft>()
+    Map.empty()
   };
 
   public func initCollectionStore() : CollectionStore {
-    Map.empty<Nat, Types.Collection>()
+    Map.empty()
   };
 
   public func generateCreatorId(principal : Principal) : Common.CreatorId {

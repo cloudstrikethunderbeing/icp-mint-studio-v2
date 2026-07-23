@@ -26,7 +26,7 @@ mixin (
   creatorIndex : Map.Map<Text, List.List<Nat>>,
   claimTokenStore : ClaimLib.ClaimTokenStore,
   nftToClaimToken : ClaimLib.NftToClaimStore,
-  admins : [Principal],
+  admins : { var value : [Principal] },
 ) {
   func computeNftUniqueId(canisterId : Text, _collectionId : ?Nat, tokenId : Nat) : Text {
     if (canisterId == "") {
@@ -101,7 +101,7 @@ mixin (
     };
 
     // Admin bypass: skip rate limit entirely
-    if (not Auth.isAdmin(caller, admins)) {
+    if (not Auth.isAdmin(caller, admins.value)) {
       switch (checkRateLimit(caller)) {
         case (#err(msg)) { return #err({ message = msg }) };
         case (#ok) {};
@@ -164,7 +164,7 @@ mixin (
     let tier = tierInfo.tier;
 
     // Admin bypass: skip all tier-based mint restrictions
-    if (Auth.isAdmin(caller, admins)) {
+    if (Auth.isAdmin(caller, admins.value)) {
       let id = if (nextNftId.value == 0) { nextNftId.value := 1; 1 } else { nextNftId.value };
       nextNftId.value := id + 1;
       let creatorId = profile.creatorId;
@@ -467,7 +467,7 @@ mixin (
       return #err("Name is required");
     };
 
-    let isAdmin = Auth.isAdmin(caller, admins);
+    let isAdmin = Auth.isAdmin(caller, admins.value);
     if (isAdmin) {
       let id = nextCollectionId.value;
       nextCollectionId.value += 1;
@@ -626,7 +626,7 @@ mixin (
           return #err("NFT is not active");
         };
         let isOwner = Principal.equal(nft.ownerId, caller);
-        let isAdmin = Auth.isAdmin(caller, admins);
+        let isAdmin = Auth.isAdmin(caller, admins.value);
         if (not isOwner and not isAdmin) {
           return #err("Unauthorized: Only the owner or admin can update metadata");
         };
@@ -668,7 +668,7 @@ mixin (
   };
 
   public query ({ caller }) func searchNfts(searchTerm : Text) : async [Types.Nft] {
-    let isAdmin = Auth.isAdmin(caller, admins);
+    let isAdmin = Auth.isAdmin(caller, admins.value);
     if (not isAdmin) {
       Runtime.trap("Unauthorized: Admin only");
     };

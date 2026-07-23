@@ -89,6 +89,7 @@ declare module "@tanstack/react-router" {
 }
 
 export default function App() {
+  console.log("[RENDER] App render:", {});
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <Toaster />

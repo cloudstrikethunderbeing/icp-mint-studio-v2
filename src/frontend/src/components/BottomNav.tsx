@@ -10,6 +10,7 @@ export function BottomNav({ shell }: BottomNavProps) {
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
   const { isAuthenticated } = useAuth();
+  console.log("[RENDER] BottomNav render:", { isAuthenticated });
 
   if (shell === "none") return null;
 

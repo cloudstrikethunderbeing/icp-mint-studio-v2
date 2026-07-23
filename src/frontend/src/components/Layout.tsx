@@ -20,6 +20,7 @@ function useShell(): "claim" | "collector" | "studio" {
 
 export function Layout() {
   const shell = useShell();
+  console.log("[RENDER] Layout render:", { shell });
 
   if (shell === "claim") {
     // Claim shell: no nav, no admin banner, minimal chrome

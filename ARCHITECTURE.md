@@ -13,25 +13,35 @@ Three shells:
 - Claim (/claim/:token): Shareable secure NFT claim links
 
 Draft vs Live:
-- Draft canister: 4j4fw-fyaaa-aaaah-argua-cai (ephemeral)
-- Live canister: ksicd-uqaaa-aaaak-qy63a-cai (permanent)
+- Draft canister: dqlb2-nyaaa-aaaae-aamxa-cai (ephemeral)
+- Live canister: kd6s6-ziaaa-aaaam-ajfwa-cai (permanent)
 - Draft URL: https://pretty-amber-68k-draft.caffeine.xyz/
 - Live URL: https://icp-mint-studio-n3x.caffeine.xyz/
 - Draft calls draft, live calls live — never crossed
 
 ## 2. CANISTER STRUCTURE
 
-- Frontend canister: utecd-uyaaa-aaaaj-qnqxa-cai (draft) / k3lj7-cyaaa-aaaak-qy62q-cai (live)
-- Backend draft: 4j4fw-fyaaa-aaaah-argua-cai
-- Backend live: ksicd-uqaaa-aaaak-qy63a-cai
-- Canister IDs injected at build time via Vite plugin reading canister-ids.json
-- Canister ID resolution precedence: build-pipeline env vars (CANISTER_ID_BACKEND / CANISTER_ID_FRONTEND) take precedence at build time; canister-ids.json is a fallback only (local dev / pipeline gaps), not the source of truth
-- env.json is dead code — never use it
+- Frontend canister: cjsuq-3qaaa-aaaae-adina-cai (draft) / ke7uk-uqaaa-aaaam-ajfwq-cai (live)
+- Backend draft: dqlb2-nyaaa-aaaae-aamxa-cai
+- Backend live: kd6s6-ziaaa-aaaam-ajfwa-cai
+- Canister IDs injected at build time via Vite plugin (vite.config.js)
+
+### Canister ID resolution architecture (final state after v215)
+
+- **Live builds:** vite.config.js uses hardcoded `LIVE_BACKEND_ID` / `LIVE_FRONTEND_ID` (kd6s6-ziaaa-aaaam-ajfwa-cai / ke7uk-uqaaa-aaaam-ajfwq-cai). The `live` block in canister-ids.json is NOT read for live builds. Hardcoded constants win unconditionally on live.
+- **Draft builds:** vite.config.js reads `process.env.CANISTER_ID_BACKEND` / `process.env.CANISTER_ID_FRONTEND` first, falls back to the canister-ids.json `draft` block. No hardcoded draft IDs in business logic.
+- **canister-ids.json draft entries are fallback-only, not source of truth.** They exist for local dev where no env var is set. If both env var and JSON value are empty/unset on a draft build, vite.config.js exits with code 1.
+- **config/canisters.ts runtime fallback** is always `canisterIds.draft`. This is a latent risk if the env var is ever unset on live, but it is dead code today since vite always sets the env var at build time.
+- env.json is dead code — never use it.
 
 ## 3. BACKEND FILE MAP
 
 ### main.mo
-- Composition root. Includes all mixins. Manages adminPrincipal and AccessControl state sync.
+- Composition root. Includes all mixins. Owns the `adminPrincipals` stable var and the `setupAdmin()` / `seedAdminsIfLive()` / `isAdmin()` admin model.
+- LIVE_ADMIN_1 / LIVE_ADMIN_2 constants (main.mo:81-82) hold the user's actual II identities (e4ok7-... and krtlu-...).
+- `seedAdminsIfLive()` is called in `postupgrade()` (main.mo:140) with a defense-in-depth lockout guard (main.mo:149-152) that re-seeds if `adminPrincipals` is still empty on live after the call. No-op on draft.
+- `setupAdmin()` is rate-limited (3 attempts/hour per principal) on a dedicated transient `setupAdminRateLimitStore`, separate from the shared `rateLimitStore`.
+- `isAdmin()` is a pure linear membership check against `adminPrincipals`. No RBAC, no AccessControl mixin, no migration-based admin seeding.
 
 ### types/common.mo
 - Shared types: UserId, Timestamp, SubscriptionTier, AuditEntry, Result, ApiError
@@ -66,7 +76,8 @@ Draft vs Live:
 ### mixins/nft-api.mo
 - NFT API: mint, delete, burn, transfer, update metadata, collection management
 - Dual auto-registration guards (lines 97-104 and 152-158)
-- Uses AccessControl.isAdmin()
+- Uses `isAdmin()` from main.mo for admin checks
+- **Pre-existing bug:** `checkRateLimit` uses `elapsed > 60` comparing nanoseconds — that is 60 NANOSECONDS, not 60 seconds. The window resets on essentially every call. When sharing `rateLimitStore` across features, this bug lets any co-located limiter be reset by unrelated calls. Security-critical rate-limiters (e.g. `setupAdmin`) must have their own dedicated transient Map.
 
 ### mixins/user-api.mo
 - User API: profile, slots, credits, admin claim
@@ -75,7 +86,7 @@ Draft vs Live:
 
 ### mixins/claim-link-api.mo
 - Claim links, NFT claiming
-- Uses AccessControl.isAdmin() (fixed v115)
+- Uses `isAdmin()` (fixed v115)
 - Strips collectionId on claim transfer (fixed v122)
 
 ### mixins/collections-api.mo
@@ -90,11 +101,13 @@ Draft vs Live:
 ### migrations/
 - 11 migration files for schema evolution
 - All critical state is stable
+- Migration 20260722_000000.mo resets `adminPrincipals` to empty — this is why `seedAdminsIfLive()` must run in `postupgrade()` to re-seed LIVE_ADMIN PIDs after every upgrade.
 
 ## 4. FRONTEND FILE MAP
 
 ### main.tsx
 - React entry point. No actor creation.
+- Exports `RECONCILE_LOGIN_EVENT` constant and owns the `providerKey` state + window event listener that increments the key on the event, forcing `InternetIdentityProvider` to remount and rehydrate. This is the v220 login-refresh recovery mechanism (see Section 11).
 
 ### App.tsx
 - Root router. No actor creation.
@@ -103,6 +116,7 @@ Draft vs Live:
 - THE ONLY ACTOR CREATION SOURCE IN THE ENTIRE SYSTEM
 - Manages identity, actor lifecycle, admin detection, profile hydration
 - Rebuilds actor on every identity change. No caching.
+- Dispatches `RECONCILE_LOGIN_EVENT` (imported from main.tsx) when `loginStatus` transitions to `loginError` after a real login attempt, guarded by a `loginAttemptedRef` to fire exactly once. This is the child-to-provider remount signal for the v220 login-refresh fix.
 
 ### backendSingleton.ts
 - Pure actor factory. Only called from AuthContext.
@@ -110,7 +124,7 @@ Draft vs Live:
 
 ### config/canisters.ts
 - Canister ID resolution from import.meta.env
-- Draft vs live builds
+- Draft vs live builds. Runtime fallback is always `canisterIds.draft`.
 
 ### hooks/useQueries.ts
 - React Query hooks for all backend operations
@@ -142,17 +156,25 @@ Rebuild triggers: login, logout, identity change, page reload
 
 Rule: AuthContext ONLY. No exceptions.
 
-## 6. ADMIN LIFECYCLE
+## 6. ADMIN LIFECYCLE (final state after v222)
 
-- Master admins are hardcoded as MASTER_ADMINS in main.mo
-- Principal IDs: 62vwb-gcj3s-... (live) and 4upfr-qatay-... (draft)
-- Admin status is synced into AccessControl on every
-  getCallerProfile() call via ensureMasterAdminSynced()
-- No dynamic claiming — claimAdmin() is disabled
-- AccessControl.isAdmin() is single source of truth for all
-  runtime permission checks
-- Master admin: unlimited minting, unlimited slots, full
-  collection management, admin tab in Settings
+### Single source of truth
+- The stable var `adminPrincipals` in main.mo is the single source of truth for admin membership.
+- It is initialized with the two LIVE_ADMIN PIDs (`LIVE_ADMIN_1` = e4ok7-..., `LIVE_ADMIN_2` = krtlu-...) defined as constants at main.mo:81-82.
+- `isAdmin()` is a pure linear membership check against `adminPrincipals`. No RBAC, no AccessControl mixin, no migration-based admin seeding, no `ensureMasterAdminSynced()`.
+
+### On live
+- `seedAdminsIfLive()` runs in `postupgrade()` (main.mo:140) to re-seed `adminPrincipals` after every upgrade. A defense-in-depth lockout guard (main.mo:149-152) re-seeds again if `adminPrincipals` is still empty on live after the call. This is required because migration 20260722_000000.mo resets `adminPrincipals` to empty — without the postupgrade call the live canister would have no admins until a manual claim.
+- `setupAdmin()` refuses any caller when `adminPrincipals` is non-empty (live is already seeded). It is rate-limited to 3 attempts/hour per principal on a dedicated transient `setupAdminRateLimitStore`, separate from the shared `rateLimitStore` (because the NFT limiter's `elapsed > 60` nanoseconds bug would let an attacker reset the setupAdmin count by minting a single NFT if they shared the store).
+
+### On draft
+- `seedAdminsIfLive()` is a no-op on draft.
+- `setupAdmin()` always allows the first caller to claim, because `effectivelyEmpty` is always true on draft (adminPrincipals is empty on a fresh draft canister). This lets the developer re-claim admin on each fresh draft canister without touching live.
+
+### What was removed (v222)
+- No `MASTER_ADMINS` constant with stale PIDs (4upfr-... / 62vwb-...). Replaced by `LIVE_ADMIN_1` / `LIVE_ADMIN_2` with the user's actual II identities.
+- No AccessControl mixin, no `ensureMasterAdminSynced()`, no `AccessControl.isAdmin()`. Admin authority is `isAdmin()` against `adminPrincipals` only.
+- No dynamic `claimAdmin()` claiming path that could let a second caller claim admin while one already exists (the historical phantom-admin bug).
 
 ## 7. USER REGISTRATION LIFECYCLE
 
@@ -200,11 +222,13 @@ Critical: Never use sessionStorage snapshots as primary display. Always refetch 
 6. invalidateQueries is fire-and-forget — use await refetchQueries
 7. Anonymous actor calls from multiple paths + cached singleton (fixed v112-v114)
 8. canister-ids.json went stale on draft canister rotation since it was previously the sole source of truth for canister ID resolution — fixed: build-pipeline env vars now take precedence (see Section 2).
-9. Phantom admin bug — main.mo passed adminPrincipal by value
-   (disconnected copy) into UserMixin, allowing a second caller to claim
-   admin while AccessControl already had one. Fixed: dynamic claiming
-   removed, master admins hardcoded in MASTER_ADMINS constant, synced
-   idempotently on every getCallerProfile() call.
+9. Phantom admin bug — main.mo passed adminPrincipal by value (disconnected copy) into UserMixin, allowing a second caller to claim admin while AccessControl already had one. Fixed: dynamic claiming removed, master admins hardcoded, synced idempotently. (Further refined in v222 — see bug 13.)
+10. **Login-refresh defect (v220 fix):** The @caffeineai/core-infrastructure wrapper's `withAttributes={false}` login branch calls `await actor._initialize_access_control()` BEFORE the un-awaited `handleLoginSuccess(authClient)`. When the backend canister does not implement the IdentityAttributes mixin, `_initialize_access_control()` rejects, the `.catch()` fires `handleLoginError`, and `handleLoginSuccess` NEVER runs — so `setIdentity`/`setStatus('success')` never fire even though the II popup completed and the delegation was persisted. This is a deterministic defect, not a race. The wrapper exposes NO public refresh/reconciliation function. The proven recovery path is provider remount → mount effect re-runs → `existingClient.isAuthenticated()` true → `getIdentity()` → `setIdentity` → `setStatus('success')`. The v220 fix dispatches a `RECONCILE_LOGIN_EVENT` from AuthContext (inside the provider) when `loginStatus` transitions to `loginError` after a real login attempt (guarded by a `loginAttemptedRef` to fire exactly once), which increments a `providerKey` state in main.tsx (the provider's parent), forcing `InternetIdentityProvider` to remount and rehydrate. `RECONCILE_LOGIN_EVENT` is exported from main.tsx and imported by AuthContext — the only safe direction for child-to-provider remount signaling since AuthContext cannot pass props up to `InternetIdentityProvider`.
+11. **Obsolete refresh hint (v221):** The "After connecting, refresh the page if your account doesn't update automatically." hint was removed from Header.tsx because the v220 fix resolved the login-refresh defect. The auth button is now the only pre-button element in the nav row.
+12. **NFT rate-limiter nanosecond bug (pre-existing):** `mixins/nft-api.mo` `checkRateLimit` uses `elapsed > 60` comparing nanoseconds — that is 60 NANOSECONDS, not 60 seconds. The window resets on essentially every call. When sharing `rateLimitStore` across features, this bug lets any co-located limiter be reset by unrelated calls. Security-critical rate-limiters (e.g. `setupAdmin`) must have their own dedicated transient Map.
+13. **Stale hardcoded admin PIDs (v222 fix #1):** `LIVE_ADMIN_1` / `LIVE_ADMIN_2` previously held stale PIDs (4upfr-... / 62vwb-...) that did not match the user's actual Internet Identity principals. Fixed in v222: replaced with the user's actual II identities (e4ok7-... and krtlu-...) at main.mo:81-82.
+14. **Admin re-seeding gap after upgrade (v222 fix #2):** Migration 20260722_000000.mo resets `adminPrincipals` to empty, so without a re-seed the live canister would have no admins after an upgrade until a manual claim. Fixed in v222: `seedAdminsIfLive()` is now called inside `postupgrade()` (main.mo:140) with a defense-in-depth lockout guard (main.mo:149-152) that re-seeds if `adminPrincipals` is still empty on live after the call. No-op on draft.
+15. **setupAdmin rate-limit store sharing (v222 fix #3):** `setupAdmin()` previously had no rate-limiting, and sharing the NFT limiter's `rateLimitStore` would have let an attacker reset the setupAdmin count by minting a single NFT (due to bug 12). Fixed in v222: `setupAdmin()` now has per-principal hourly rate-limiting (3 attempts/hour) on a dedicated transient `setupAdminRateLimitStore`, separate from the shared `rateLimitStore`.
 
 ## 12. DEPLOYMENT RULES
 
@@ -221,13 +245,9 @@ Critical: Never use sessionStorage snapshots as primary display. Always refetch 
 
 - Read this file at start of every session
 - Never hardcode canister IDs or principal IDs
-- Master admin principals are hardcoded in MASTER_ADMINS
-  (main.mo) — do not add, remove, or change these without an
-  explicit architecture decision.
+- Admin principals are hardcoded as `LIVE_ADMIN_1` / `LIVE_ADMIN_2` (main.mo:81-82) — do not add, remove, or change these without an explicit architecture decision.
 - Single actor creation path: AuthContext only
-- Single admin authority: AccessControl.isAdmin() only —
-  ensureMasterAdminSynced() is the only write path into admin
-  role state.
+- Single admin authority: `isAdmin()` against `adminPrincipals` only — `setupAdmin()` is the only write path into admin membership state (plus `seedAdminsIfLive()` in postupgrade on live).
 - Auto-register users silently
 - Draft calls draft, live calls live
 - Confirm deployment target before every deploy
@@ -236,22 +256,31 @@ Critical: Never use sessionStorage snapshots as primary display. Always refetch 
 ## 14. KEY FILES REFERENCE
 
 Frontend critical:
-- AuthContext.tsx — single actor source
+- AuthContext.tsx — single actor source, dispatches RECONCILE_LOGIN_EVENT
 - backendSingleton.ts — pure actor factory
 - canisters.ts — canister ID resolution
 - useQueries.ts — all backend hooks
 - usePermissions.ts — capability model
 - nftNormalization.ts — response normalization
+- main.tsx — exports RECONCILE_LOGIN_EVENT, owns providerKey remount state
 
 Backend critical:
-- main.mo — composition root
-- mixins/nft-api.mo — mint, delete, burn, transfer
+- main.mo — composition root, adminPrincipals + setupAdmin + seedAdminsIfLive + isAdmin
+- mixins/nft-api.mo — mint, delete, burn, transfer (contains pre-existing rate-limit nanosecond bug)
 - mixins/user-api.mo — profile, admin claim
 - mixins/claim-link-api.mo — claiming
 - lib/nft.mo — core domain logic
 - lib/user.mo — user domain logic
 
+## 15. PRE-DEPLOY VERIFICATION CHECKLIST
+
+The 30-second check before any live deploy. Run all three before clicking "Go Live":
+
+- **[MAIN]** `CANISTERS.backend` in the browser console matches the intended live backend (kd6s6-ziaaa-aaaam-ajfwa-cai). If it shows a draft ID, the build picked up the wrong canister — do not deploy.
+- **[ADMIN]** `isAdmin()` returns `true` for your principal after login (no manual page refresh needed — the v220 login-refresh fix handles rehydration automatically). If it returns `false`, the live canister's `adminPrincipals` is empty (seedAdminsIfLive did not run or your PID is not in LIVE_ADMIN_1/LIVE_ADMIN_2) — do not deploy.
+- **[UI]** The admin tab renders. If the admin tab does not appear despite `isAdmin()` returning `true`, the frontend capability model is stale — do not deploy.
+
 ---
 
-Document version: v126
-Last updated: 2026-06-24
+Document version: v222
+Last updated: 2026-07-23
