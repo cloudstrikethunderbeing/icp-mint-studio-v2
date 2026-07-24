@@ -1,23 +1,23 @@
-import { c as createLucideIcon, j as jsxRuntimeExports, r as reactExports, a as useAuth, h as Link } from "./main-BTokF3FK.js";
-import { R as Root, W as WarningProvider, C as Content, T as Title, D as Description, a as Close, c as createDialogScope, P as Portal$1, O as Overlay, b as Trigger$1, d as Portal$2, h as hideOthers, u as useFocusGuards, e as ReactRemoveScroll, F as FocusScope, f as DismissableLayer, g as FolderOpen, i as Trash2, j as Dialog, k as DialogContent, l as DialogHeader, m as DialogTitle, n as DialogDescription, o as DialogFooter, N as NftDetailModal, p as Flame, M as Minus } from "./NftDetailModal-ywpGCMpj.js";
-import { c as composeEventHandlers, a as createSlottable, b as createContextScope, u as useCallbackRef, P as Presence, d as Primitive, e as dispatchDiscreteCustomEvent, f as createSlot, g as useControllableState, h as useId } from "./index-DmJVeWkE.js";
-import { u as useComposedRefs, c as cn, a as composeRefs } from "./utils-CtwDn-BN.js";
-import { b as buttonVariants, B as Button } from "./button-C3_CjYWa.js";
-import { B as Badge } from "./badge-E8RRYWSl.js";
-import { C as Card, a as CardContent } from "./card-BpxMP45P.js";
-import { u as useDirection, c as createCollection } from "./index-Dme_9sg2.js";
-import { R as Root2$2, A as Anchor, c as createPopperScope, C as Content$1, a as Arrow, P as Plus } from "./index-BJaF15Dv.js";
-import { I as Item, c as createRovingFocusGroupScope, R as Root$1 } from "./index-DtW9Kdv5.js";
-import { I as Input } from "./input-7y2IfZGD.js";
-import { L as Label$1 } from "./label-BChcrg3e.js";
-import { S as Skeleton } from "./skeleton-CasqKnz1.js";
-import { B as BrandedAuthGate } from "./BrandedAuthGate-LuLaoj5n.js";
-import { u as useMyActiveNfts, a as useCollections, b as useDeleteNft, c as useBurnNft, d as useRemoveNftFromCollection, e as useCreateCollection, f as useAddNftToCollection, g as useDeleteCollection } from "./useQueries-DyA-Fh_0.js";
-import { S as ShieldCheck } from "./shield-check-B_07Y1lC.js";
-import { L as Layers } from "./layers-vQfp73Oi.js";
-import { W as Wallet } from "./wallet-DNvrlztZ.js";
-import { C as CircleCheck } from "./circle-check-Dj0qTZgq.js";
-import "./useQuery-BnOKrLmo.js";
+import { c as createLucideIcon, j as jsxRuntimeExports, r as reactExports, a as useAuth, h as Link } from "./main-DCUEkG6j.js";
+import { R as Root, W as WarningProvider, C as Content, T as Title, D as Description, a as Close, c as createDialogScope, P as Portal$1, O as Overlay, b as Trigger$1, d as Portal$2, h as hideOthers, u as useFocusGuards, e as ReactRemoveScroll, F as FocusScope, f as DismissableLayer, g as FolderOpen, i as Trash2, j as Dialog, k as DialogContent, l as DialogHeader, m as DialogTitle, n as DialogDescription, o as DialogFooter, N as NftDetailModal, p as Flame, M as Minus } from "./NftDetailModal-DJY3kK-G.js";
+import { c as composeEventHandlers, a as createSlottable, b as createContextScope, u as useCallbackRef, P as Presence, d as Primitive, e as dispatchDiscreteCustomEvent, f as createSlot, g as useControllableState, h as useId } from "./index-CArTYevy.js";
+import { u as useComposedRefs, c as cn, a as composeRefs } from "./utils-dNRT_sKa.js";
+import { b as buttonVariants, B as Button } from "./button-M2wF-dQu.js";
+import { B as Badge } from "./badge-DmiiIt21.js";
+import { C as Card, a as CardContent } from "./card-Dskn__PC.js";
+import { u as useDirection, c as createCollection } from "./index--X3WC9SB.js";
+import { R as Root2$2, A as Anchor, c as createPopperScope, C as Content$1, a as Arrow, P as Plus } from "./index-BkzLjnZt.js";
+import { I as Item, c as createRovingFocusGroupScope, R as Root$1 } from "./index-BjBPYfVa.js";
+import { I as Input } from "./input-CJQlcGPe.js";
+import { L as Label$1 } from "./label-DOg044_h.js";
+import { S as Skeleton } from "./skeleton-vF88kxjP.js";
+import { B as BrandedAuthGate } from "./BrandedAuthGate-BjMVq56O.js";
+import { u as useMyActiveNfts, a as useMyNfts, b as useCollections, c as useDeleteNft, d as useBurnNft, e as useRemoveNftFromCollection, f as useCreateCollection, g as useAddNftToCollection, h as useDeleteCollection } from "./useQueries-FPADcfrP.js";
+import { S as ShieldCheck } from "./shield-check-Bum0ehFx.js";
+import { L as Layers } from "./layers-CpPnazo7.js";
+import { W as Wallet } from "./wallet-BkVv8ZEw.js";
+import { C as CircleCheck } from "./circle-check-BVL8WW0K.js";
+import "./useQuery-C3quiaCj.js";
 /**
  * @license lucide-react v0.511.0 - ISC
  *
@@ -1821,6 +1821,7 @@ function CollectorPage() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = reactExports.useState(false);
   const [pendingDeleteCollection, setPendingDeleteCollection] = reactExports.useState(null);
   const { data: nfts = [], isLoading: nftsLoading } = useMyActiveNfts(principal);
+  const { data: allMyNfts = [] } = useMyNfts();
   const { data: collections = [], isLoading: collectionsLoading } = useCollections();
   const deleteNft = useDeleteNft();
   const burnNft = useBurnNft();
@@ -1844,8 +1845,8 @@ function CollectorPage() {
   ];
   const TABS = authState === "ready" ? ALL_TABS : FREE_TABS;
   const claimedNfts = reactExports.useMemo(
-    () => nfts.filter((nft) => nft.ownerId.toText() !== nft.creatorId),
-    [nfts]
+    () => allMyNfts.filter((nft) => nft.claimedAt != null),
+    [allMyNfts]
   );
   function getTabCount(key) {
     switch (key) {
@@ -1876,7 +1877,7 @@ function CollectorPage() {
       case "all":
         break;
       case "claimed":
-        base = base.filter((nft) => nft.ownerId.toText() !== nft.creatorId);
+        base = selectedCollectionId === null ? claimedNfts : base;
         break;
       case "created":
         base = base.filter((nft) => nft.creatorId === principalText);
@@ -1888,7 +1889,13 @@ function CollectorPage() {
         break;
     }
     return base;
-  }, [activeTab, collectionFilteredNfts, principalText]);
+  }, [
+    activeTab,
+    collectionFilteredNfts,
+    claimedNfts,
+    selectedCollectionId,
+    principalText
+  ]);
   function openNftDetail(nft) {
     setSelectedNft(nft);
     setModalOpen(true);

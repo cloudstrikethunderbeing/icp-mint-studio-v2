@@ -7,7 +7,7 @@ var __privateAdd = (obj, member, value) => member.has(obj) ? __typeError("Cannot
 var __privateSet = (obj, member, value, setter) => (__accessCheck(obj, member, "write to private field"), setter ? setter.call(obj, value) : member.set(obj, value), value);
 var __privateMethod = (obj, member, method) => (__accessCheck(obj, member, "access private method"), method);
 var _client, _currentQuery, _currentQueryInitialState, _currentResult, _currentResultState, _currentResultOptions, _currentThenable, _selectError, _selectFn, _selectResult, _lastQueryWithDefinedData, _staleTimeoutId, _refetchIntervalId, _currentRefetchInterval, _trackedProps, _QueryObserver_instances, executeFetch_fn, updateStaleTimeout_fn, computeRefetchInterval_fn, updateRefetchInterval_fn, updateTimers_fn, clearStaleTimeout_fn, clearRefetchInterval_fn, updateQuery_fn, notify_fn, _a;
-import { p as Subscribable, y as pendingThenable, A as resolveEnabled, s as shallowEqualObjects, B as resolveStaleTime, w as noop, D as environmentManager, F as isValidTimeout, G as timeUntilStale, H as timeoutManager, J as focusManager, K as fetchState, M as replaceData, v as notifyManager, r as reactExports, x as shouldThrowError, d as useQueryClient } from "./main-BTokF3FK.js";
+import { p as Subscribable, y as pendingThenable, A as resolveEnabled, s as shallowEqualObjects, B as resolveStaleTime, w as noop, D as environmentManager, F as isValidTimeout, G as timeUntilStale, H as timeoutManager, J as focusManager, K as fetchState, M as replaceData, v as notifyManager, r as reactExports, x as shouldThrowError, d as useQueryClient } from "./main-DCUEkG6j.js";
 var QueryObserver = (_a = class extends Subscribable {
   constructor(client, options) {
     super();

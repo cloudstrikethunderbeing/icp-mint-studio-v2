@@ -1,4 +1,4 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/ClaimPage-DaM3jx8B.js","assets/badge-E8RRYWSl.js","assets/utils-CtwDn-BN.js","assets/button-C3_CjYWa.js","assets/skeleton-CasqKnz1.js","assets/useQuery-BnOKrLmo.js","assets/shield-check-B_07Y1lC.js","assets/lock-djD3LV4c.js","assets/circle-check-Dj0qTZgq.js","assets/circle-alert-DGqYCp63.js","assets/CollectorPage-DiVvZY1y.js","assets/NftDetailModal-ywpGCMpj.js","assets/index-DmJVeWkE.js","assets/input-7y2IfZGD.js","assets/label-BChcrg3e.js","assets/useQueries-DyA-Fh_0.js","assets/card-BpxMP45P.js","assets/index-Dme_9sg2.js","assets/index-BJaF15Dv.js","assets/index-DtW9Kdv5.js","assets/BrandedAuthGate-LuLaoj5n.js","assets/layers-vQfp73Oi.js","assets/wallet-DNvrlztZ.js","assets/HomePage-B4uYkkkn.js","assets/index-BLvtnFoP.js","assets/PostClaimPage-CzL04r7n.js","assets/ProfilePage-D7l2_rrW.js","assets/SettingsPage-BVsWGGQC.js","assets/fingerprint-BCGkEzR9.js","assets/VerifyPage-Da83-iG-.js"])))=>i.map(i=>d[i]);
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/ClaimPage-BZ48dahW.js","assets/badge-DmiiIt21.js","assets/utils-dNRT_sKa.js","assets/button-M2wF-dQu.js","assets/skeleton-vF88kxjP.js","assets/useQuery-C3quiaCj.js","assets/shield-check-Bum0ehFx.js","assets/lock-Chw9xpho.js","assets/circle-check-BVL8WW0K.js","assets/circle-alert-Q_368_gK.js","assets/CollectorPage-DJbwqpvO.js","assets/NftDetailModal-DJY3kK-G.js","assets/index-CArTYevy.js","assets/input-CJQlcGPe.js","assets/label-DOg044_h.js","assets/useQueries-FPADcfrP.js","assets/card-Dskn__PC.js","assets/index--X3WC9SB.js","assets/index-BkzLjnZt.js","assets/index-BjBPYfVa.js","assets/BrandedAuthGate-BjMVq56O.js","assets/layers-CpPnazo7.js","assets/wallet-BkVv8ZEw.js","assets/HomePage-E3Nyjy-1.js","assets/index-B9HpuvJ0.js","assets/PostClaimPage-cuAMUQ5H.js","assets/ProfilePage-BRRFtp3E.js","assets/SettingsPage-J9riOMBK.js","assets/fingerprint-CWAUUvV-.js","assets/VerifyPage-BmAmVgl3.js"])))=>i.map(i=>d[i]);
 var __defProp = Object.defineProperty;
 var __typeError = (msg) => {
   throw TypeError(msg);
@@ -37413,13 +37413,13 @@ var $e = reactExports.forwardRef(function(e, t) {
     })) : null;
   }));
 });
-const ClaimPage = reactExports.lazy(() => __vitePreload(() => import("./ClaimPage-DaM3jx8B.js"), true ? __vite__mapDeps([0,1,2,3,4,5,6,7,8,9]) : void 0));
-const CollectorPage = reactExports.lazy(() => __vitePreload(() => import("./CollectorPage-DiVvZY1y.js"), true ? __vite__mapDeps([10,11,3,2,12,13,14,15,5,1,16,17,18,19,4,20,6,21,22,8]) : void 0));
-const HomePage = reactExports.lazy(() => __vitePreload(() => import("./HomePage-B4uYkkkn.js"), true ? __vite__mapDeps([23,11,3,2,12,13,14,15,5,17,18,24,4,20]) : void 0));
-const PostClaimPage = reactExports.lazy(() => __vitePreload(() => import("./PostClaimPage-CzL04r7n.js"), true ? __vite__mapDeps([25,11,3,2,12,13,14,15,5,1,16,8,22]) : void 0));
-const ProfilePage = reactExports.lazy(() => __vitePreload(() => import("./ProfilePage-D7l2_rrW.js"), true ? __vite__mapDeps([26,14,2,4,5,15,20,22]) : void 0));
-const SettingsPage = reactExports.lazy(() => __vitePreload(() => import("./SettingsPage-BVsWGGQC.js"), true ? __vite__mapDeps([27,1,2,3,4,15,5,9,8,21,13,14,20,6,28,7]) : void 0));
-const VerifyPage = reactExports.lazy(() => __vitePreload(() => import("./VerifyPage-Da83-iG-.js"), true ? __vite__mapDeps([29,3,2,16,13,14,4,12,24,17,19,28,6,9,8]) : void 0));
+const ClaimPage = reactExports.lazy(() => __vitePreload(() => import("./ClaimPage-BZ48dahW.js"), true ? __vite__mapDeps([0,1,2,3,4,5,6,7,8,9]) : void 0));
+const CollectorPage = reactExports.lazy(() => __vitePreload(() => import("./CollectorPage-DJbwqpvO.js"), true ? __vite__mapDeps([10,11,3,2,12,13,14,15,5,1,16,17,18,19,4,20,6,21,22,8]) : void 0));
+const HomePage = reactExports.lazy(() => __vitePreload(() => import("./HomePage-E3Nyjy-1.js"), true ? __vite__mapDeps([23,11,3,2,12,13,14,15,5,17,18,24,4,20]) : void 0));
+const PostClaimPage = reactExports.lazy(() => __vitePreload(() => import("./PostClaimPage-cuAMUQ5H.js"), true ? __vite__mapDeps([25,11,3,2,12,13,14,15,5,1,16,8,22]) : void 0));
+const ProfilePage = reactExports.lazy(() => __vitePreload(() => import("./ProfilePage-BRRFtp3E.js"), true ? __vite__mapDeps([26,14,2,4,5,15,20,22]) : void 0));
+const SettingsPage = reactExports.lazy(() => __vitePreload(() => import("./SettingsPage-J9riOMBK.js"), true ? __vite__mapDeps([27,1,2,3,4,15,5,9,8,21,13,14,20,6,28,7]) : void 0));
+const VerifyPage = reactExports.lazy(() => __vitePreload(() => import("./VerifyPage-BmAmVgl3.js"), true ? __vite__mapDeps([29,3,2,16,13,14,4,12,24,17,19,28,6,9,8]) : void 0));
 const rootRoute = createRootRoute({ component: Layout });
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,

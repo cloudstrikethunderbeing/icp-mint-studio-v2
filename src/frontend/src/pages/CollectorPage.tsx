@@ -58,6 +58,7 @@ import {
   useDeleteCollection,
   useDeleteNft,
   useMyActiveNfts,
+  useMyNfts,
   useRemoveNftFromCollection,
 } from "../hooks/useQueries";
 
@@ -512,6 +513,10 @@ export default function CollectorPage() {
 
   const { data: nfts = [], isLoading: nftsLoading } =
     useMyActiveNfts(principal);
+  // Full feed (listMyNfts) includes claimed NFTs (claimedAt != null) that the
+  // active feed (listMyActiveNfts) excludes on the backend. The Claimed tab
+  // must source from this feed, not the active feed.
+  const { data: allMyNfts = [] } = useMyNfts();
   const { data: collections = [], isLoading: collectionsLoading } =
     useCollections();
 
@@ -542,9 +547,13 @@ export default function CollectorPage() {
 
   const TABS = authState === "ready" ? ALL_TABS : FREE_TABS;
 
+  // Claimed = NFTs actually claimed via a claim link, signalled by a non-null
+  // claimedAt bigint. Self-minted NFTs (claimedAt null/undefined) are excluded.
+  // Sourced from useMyNfts (listMyNfts) because the active feed excludes
+  // claimed NFTs on the backend.
   const claimedNfts = useMemo(
-    () => nfts.filter((nft) => nft.ownerId.toText() !== nft.creatorId),
-    [nfts],
+    () => allMyNfts.filter((nft) => nft.claimedAt != null),
+    [allMyNfts],
   );
 
   function getTabCount(key: TabKey): number {
@@ -581,7 +590,11 @@ export default function CollectorPage() {
       case "all":
         break;
       case "claimed":
-        base = base.filter((nft) => nft.ownerId.toText() !== nft.creatorId);
+        // Claimed tab renders NFTs actually claimed via a claim link
+        // (claimedAt != null), sourced from the full feed (useMyNfts).
+        // When a collection filter is active, collectionFilteredNfts already
+        // returns the correct claimed slice; otherwise use claimedNfts.
+        base = selectedCollectionId === null ? claimedNfts : base;
         break;
       case "created":
         base = base.filter((nft) => nft.creatorId === principalText);
@@ -595,7 +608,13 @@ export default function CollectorPage() {
         break;
     }
     return base;
-  }, [activeTab, collectionFilteredNfts, principalText]);
+  }, [
+    activeTab,
+    collectionFilteredNfts,
+    claimedNfts,
+    selectedCollectionId,
+    principalText,
+  ]);
 
   function openNftDetail(nft: Nft) {
     setSelectedNft(nft);
