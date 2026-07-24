@@ -350,6 +350,7 @@ export interface backendInterface {
     getTotalNfts(): Promise<bigint>;
     hasRealAdmin(): Promise<boolean>;
     isAdmin(): Promise<boolean>;
+    isLiveCanister(): Promise<boolean>;
     isStripeConfigured(): Promise<boolean>;
     listAdmins(): Promise<Array<Principal>>;
     listMyActiveNfts(): Promise<Array<Nft>>;

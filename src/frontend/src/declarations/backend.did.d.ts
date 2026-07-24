@@ -239,6 +239,7 @@ export interface _SERVICE {
     [[] | [string], [] | [bigint]],
     Array<[string, ClaimToken]>
   >,
+  '__claimersStore' : ActorMethod<[], any>,
   '__collectionStore' : ActorMethod<
     [[] | [bigint], [] | [bigint]],
     Array<[bigint, Collection]>
@@ -345,6 +346,7 @@ export interface _SERVICE {
   'getTotalNfts' : ActorMethod<[], bigint>,
   'hasRealAdmin' : ActorMethod<[], boolean>,
   'isAdmin' : ActorMethod<[], boolean>,
+  'isLiveCanister' : ActorMethod<[], boolean>,
   'isStripeConfigured' : ActorMethod<[], boolean>,
   'listAdmins' : ActorMethod<[], Array<Principal>>,
   'listMyActiveNfts' : ActorMethod<[], Array<Nft>>,

@@ -163,7 +163,7 @@ export function useStorageUsage(isAdmin: boolean) {
 }
 
 export function useTransferNft() {
-  const { actor } = useAuth();
+  const { actor, principal } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -187,20 +187,26 @@ export function useTransferNft() {
       return result;
     },
     onSuccess: () => {
-      addNotification({
-        type: "info",
-        title: "NFT Transferred",
-        message: "Your NFT was transferred successfully.",
-      });
+      addNotification(
+        {
+          type: "info",
+          title: "NFT Transferred",
+          message: "Your NFT was transferred successfully.",
+        },
+        principal,
+      );
       queryClient.invalidateQueries({ queryKey: ["nfts"] });
       queryClient.invalidateQueries({ queryKey: ["collections"] });
     },
     onError: (_err: Error) => {
-      addNotification({
-        type: "critical",
-        title: "Transfer Failed",
-        message: "The transfer could not be completed.",
-      });
+      addNotification(
+        {
+          type: "critical",
+          title: "Transfer Failed",
+          message: "The transfer could not be completed.",
+        },
+        principal,
+      );
     },
   });
 }
@@ -251,7 +257,7 @@ export function useUpdateMetadata() {
 }
 
 export function useSubmitPaymentProof() {
-  const { actor } = useAuth();
+  const { actor, principal } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -279,11 +285,14 @@ export function useSubmitPaymentProof() {
       }
     },
     onSuccess: () => {
-      addNotification({
-        type: "info",
-        title: "Payment proof submitted",
-        message: "Awaiting admin review.",
-      });
+      addNotification(
+        {
+          type: "info",
+          title: "Payment proof submitted",
+          message: "Awaiting admin review.",
+        },
+        principal,
+      );
       queryClient.invalidateQueries({ queryKey: ["myPaymentProofs"] });
     },
     onError: (err: Error) => {
@@ -293,7 +302,7 @@ export function useSubmitPaymentProof() {
 }
 
 export function useApprovePaymentProof() {
-  const { actor } = useAuth();
+  const { actor, principal } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -309,11 +318,14 @@ export function useApprovePaymentProof() {
       }
     },
     onSuccess: () => {
-      addNotification({
-        type: "info",
-        title: "Payment proof approved",
-        message: "Tier assigned successfully.",
-      });
+      addNotification(
+        {
+          type: "info",
+          title: "Payment proof approved",
+          message: "Tier assigned successfully.",
+        },
+        principal,
+      );
       queryClient.invalidateQueries({ queryKey: ["paymentProofs"] });
       queryClient.invalidateQueries({ queryKey: ["myPaymentProofs"] });
     },
@@ -324,7 +336,7 @@ export function useApprovePaymentProof() {
 }
 
 export function useRejectPaymentProof() {
-  const { actor } = useAuth();
+  const { actor, principal } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -346,11 +358,14 @@ export function useRejectPaymentProof() {
       }
     },
     onSuccess: () => {
-      addNotification({
-        type: "warning",
-        title: "Payment proof rejected",
-        message: "Submission was rejected by admin.",
-      });
+      addNotification(
+        {
+          type: "warning",
+          title: "Payment proof rejected",
+          message: "Submission was rejected by admin.",
+        },
+        principal,
+      );
       queryClient.invalidateQueries({ queryKey: ["paymentProofs"] });
       queryClient.invalidateQueries({ queryKey: ["myPaymentProofs"] });
     },
@@ -501,7 +516,7 @@ export function useAddNftToCollection() {
 }
 
 export function useBurnNft() {
-  const { actor } = useAuth();
+  const { actor, principal } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -513,27 +528,33 @@ export function useBurnNft() {
       }
     },
     onSuccess: () => {
-      addNotification({
-        type: "info",
-        title: "NFT Burned",
-        message: "Your NFT has been permanently burned.",
-      });
+      addNotification(
+        {
+          type: "info",
+          title: "NFT Burned",
+          message: "Your NFT has been permanently burned.",
+        },
+        principal,
+      );
       queryClient.invalidateQueries({ queryKey: ["nfts"] });
       queryClient.invalidateQueries({ queryKey: ["myActiveNfts"] });
       queryClient.invalidateQueries({ queryKey: ["collections"] });
     },
     onError: (_err: Error) => {
-      addNotification({
-        type: "critical",
-        title: "Burn Failed",
-        message: "The NFT could not be burned.",
-      });
+      addNotification(
+        {
+          type: "critical",
+          title: "Burn Failed",
+          message: "The NFT could not be burned.",
+        },
+        principal,
+      );
     },
   });
 }
 
 export function useDeleteNft() {
-  const { actor } = useAuth();
+  const { actor, principal } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -545,27 +566,33 @@ export function useDeleteNft() {
       }
     },
     onSuccess: () => {
-      addNotification({
-        type: "info",
-        title: "NFT Deleted",
-        message: "Your NFT has been deleted.",
-      });
+      addNotification(
+        {
+          type: "info",
+          title: "NFT Deleted",
+          message: "Your NFT has been deleted.",
+        },
+        principal,
+      );
       queryClient.invalidateQueries({ queryKey: ["nfts"] });
       queryClient.invalidateQueries({ queryKey: ["myActiveNfts"] });
       queryClient.invalidateQueries({ queryKey: ["collections"] });
     },
     onError: (_err: Error) => {
-      addNotification({
-        type: "critical",
-        title: "Delete Failed",
-        message: "The NFT could not be deleted.",
-      });
+      addNotification(
+        {
+          type: "critical",
+          title: "Delete Failed",
+          message: "The NFT could not be deleted.",
+        },
+        principal,
+      );
     },
   });
 }
 
 export function useCreateCollection() {
-  const { actor } = useAuth();
+  const { actor, principal } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -585,12 +612,15 @@ export function useCreateCollection() {
     },
     onSuccess: () => {
       toast.success("Collection created");
-      addNotification({
-        type: "info",
-        title: "Collection Created",
-        message: "Collection created successfully",
-        navigationTarget: "/",
-      });
+      addNotification(
+        {
+          type: "info",
+          title: "Collection Created",
+          message: "Collection created successfully",
+          navigationTarget: "/",
+        },
+        principal,
+      );
       queryClient.invalidateQueries({ queryKey: ["collections"] });
       queryClient.invalidateQueries({ queryKey: ["callerProfile"] });
       queryClient.invalidateQueries({ queryKey: ["myActiveNfts"] });
@@ -636,7 +666,7 @@ export function useRemoveNftFromCollection() {
 }
 
 export function useDeleteCollection() {
-  const { actor } = useAuth();
+  const { actor, principal } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -646,11 +676,14 @@ export function useDeleteCollection() {
     },
     onSuccess: async () => {
       toast.success("Collection deleted");
-      addNotification({
-        type: "warning",
-        title: "Collection Deleted",
-        message: "Collection deleted",
-      });
+      addNotification(
+        {
+          type: "warning",
+          title: "Collection Deleted",
+          message: "Collection deleted",
+        },
+        principal,
+      );
       await queryClient.refetchQueries({
         queryKey: ["collections"],
         exact: true,
@@ -719,7 +752,7 @@ export function useSearchNfts(searchTerm: string, enabled: boolean) {
 // ── Claim Link hooks ────────────────────────────────────────────────────────
 
 export function useGenerateClaimLink() {
-  const { actor } = useAuth();
+  const { actor, principal } = useAuth();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -730,22 +763,28 @@ export function useGenerateClaimLink() {
       return result.ok;
     },
     onSuccess: (_data, nftId) => {
-      addNotification({
-        type: "info",
-        title: "Claim Link Created",
-        message: "Claim link generated successfully",
-        navigationTarget: "/",
-      });
+      addNotification(
+        {
+          type: "info",
+          title: "Claim Link Created",
+          message: "Claim link generated successfully",
+          navigationTarget: "/",
+        },
+        principal,
+      );
       queryClient.invalidateQueries({
         queryKey: ["claimStatus", nftId.toString()],
       });
     },
     onError: (err: Error) => {
-      addNotification({
-        type: "critical",
-        title: "Claim Link Failed",
-        message: err.message,
-      });
+      addNotification(
+        {
+          type: "critical",
+          title: "Claim Link Failed",
+          message: err.message,
+        },
+        principal,
+      );
     },
   });
 }

@@ -1,7 +1,7 @@
 import { ExternalBlob, createActor } from "@/backend";
 import type { backendInterface } from "@/backend";
-import { CANISTERS } from "@/config/canisters";
 import type { Identity } from "@icp-sdk/core/agent";
+import { getBackendCanisterId } from "./config/env";
 
 /**
  * Pure actor factory — NO caching, NO singletons, NO anonymous fallbacks.
@@ -9,8 +9,15 @@ import type { Identity } from "@icp-sdk/core/agent";
  *
  * This is the ONLY actor creation path in the entire codebase.
  * All other actor creation paths must be removed or deprecated.
+ *
+ * The backend canister ID is resolved at RUNTIME from /env.json via
+ * getBackendCanisterId(). There is NO bake-time fallback and NO draft
+ * fallback — if /env.json is missing/malformed/empty, this throws loudly
+ * and the caller's existing error-handling path takes over.
  */
-export function createAuthenticatedActor(identity: Identity): backendInterface {
+export async function createAuthenticatedActor(
+  identity: Identity,
+): Promise<backendInterface> {
   // HARD GUARD 1: Identity must exist
   if (!identity) {
     throw new Error(
@@ -28,15 +35,19 @@ export function createAuthenticatedActor(identity: Identity): backendInterface {
     );
   }
 
+  // Resolve the backend canister ID at RUNTIME from /env.json. Throws
+  // loudly if /env.json is missing/malformed/empty — NO fallback.
+  const canisterId = await getBackendCanisterId();
+
   // TEMP LOG: actor creation lifecycle
   console.log("[BACKEND] creating actor for principal:", principalText);
-  console.log("[BACKEND] target canisterId:", CANISTERS.backend);
+  console.log("[BACKEND] target canisterId:", canisterId);
 
   // Create actor with identity-bound agent
   // This is the ONLY call to createActor in the entire app
   // Note: generated createActor signature is (canisterId, uploadFn, downloadFn, options)
   const actor = createActor(
-    CANISTERS.backend,
+    canisterId,
     async (file) => {
       const bytes = await file.getBytes();
       return bytes;

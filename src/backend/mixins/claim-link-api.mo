@@ -14,6 +14,7 @@ import Random "mo:core/Random";
 mixin (
   nftStore : NftLib.NftStore,
   claimTokenStore : ClaimLib.ClaimTokenStore,
+  claimersStore : ClaimLib.ClaimersStore,
   nftToClaimToken : ClaimLib.NftToClaimStore,
   globalAuditLog : Queue.Queue<Common.AuditEntry>,
   userStore : UserLib.UserStore,
@@ -81,7 +82,7 @@ mixin (
           case (?claimToken) {
             #ok({
               token = tokenStr;
-              claimed = claimToken.usedBy != null;
+              claimed = claimToken.claimedCount >= claimToken.supplyLimit;
               claimedBy = claimToken.usedBy;
               supplyLimit = claimToken.supplyLimit;
               claimedCount = claimToken.claimedCount;
@@ -121,7 +122,7 @@ mixin (
     let now = Time.now();
     let nowNat = Int.abs(now);
     let newClaimedCount = claimToken.claimedCount + 1;
-    switch (ClaimLib.useToken(claimTokenStore, token, caller, now, newClaimedCount)) {
+    switch (ClaimLib.useToken(claimTokenStore, claimersStore, token, caller, now, newClaimedCount)) {
       case (#err(msg)) { return #err(msg) };
       case (#ok(_)) {};
     };
@@ -170,9 +171,9 @@ mixin (
       case (null) { return #err("Invalid or expired claim token") };
       case (?ct) { ct };
     };
-    // Validate not already claimed
-    if (claimToken.usedBy != null) {
-      return #err("This NFT has already been claimed");
+    // Validate link is not fully redeemed (reusable up to supplyLimit)
+    if (claimToken.claimedCount >= claimToken.supplyLimit) {
+      return #err("Claim link is fully redeemed");
     };
     // Fetch NFT and validate it is active
     switch (nftStore.get(claimToken.nftId)) {

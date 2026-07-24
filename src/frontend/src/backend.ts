@@ -352,6 +352,7 @@ export interface backendInterface {
     __adminPrincipals(): Promise<any>;
     __backendBuildTimestamp(): Promise<any>;
     __claimTokenStore(ko: string | null, count: bigint | null): Promise<Array<[string, ClaimToken]>>;
+    __claimersStore(): Promise<any>;
     __collectionStore(ko: bigint | null, count: bigint | null): Promise<Array<[bigint, Collection]>>;
     __creatorIndex(): Promise<any>;
     __globalAuditLog(io: bigint | null, count: bigint | null): Promise<Array<AuditEntry>>;
@@ -429,6 +430,7 @@ export interface backendInterface {
     getTotalNfts(): Promise<bigint>;
     hasRealAdmin(): Promise<boolean>;
     isAdmin(): Promise<boolean>;
+    isLiveCanister(): Promise<boolean>;
     isStripeConfigured(): Promise<boolean>;
     listAdmins(): Promise<Array<Principal>>;
     listMyActiveNfts(): Promise<Array<Nft>>;
@@ -500,6 +502,20 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.__claimTokenStore(to_candid_opt_n1(this._uploadFile, this._downloadFile, arg0), to_candid_opt_n2(this._uploadFile, this._downloadFile, arg1));
             return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async __claimersStore(): Promise<any> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.__claimersStore();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.__claimersStore();
+            return result;
         }
     }
     async __collectionStore(arg0: bigint | null, arg1: bigint | null): Promise<Array<[bigint, Collection]>> {
@@ -1369,6 +1385,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.isAdmin();
+            return result;
+        }
+    }
+    async isLiveCanister(): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.isLiveCanister();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.isLiveCanister();
             return result;
         }
     }

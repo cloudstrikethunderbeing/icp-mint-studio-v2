@@ -204,7 +204,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Core identity effect: only depend on raw II values to avoid stale closures.
   // All derived values (principalText, isAnonymous, isAuthenticated) are computed
   // inside the effect from the current identity reference.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: authState is intentionally excluded; we guard with refs to prevent duplicate work without reading stale state
   useEffect(() => {
     // Early-return guard: if there is no identity, tear down auth state and
     // exit BEFORE any ref checks or actor creation. This prevents the
@@ -378,58 +377,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setHasRealAdmin(false);
     setHasRealAdminLoading(true);
 
-    let newActor: backendInterface;
-    try {
-      newActor = createAuthenticatedActor(identity);
-    } catch (err) {
-      console.error("[AUTH] actor creation failed:", err);
-      setActor(null);
-      // Actor creation failure is a hard auth error — surface as
-      // unauthenticated so the UI is not stuck on "loading" forever.
-      // Clear pending so a retry (e.g. after refresh) can re-attempt.
-      setAuthState("unauthenticated");
-      setIsAdmin(false);
-      setIsAdminLoading(false);
-      setHasRealAdmin(false);
-      setHasRealAdminLoading(false);
-      pendingPrincipalRef.current = null;
-      adminResolvedForRef.current = null;
-      return;
-    }
-
-    // Actor created synchronously — the user is now authenticated. Flip
-    // authState to "ready" IMMEDIATELY so isAuthenticated becomes true
-    // without waiting for the async admin resolution. This is the single
-    // point that exposes the authenticated state to the UI. Admin status
-    // (isAdmin) resolves in the background and updates
-    // independently; it must NOT block the authenticated state.
-    setActor(newActor);
-    setAuthState("ready");
-    lastReadyPrincipalRef.current = principalText;
-    pendingPrincipalRef.current = null;
-    console.log("[AUTH] authState -> ready for principal:", principalText);
-
-    // Resolve admin status directly from backend, no caching. This runs
-    // in the background and only updates isAdmin/isAdminLoading.
-    // It does NOT gate authState — that was already set to "ready" above.
-    //
-    // ROOT-CAUSE FIX for the "UI does not re-render after II login without
-    // a manual refresh" bug: the prior `cancelled` flag was set to true on
-    // EVERY effect cleanup, including re-runs triggered by an `identity`
-    // REFERENCE change (II re-delegation) for the SAME principal. That
-    // cancelled the in-flight `setIsAdmin(true)` even though the principal
-    // had not changed, so the admin state never landed and consumers
-    // stayed on the unauthenticated/creator view until a manual refresh
-    // (where `identity` is stable and the effect runs only once).
-    //
-    // The fix: do NOT cancel the admin IIFE on cleanup. Instead, guard the
-    // state updates with `adminResolvedForRef` so a stale completion (from
-    // a previous principal) cannot overwrite a newer resolution, and guard
-    // against applying admin state after logout by checking that the
-    // current principal is still this principal. This lets the in-flight
-    // admin resolution complete and trigger a consumer re-render even when
-    // the effect re-runs for the same principal with a new identity ref.
+    // createAuthenticatedActor is async (resolves the backend canister ID
+    // from /env.json at runtime). Wrap the actor-creation + immediate
+    // post-creation state transitions in an async IIFE so we can await it
+    // without making the effect callback itself async (which would change
+    // its return type and break the effect contract). The admin-resolution
+    // IIFE below is unchanged.
+    let cancelled = false;
     (async () => {
+      let newActor: backendInterface;
+      try {
+        newActor = await createAuthenticatedActor(identity);
+      } catch (err) {
+        if (cancelled) return;
+        console.error("[AUTH] actor creation failed:", err);
+        setActor(null);
+        // Actor creation failure is a hard auth error — surface as
+        // unauthenticated so the UI is not stuck on "loading" forever.
+        // Clear pending so a retry (e.g. after refresh) can re-attempt.
+        setAuthState("unauthenticated");
+        setIsAdmin(false);
+        setIsAdminLoading(false);
+        setHasRealAdmin(false);
+        setHasRealAdminLoading(false);
+        pendingPrincipalRef.current = null;
+        adminResolvedForRef.current = null;
+        return;
+      }
+
+      if (cancelled) return;
+
+      // Actor created — the user is now authenticated. Flip authState
+      // to "ready" IMMEDIATELY so isAuthenticated becomes true without
+      // waiting for the async admin resolution. This is the single point
+      // that exposes the authenticated state to the UI. Admin status
+      // (isAdmin) resolves in the background and updates independently;
+      // it must NOT block the authenticated state.
+      setActor(newActor);
+      setAuthState("ready");
+      lastReadyPrincipalRef.current = principalText;
+      pendingPrincipalRef.current = null;
+      console.log("[AUTH] authState -> ready for principal:", principalText);
+
+      // Resolve admin status directly from backend, no caching. This runs
+      // in the background and only updates isAdmin/isAdminLoading. It does
+      // NOT gate authState — that was already set to "ready" above.
       try {
         console.log("[AUTH] calling isAdmin() for principal:", principalText);
         const adminResult = await newActor.isAdmin();
@@ -454,6 +446,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // principal by a newer run, AND the active principal is still
         // this principal (not logged out / changed).
         if (
+          !cancelled &&
           adminResolvedForRef.current !== principalText &&
           lastReadyPrincipalRef.current === principalText
         ) {
@@ -471,6 +464,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           principalText,
         );
         if (
+          !cancelled &&
           adminResolvedForRef.current !== principalText &&
           lastReadyPrincipalRef.current === principalText
         ) {
@@ -488,13 +482,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })();
 
-    // No cleanup that cancels the admin IIFE. The IIFE is self-guarding:
-    // it checks adminResolvedForRef and lastReadyPrincipalRef before
-    // applying state, so a stale completion for a previous principal is
-    // ignored, and a completion after logout (lastReadyPrincipalRef
-    // cleared) is ignored. This is the fix for failure mode (b): the
-    // async IIFE was setting state AFTER a cleanup cancelled it, dropping
-    // the setIsAdmin(true) update that consumers need to re-render.
+    // Cleanup: mark this run cancelled so a stale async completion (from
+    // a previous principal or after logout) cannot apply state. This is
+    // safe because the IIFE checks `cancelled` before every state update.
+    return () => {
+      cancelled = true;
+    };
   }, [identity, iiIsAuthenticated]);
 
   // Derived auth state — computed from current identity + authState

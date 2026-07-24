@@ -3,7 +3,7 @@ import type { ClaimPreview } from "@/backend";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CANISTERS } from "@/config/canisters";
+import { getBackendCanisterId } from "@/config/env";
 import { useAuth } from "@/contexts/AuthContext";
 import { addNotification } from "@/hooks/useNotifications";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,7 +17,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 function ClaimSkeleton() {
   return (
@@ -80,21 +80,41 @@ export default function ClaimPage() {
   const [isClaiming, setIsClaiming] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
 
-  // Anonymous actor for public preview — no auth required
-  const anonymousActor = useMemo(() => {
-    return createActor(
-      CANISTERS.backend,
-      async (file) => {
-        const bytes = await file.getBytes();
-        return bytes;
-      },
-      async (bytes) => {
-        return ExternalBlob.fromBytes(bytes as Uint8Array<ArrayBuffer>);
-      },
-    );
+  // Anonymous actor for public preview — no auth required.
+  // The backend canister ID is resolved at RUNTIME from /env.json via
+  // getBackendCanisterId() (async), so the actor cannot be created
+  // synchronously in useMemo. Resolve it in an effect and store in state.
+  const [anonymousActor, setAnonymousActor] = useState<ReturnType<
+    typeof createActor
+  > | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const canisterId = await getBackendCanisterId();
+        if (cancelled) return;
+        const actor = createActor(
+          canisterId,
+          async (file) => {
+            const bytes = await file.getBytes();
+            return bytes;
+          },
+          async (bytes) => {
+            return ExternalBlob.fromBytes(bytes as Uint8Array<ArrayBuffer>);
+          },
+        );
+        if (!cancelled) setAnonymousActor(actor);
+      } catch (err) {
+        console.error("[CLAIM] failed to resolve backend canister ID:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Public preview — no auth required
+  // Public preview — no auth required. Enabled only once the anonymous
+  // actor is resolved (the backend canister ID is fetched from /env.json).
   const {
     data: previewResult,
     isLoading,
@@ -102,9 +122,12 @@ export default function ClaimPage() {
   } = useQuery({
     queryKey: ["claimPreview", claimToken],
     queryFn: async () => {
+      if (!anonymousActor) {
+        throw new Error("Anonymous actor not yet resolved");
+      }
       return anonymousActor.getClaimPreview(claimToken);
     },
-    enabled: !!claimToken,
+    enabled: !!claimToken && !!anonymousActor,
     staleTime: 30_000,
     retry: 1,
   });
@@ -148,13 +171,16 @@ export default function ClaimPage() {
         });
         const claimedImageUrl =
           result.ok.imageBlob?.getDirectURL?.() ?? undefined;
-        addNotification({
-          type: "info",
-          title: "NFT Claimed",
-          message: `${result.ok.title} claimed successfully`,
-          navigationTarget: "/",
-          imageUrl: claimedImageUrl || undefined,
-        });
+        addNotification(
+          {
+            type: "info",
+            title: "NFT Claimed",
+            message: `${result.ok.title} claimed successfully`,
+            navigationTarget: "/",
+            imageUrl: claimedImageUrl || undefined,
+          },
+          principal,
+        );
         navigate({
           to: "/claim/$claimToken/success",
           params: { claimToken },
@@ -162,11 +188,14 @@ export default function ClaimPage() {
       } else {
         const errMsg = result.err ?? "Unable to claim this NFT.";
         setClaimError(errMsg);
-        addNotification({
-          type: "critical",
-          title: "Claim Failed",
-          message: errMsg,
-        });
+        addNotification(
+          {
+            type: "critical",
+            title: "Claim Failed",
+            message: errMsg,
+          },
+          principal,
+        );
       }
     } catch (err) {
       const errMsg =
@@ -174,11 +203,14 @@ export default function ClaimPage() {
           ? err.message
           : "Something went wrong. Please try again.";
       setClaimError(errMsg);
-      addNotification({
-        type: "critical",
-        title: "Claim Failed",
-        message: errMsg,
-      });
+      addNotification(
+        {
+          type: "critical",
+          title: "Claim Failed",
+          message: errMsg,
+        },
+        principal,
+      );
     } finally {
       setIsClaiming(false);
     }

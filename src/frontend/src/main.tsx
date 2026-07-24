@@ -35,7 +35,7 @@ const queryClient = new QueryClient({
 });
 
 // TEMP LOG: verify which canister the frontend is wired to at boot
-import { CANISTERS } from "@/config/canisters";
+import { CANISTERS, initCanisters } from "@/config/canisters";
 console.log("[MAIN] CANISTERS.backend:", CANISTERS.backend);
 console.log("[MAIN] CANISTERS.frontend:", CANISTERS.frontend);
 
@@ -74,3 +74,21 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <Root />
   </StrictMode>,
 );
+
+// [BOOT] Resolve the runtime backend canister id from /env.json in the
+// background. This MUST NOT block the React render above — actor creation in
+// AuthContext/ClaimPage awaits getBackendCanisterId() independently. We only
+// log the resolved id here for boot diagnostics.
+initCanisters()
+  .then(() => {
+    console.log(
+      "[BOOT] backend canister id (runtime /env.json):",
+      CANISTERS.backend,
+    );
+  })
+  .catch((e) => {
+    console.error(
+      "[BOOT] Failed to resolve backend canister id from /env.json:",
+      e,
+    );
+  });

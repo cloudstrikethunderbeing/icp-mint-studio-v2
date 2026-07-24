@@ -75,6 +75,16 @@ actor Main {
   let globalAuditLog : Queue.Queue<_Common.AuditEntry>;
   let creatorIndex : Map.Map<Text, List.List<Nat>>;
   let claimTokenStore : ClaimLinkLib.ClaimTokenStore;
+  // Per-principal dedup store for reusable claim links: token Text -> Set of
+  // principals who have already claimed that token. STABLE actor field so the
+  // dedup set SURVIVES upgrades (a transient store would reset on every
+  // redeploy, silently re-eligibilizing every prior claimer — defeating the
+  // point of dedup for any drop running across an upgrade). A SEPARATE stable
+  // variable from claimTokenStore so adding it does NOT change the ClaimToken
+  // record shape and does NOT trigger M0170. Initialized empty on fresh
+  // installs by the migration chain; no migration file required for a new
+  // stable field under enhanced orthogonal persistence.
+  let claimersStore : ClaimLinkLib.ClaimersStore;
   let backendBuildTimestamp : { var value : Nat };
   let nftToClaimToken : ClaimLinkLib.NftToClaimStore;
 
@@ -114,7 +124,7 @@ actor Main {
   // accepted platform constraint, not a bug — standard Caffeine deploy flows
   // include an upgrade step that triggers postupgrade() and seeds the admins.
   private func seedAdminsIfLive() {
-    if (isLive.value and adminPrincipals.value.size() == 0) {
+    if (selfCanisterId.value == LIVE_CANISTER_ID and adminPrincipals.value.size() == 0) {
       adminPrincipals.value := [LIVE_ADMIN_1, LIVE_ADMIN_2];
     };
   };
@@ -180,7 +190,7 @@ actor Main {
     };
   };
 
-  include ClaimLinkMixin(nftStore, claimTokenStore, nftToClaimToken, globalAuditLog, userStore, nextNftId, selfCanisterId, adminPrincipals);
+  include ClaimLinkMixin(nftStore, claimTokenStore, claimersStore, nftToClaimToken, globalAuditLog, userStore, nextNftId, selfCanisterId, adminPrincipals);
 
   include MixinObjectStorage();
 
@@ -488,6 +498,13 @@ actor Main {
     } else {
       canisterId
     }
+  };
+
+  // Lets the frontend determine draft-vs-live at runtime without baking any
+  // canister ID into the frontend bundle. Frontend reads /env.json for the
+  // actor id and calls this query to gate live-only UI.
+  public query func isLiveCanister() : async Bool {
+    return selfCanisterId.value == LIVE_CANISTER_ID;
   };
 
   // computeNftUniqueId is defined in the NftMixin

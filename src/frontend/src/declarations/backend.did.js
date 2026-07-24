@@ -249,6 +249,7 @@ export const idlService = IDL.Service({
       [IDL.Vec(IDL.Tuple(IDL.Text, ClaimToken))],
       ['query'],
     ),
+  '__claimersStore' : IDL.Func([], [IDL.Reserved], ['query']),
   '__collectionStore' : IDL.Func(
       [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
       [IDL.Vec(IDL.Tuple(IDL.Nat, Collection))],
@@ -398,6 +399,7 @@ export const idlService = IDL.Service({
   'getTotalNfts' : IDL.Func([], [IDL.Nat], ['query']),
   'hasRealAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'isAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'isLiveCanister' : IDL.Func([], [IDL.Bool], ['query']),
   'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
   'listAdmins' : IDL.Func([], [IDL.Vec(IDL.Principal)], ['query']),
   'listMyActiveNfts' : IDL.Func([], [IDL.Vec(Nft)], ['query']),
@@ -706,6 +708,7 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(IDL.Tuple(IDL.Text, ClaimToken))],
         ['query'],
       ),
+    '__claimersStore' : IDL.Func([], [IDL.Reserved], ['query']),
     '__collectionStore' : IDL.Func(
         [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
         [IDL.Vec(IDL.Tuple(IDL.Nat, Collection))],
@@ -855,6 +858,7 @@ export const idlFactory = ({ IDL }) => {
     'getTotalNfts' : IDL.Func([], [IDL.Nat], ['query']),
     'hasRealAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'isAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'isLiveCanister' : IDL.Func([], [IDL.Bool], ['query']),
     'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
     'listAdmins' : IDL.Func([], [IDL.Vec(IDL.Principal)], ['query']),
     'listMyActiveNfts' : IDL.Func([], [IDL.Vec(Nft)], ['query']),

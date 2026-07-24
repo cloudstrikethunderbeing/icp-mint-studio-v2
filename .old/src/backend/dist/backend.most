@@ -125,6 +125,8 @@ type AlertType__395192913 =
   {#draft_purge; #mint_confirmation; #subscription_expiry; #transfer_window};
 type AlertType__505587488 =
   {#draft_purge; #mint_confirmation; #subscription_expiry; #transfer_window};
+type AlertType__54222479 =
+  {#draft_purge; #mint_confirmation; #subscription_expiry; #transfer_window};
 type AlertType__543093451 =
   {#draft_purge; #mint_confirmation; #subscription_expiry; #transfer_window};
 type AlertType__559741399 =
@@ -160,6 +162,8 @@ type AuditEntry__174236377 =
 type AuditEntry__2318915 =
   {action : Text; caller : Principal; details : ?Text; timestamp : Nat};
 type AuditEntry__235068145 =
+  {action : Text; caller : Principal; details : ?Text; timestamp : Nat};
+type AuditEntry__250235569 =
   {action : Text; caller : Principal; details : ?Text; timestamp : Nat};
 type AuditEntry__318803856 =
   {action : Text; caller : Principal; details : ?Text; timestamp : Nat};
@@ -236,6 +240,16 @@ type ClaimToken__371670381 =
   {
     createdAt : Int;
     nftId : Nat;
+    token : Text;
+    usedAt : ?Int;
+    usedBy : ?Principal
+  };
+type ClaimToken__415811622 =
+  {
+    claimedCount : Nat;
+    createdAt : Int;
+    nftId : Nat;
+    supplyLimit : Nat;
     token : Text;
     usedAt : ?Int;
     usedBy : ?Principal
@@ -525,6 +539,18 @@ type Collection__402447520 =
     name : Text;
     ownerId : Principal;
     tier : SubscriptionTier__439032729
+  };
+type Collection__403526498 =
+  {
+    createdAt : Nat;
+    description : Text;
+    id : Nat;
+    maxSize : Nat;
+    name : Text;
+    nftIds : [Nat];
+    ownerId : Principal;
+    previewImage : ?Text;
+    tier : SubscriptionTier__300732699
   };
 type Collection__503537408 =
   {
@@ -860,6 +886,28 @@ type NewActor__541943430 =
     stripeConfigStore : StripeConfigStore__516343839;
     userStore : Map__246123559<Principal, NewUserProfile__1026629617>;
     verifiedEmails : VerifiedEmailsState__1004212467
+  };
+type NewActor__549330648 =
+  {
+    adminPrincipals : {var value : [Principal]};
+    backendBuildTimestamp : {var value : Nat};
+    claimTokenStore : Map__246123559<Text, ClaimToken__415811622>;
+    claimersStore : Map__246123559<Text, Set__726347137<Principal>>;
+    collectionStore : Map__246123559<Nat, Collection__403526498>;
+    creatorIndex : Map__246123559<Text, List__852723865<Nat>>;
+    globalAuditLog : Queue__89431923<AuditEntry__250235569>;
+    lastMintTime : {var value : Int};
+    mintCount : {var value : Nat};
+    nextCollectionId : {var value : Nat};
+    nextNftId : {var value : Nat};
+    nftStore : Map__246123559<Nat, Nft__100349000>;
+    nftToClaimToken : Map__246123559<Nat, Text>;
+    paymentProofStore : Map__246123559<Text, PaymentProof__203334742>;
+    rateLimitStore : Map__246123559<Principal, RateLimitEntry__515301095>;
+    selfCanisterId : {var value : Text};
+    stripeConfigStore : StripeConfigStore__606928226;
+    userStore : Map__246123559<Principal, UserProfile__984054593>;
+    verifiedEmails : VerifiedEmailsState__261116330
   };
 type NewActor__552324477 =
   {
@@ -1391,6 +1439,7 @@ type NftStatus__304379833 = {#active; #burned; #deleted};
 type NftStatus__327148699 = {#active; #burned; #deleted};
 type NftStatus__347164341 = {#active; #burned; #deleted};
 type NftStatus__393068614 = {#active; #burned; #deleted};
+type NftStatus__40171882 = {#active; #burned; #deleted};
 type NftStatus__423394148 = {#active; #burned; #deleted};
 type NftStatus__450388838 = {#active; #burned; #deleted};
 type NftStatus__460772553 = {#active; #burned; #deleted};
@@ -1404,6 +1453,30 @@ type NftStatus__781406572 = {#active; #burned; #deleted};
 type NftStatus__842488523 = {#active; #burned; #deleted};
 type NftStatus__890539286 = {#active; #burned; #deleted};
 type NftStatus__924920508 = {#active; #burned; #deleted};
+type Nft__100349000 =
+  {
+    assetHash : Text;
+    auditHistory : [AuditEntry__250235569];
+    businessName : ?Text;
+    claimedAt : ?Nat;
+    collectionId : ?Nat;
+    creatorId : Text;
+    description : Text;
+    discountCode : ?Text;
+    edition : Text;
+    id : Nat;
+    imageBlob : Blob;
+    membershipId : ?Text;
+    mintDate : Nat;
+    nftUniqueId : Text;
+    ownerId : Principal;
+    rewardTier : RewardTier__30548909;
+    status : NftStatus__40171882;
+    supplyLimit : Nat;
+    tags : [Text];
+    title : Text;
+    website : ?Text
+  };
 type Nft__129819508 =
   {
     assetHash : Text;
@@ -1966,6 +2039,27 @@ type OldActor__303448851 =
     stripeConfigStore : StripeConfigStore__262715923;
     userStore : Map__246123559<Principal, UserProfile__656874696>;
     verifiedEmails : VerifiedEmailsState__482146660
+  };
+type OldActor__304063699 =
+  {
+    adminPrincipals : {var value : [Principal]};
+    backendBuildTimestamp : {var value : Nat};
+    claimTokenStore : Map__246123559<Text, ClaimToken__415811622>;
+    collectionStore : Map__246123559<Nat, Collection__403526498>;
+    creatorIndex : Map__246123559<Text, List__852723865<Nat>>;
+    globalAuditLog : Queue__89431923<AuditEntry__250235569>;
+    lastMintTime : {var value : Int};
+    mintCount : {var value : Nat};
+    nextCollectionId : {var value : Nat};
+    nextNftId : {var value : Nat};
+    nftStore : Map__246123559<Nat, Nft__100349000>;
+    nftToClaimToken : Map__246123559<Nat, Text>;
+    paymentProofStore : Map__246123559<Text, PaymentProof__203334742>;
+    rateLimitStore : Map__246123559<Principal, RateLimitEntry__515301095>;
+    selfCanisterId : {var value : Text};
+    stripeConfigStore : StripeConfigStore__606928226;
+    userStore : Map__246123559<Principal, UserProfile__984054593>;
+    verifiedEmails : VerifiedEmailsState__261116330
   };
 type OldActor__370776473 =
   {
@@ -2537,6 +2631,7 @@ type PaymentProofStatus__323395584 = {#approved; #pending; #rejected};
 type PaymentProofStatus__347041560 = {#approved; #pending; #rejected};
 type PaymentProofStatus__49022882 = {#approved; #pending; #rejected};
 type PaymentProofStatus__537366109 = {#approved; #pending; #rejected};
+type PaymentProofStatus__56492872 = {#approved; #pending; #rejected};
 type PaymentProofStatus__583564696 = {#approved; #pending; #rejected};
 type PaymentProofStatus__598316974 = {#approved; #pending; #rejected};
 type PaymentProofStatus__614861402 = {#approved; #pending; #rejected};
@@ -2653,6 +2748,19 @@ type PaymentProof__182876481 =
     reviewedAt : ?Int;
     reviewedBy : ?Principal;
     status : PaymentProofStatus__537366109;
+    submittedAt : Int;
+    tierRequested : Text;
+    txHash : Text
+  };
+type PaymentProof__203334742 =
+  {
+    id : Text;
+    networkType : Text;
+    principal : Principal;
+    rejectionReason : ?Text;
+    reviewedAt : ?Int;
+    reviewedBy : ?Principal;
+    status : PaymentProofStatus__56492872;
     submittedAt : Int;
     tierRequested : Text;
     txHash : Text
@@ -2898,6 +3006,7 @@ type RateLimitEntry__307989295 = {var count : Nat; var windowStart : Nat};
 type RateLimitEntry__326444733 = {var count : Nat; var windowStart : Nat};
 type RateLimitEntry__422678717 = {var count : Nat; var windowStart : Nat};
 type RateLimitEntry__494716652 = {var count : Nat; var windowStart : Nat};
+type RateLimitEntry__515301095 = {var count : Nat; var windowStart : Nat};
 type RateLimitEntry__515865690 = {var count : Nat; var windowStart : Nat};
 type RateLimitEntry__715368744 = {var count : Nat; var windowStart : Nat};
 type RateLimitEntry__736437695 = {var count : Nat; var windowStart : Nat};
@@ -2917,6 +3026,7 @@ type RewardTier__131652083 = {#bronze; #gold; #none; #platinum; #silver};
 type RewardTier__189543326 = {#bronze; #gold; #none; #platinum; #silver};
 type RewardTier__218610308 = {#bronze; #gold; #none; #platinum; #silver};
 type RewardTier__226497075 = {#bronze; #gold; #none; #platinum; #silver};
+type RewardTier__30548909 = {#bronze; #gold; #none; #platinum; #silver};
 type RewardTier__313697753 = {#bronze; #gold; #none; #platinum; #silver};
 type RewardTier__348179195 = {#bronze; #gold; #none; #platinum; #silver};
 type RewardTier__404865172 = {#bronze; #gold; #none; #platinum; #silver};
@@ -2963,6 +3073,8 @@ type StripeConfigStore__516343839 =
   {var publicKey : ?Text; var secretKey : ?Text};
 type StripeConfigStore__548623239 =
   {var publicKey : ?Text; var secretKey : ?Text};
+type StripeConfigStore__606928226 =
+  {var publicKey : ?Text; var secretKey : ?Text};
 type StripeConfigStore__683457011 =
   {var publicKey : ?Text; var secretKey : ?Text};
 type StripeConfigStore__724267738 =
@@ -2988,6 +3100,7 @@ type SubscriptionTier__1569325 = {#admin; #creator; #free; #org; #pro};
 type SubscriptionTier__209152583 = {#admin; #creator; #free; #org; #pro};
 type SubscriptionTier__229895835 = {#creator; #free; #org; #pro};
 type SubscriptionTier__233936919 = {#admin; #creator; #free; #org; #pro};
+type SubscriptionTier__300732699 = {#creator; #free; #org; #pro};
 type SubscriptionTier__420821478 = {#creator; #free; #org; #pro};
 type SubscriptionTier__439032729 = {#admin; #creator; #free; #org; #pro};
 type SubscriptionTier__446915261 = {#admin; #creator; #free; #org; #pro};
@@ -3327,6 +3440,22 @@ type UserProfile__965981618 =
     stripeProductId : ?Text;
     subscriptionTier : SubscriptionTier__543661698
   };
+type UserProfile__984054593 =
+  {
+    activeSlots : Nat;
+    createdAt : Nat;
+    creatorId : Text;
+    creditsResetAt : Nat;
+    creditsTotal : Nat;
+    creditsUsed : Nat;
+    email : ?Text;
+    emailAlerts : [AlertType__54222479];
+    maxSlots : Nat;
+    oisyWalletAddress : ?Text;
+    principalId : Principal;
+    stripeProductId : ?Text;
+    subscriptionTier : SubscriptionTier__300732699
+  };
 type UserProfile__997957306 =
   {
     activeSlots : Nat;
@@ -3370,6 +3499,7 @@ type VerifiedEmailsState__1042211845 =
   {verifiedEmails : Set__726347137<Text>};
 type VerifiedEmailsState__133578522 = {verifiedEmails : Set__726347137<Text>};
 type VerifiedEmailsState__245437529 = {verifiedEmails : Set__726347137<Text>};
+type VerifiedEmailsState__261116330 = {verifiedEmails : Set__726347137<Text>};
 type VerifiedEmailsState__296832489 = {verifiedEmails : Set__726347137<Text>};
 type VerifiedEmailsState__311953401 = {verifiedEmails : Set__726347137<Text>};
 type VerifiedEmailsState__327243399 = {verifiedEmails : Set__726347137<Text>};
@@ -3434,7 +3564,9 @@ type VerifiedEmailsState__99746303 = {verifiedEmails : Set__726347137<Text>};
     (old : OldActor__397632477) -> NewActor__541943430;
   "20260625_000001" : (old : OldActor__982943945) -> NewActor__666307810;
   "20260721_000000" : (old : OldActor__39218976) -> NewActor__712482421;
-  "20260722_000000" : (old : OldActor__640194372) -> NewActor__366232100
+  "20260722_000000" : (old : OldActor__640194372) -> NewActor__366232100;
+  "20260724_000000_AddClaimersStore" :
+    (old : OldActor__304063699) -> NewActor__549330648
 }
 actor  {
   stable adminPrincipals : {var value : [Principal]};
@@ -3442,6 +3574,11 @@ actor  {
   stable claimTokenStore :
     {
       var root : Node__279997185<Text, ClaimToken__925120114>;
+      var size : Nat__93962160
+    };
+  stable claimersStore :
+    {
+      var root : Node__279997185<Text, Set__726347137<Principal>>;
       var size : Nat__93962160
     };
   stable collectionStore :

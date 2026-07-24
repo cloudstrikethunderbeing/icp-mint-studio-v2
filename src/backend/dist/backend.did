@@ -296,6 +296,7 @@ service : {
           text;
           ClaimToken;
         }) query;
+  __claimersStore: () -> (reserved) query;
   __collectionStore: (ko: opt nat, count: opt nat) ->
    (vec record {
           nat;
@@ -396,6 +397,7 @@ service : {
   getTotalNfts: () -> (nat) query;
   hasRealAdmin: () -> (bool) query;
   isAdmin: () -> (bool) query;
+  isLiveCanister: () -> (bool) query;
   isStripeConfigured: () -> (bool) query;
   listAdmins: () -> (vec principal) query;
   listMyActiveNfts: () -> (vec Nft) query;

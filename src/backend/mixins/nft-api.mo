@@ -14,6 +14,7 @@ import UserLib "../lib/user";
 import Result "mo:core/Result";
 import Random "mo:core/Random";
 import ClaimLib "../lib/claim-link";
+import Sha256 "mo:sha2/Sha256";
 
 mixin (
   nftStore : NftLib.NftStore,
@@ -58,7 +59,7 @@ mixin (
       };
       case (?entry) {
         let elapsed = if (entry.windowStart >= now) { 0 } else { Nat.sub(now, entry.windowStart) };
-        if (elapsed > 60) {
+        if (elapsed > 60_000_000_000) {
           entry.count := 1;
           entry.windowStart := now;
           rateLimitStore.add(caller, entry);
@@ -110,6 +111,45 @@ mixin (
 
     if (not NftLib.validateAssetHash(assetHash)) {
       return #err({ message = "Invalid asset hash: must be 64 hex characters" });
+    };
+
+    // Server-side image validation: size bounds + content-binding of assetHash
+    if (imageBlob.size() == 0) {
+      return #err({ message = "Image data is empty" });
+    };
+    if (imageBlob.size() > 10 * 1024 * 1024) {
+      return #err({ message = "Image exceeds maximum size of 10 MiB" });
+    };
+    let computedHash = Sha256.fromBlob(imageBlob);
+    var computedHex = "";
+    for (b in computedHash.vals()) {
+      let bNat = b.toNat();
+      let hi = bNat / 16;
+      let lo = bNat % 16;
+      let hexDigit = func(d : Nat) : Text {
+        switch (d) {
+          case 0 { "0" };
+          case 1 { "1" };
+          case 2 { "2" };
+          case 3 { "3" };
+          case 4 { "4" };
+          case 5 { "5" };
+          case 6 { "6" };
+          case 7 { "7" };
+          case 8 { "8" };
+          case 9 { "9" };
+          case 10 { "a" };
+          case 11 { "b" };
+          case 12 { "c" };
+          case 13 { "d" };
+          case 14 { "e" };
+          case _ { "f" };
+        };
+      };
+      computedHex := computedHex # hexDigit(hi) # hexDigit(lo);
+    };
+    if (computedHex != assetHash) {
+      return #err({ message = "assetHash does not match image data" });
     };
 
     let sanitizedTitle = NftLib.sanitizeText(title, 100);

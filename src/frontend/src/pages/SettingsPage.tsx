@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CANISTERS } from "@/config/canisters";
+import { getBackendCanisterId } from "@/config/canisters";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   useActiveNfts,
@@ -210,8 +210,48 @@ export default function SettingsPage() {
   } = useAuth();
   console.log("[RENDER] SettingsPage render:", { isAuthenticated, principal });
 
-  // Draft-only one-time admin setup state
-  const IS_DRAFT = import.meta.env.IS_DRAFT as boolean;
+  // Runtime live/draft detection. Liveness is determined by the BACKEND at
+  // runtime via isLiveCanister() — never by comparing a baked canister ID
+  // literal. The admin-setup UI is draft-only, so we gate it on `!isLive`.
+  // While `isLive === null` (loading), treat as live (do NOT show admin-setup)
+  // to be safe. The backendId (for the canisterId display) still comes from
+  // /env.json at runtime via getBackendCanisterId().
+  const [isLive, setIsLive] = useState<boolean | null>(null);
+  const [backendId, setBackendId] = useState<string>("");
+  useEffect(() => {
+    let cancelled = false;
+    getBackendCanisterId()
+      .then((id) => {
+        if (cancelled) return;
+        setBackendId(id);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // If /env.json fails, backendId stays empty (display shows "Loading…").
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  useEffect(() => {
+    if (!actor) return;
+    let cancelled = false;
+    actor
+      .isLiveCanister()
+      .then((live) => {
+        if (cancelled) return;
+        setIsLive(live);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        console.error("[SETTINGS] isLiveCanister query failed:", e);
+        // On failure, treat as non-live so admin-setup is reachable on draft.
+        setIsLive(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [actor]);
   const [setupAdminPending, setSetupAdminPending] = useState(false);
   const [setupAdminError, setSetupAdminError] = useState("");
 
@@ -302,17 +342,19 @@ export default function SettingsPage() {
   });
 
   // ── Canister ID with multiple fallback sources ──────────────────────────
+  // Runtime-resolved backend ID from /env.json is the secondary source after
+  // the actor's own getCanisterId(). No bake-time CANISTERS.backend fallback.
   const canisterIdDisplay = (() => {
     if (canisterIdQuery.isLoading) return "Loading...";
     const actorId = canisterIdQuery.data?.trim();
     if (actorId && actorId.length > 0) return actorId;
-    const envId = CANISTERS.backend?.trim();
+    const envId = backendId.trim();
     if (envId && envId.length > 0) return envId;
     return "Unavailable";
   })();
 
   const effectiveCanisterId =
-    canisterIdQuery.data?.trim() || CANISTERS.backend?.trim() || "";
+    canisterIdQuery.data?.trim() || backendId.trim() || "";
 
   // ── Collection ID query ─────────────────────────────────────────────────
   const collectionIdQuery = useQuery<string | null>({
@@ -411,7 +453,7 @@ export default function SettingsPage() {
       <h1 className="text-2xl font-bold text-foreground">Settings</h1>
 
       {/* ── Draft-only one-time admin setup ──────────────────────────────── */}
-      {IS_DRAFT && !isAdmin && !hasRealAdmin && (
+      {isLive === false && !isAdmin && !hasRealAdmin && (
         <div
           className="bg-card border border-amber-500/30 rounded-xl p-4 space-y-3"
           data-ocid="settings.setup_admin_card"
@@ -456,7 +498,7 @@ export default function SettingsPage() {
       )}
 
       {/* ── Draft-only: admin already set (informational + re-claim) ─────── */}
-      {IS_DRAFT && !isAdmin && hasRealAdmin && !hasRealAdminLoading && (
+      {isLive === false && !isAdmin && hasRealAdmin && !hasRealAdminLoading && (
         <div
           className="bg-card border border-amber-500/30 rounded-xl p-4 space-y-3"
           data-ocid="settings.admin_already_set_card"
