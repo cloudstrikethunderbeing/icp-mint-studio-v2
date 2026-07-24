@@ -1,17 +1,17 @@
-import { c as createLucideIcon, r as reactExports, j as jsxRuntimeExports, i as reactDomExports, b as useNavigate, a as useAuth, d as useQueryClient, k as useNotifications, L as LoaderCircle, I as Info, X, l as ue, T as TriangleAlert, E as ExternalBlob } from "./main-CWejzaZE.js";
-import { d as Portal$1, h as hideOthers, u as useFocusGuards, e as ReactRemoveScroll, F as FocusScope, f as DismissableLayer, N as NftDetailModal, j as Dialog, k as DialogContent, l as DialogHeader, m as DialogTitle, n as DialogDescription, o as DialogFooter } from "./NftDetailModal-PSZT9U19.js";
-import { B as Button } from "./button-DLX6p-al.js";
-import { d as Primitive, g as useControllableState, h as useId, c as composeEventHandlers, i as useLayoutEffect2, u as useCallbackRef, b as createContextScope, f as createSlot, P as Presence } from "./index-Bnbh4Eq4.js";
-import { u as useComposedRefs, c as cn } from "./utils-DwKCcIUy.js";
-import { I as Input } from "./input-DpRTaP_z.js";
-import { C as Check, a as Copy, L as Label } from "./label-DNxhsKaS.js";
-import { u as useDirection, c as createCollection } from "./index-D7zqXHLA.js";
-import { R as Root2$1, A as Anchor, c as createPopperScope, C as Content, a as Arrow, P as Plus } from "./index-CfAXJpGW.js";
-import { u as usePrevious, C as ChevronDown, a as ChevronUp } from "./index-DECkQ0cW.js";
-import { S as Skeleton } from "./skeleton-O2-FpMEk.js";
-import { h as useCreateSlot, u as useMyActiveNfts, i as useSearchNfts, j as useGenerateClaimLink, k as useMutation } from "./useQueries-CMicvt8Q.js";
-import { u as useQuery } from "./useQuery-D2ENjbCA.js";
-import { B as BrandedAuthGate } from "./BrandedAuthGate-CY7VUTVv.js";
+import { c as createLucideIcon, r as reactExports, j as jsxRuntimeExports, i as reactDomExports, b as useNavigate, a as useAuth, d as useQueryClient, k as useNotifications, L as LoaderCircle, I as Info, X, l as ue, T as TriangleAlert, E as ExternalBlob } from "./main-BTokF3FK.js";
+import { d as Portal$1, h as hideOthers, u as useFocusGuards, e as ReactRemoveScroll, F as FocusScope, f as DismissableLayer, N as NftDetailModal, j as Dialog, k as DialogContent, l as DialogHeader, m as DialogTitle, n as DialogDescription, o as DialogFooter } from "./NftDetailModal-ywpGCMpj.js";
+import { B as Button } from "./button-C3_CjYWa.js";
+import { d as Primitive, g as useControllableState, h as useId, c as composeEventHandlers, i as useLayoutEffect2, u as useCallbackRef, b as createContextScope, f as createSlot, P as Presence } from "./index-DmJVeWkE.js";
+import { u as useComposedRefs, c as cn } from "./utils-CtwDn-BN.js";
+import { I as Input } from "./input-7y2IfZGD.js";
+import { C as Check, a as Copy, L as Label } from "./label-BChcrg3e.js";
+import { u as useDirection, c as createCollection } from "./index-Dme_9sg2.js";
+import { R as Root2$1, A as Anchor, c as createPopperScope, C as Content, a as Arrow, P as Plus } from "./index-BJaF15Dv.js";
+import { u as usePrevious, C as ChevronDown, a as ChevronUp } from "./index-BLvtnFoP.js";
+import { S as Skeleton } from "./skeleton-CasqKnz1.js";
+import { h as useCreateSlot, u as useMyActiveNfts, i as useSearchNfts, j as useGenerateClaimLink, k as useMutation } from "./useQueries-DyA-Fh_0.js";
+import { u as useQuery } from "./useQuery-BnOKrLmo.js";
+import { B as BrandedAuthGate } from "./BrandedAuthGate-LuLaoj5n.js";
 /**
  * @license lucide-react v0.511.0 - ISC
  *
@@ -2529,7 +2529,7 @@ function HomePage() {
             {
               className: "text-xs text-foreground truncate flex-1 font-mono",
               "data-ocid": "mint.claim_url",
-              children: mintedClaimUrl
+              children: window.location.origin + mintedClaimUrl
             }
           ) }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "flex gap-2", children: [
@@ -2542,7 +2542,7 @@ function HomePage() {
                 className: "flex-1 text-xs",
                 "data-ocid": "mint.copy_claim_url_button",
                 onClick: () => {
-                  navigator.clipboard.writeText(mintedClaimUrl).then(() => {
+                  navigator.clipboard.writeText(window.location.origin + mintedClaimUrl).then(() => {
                     ue.success("Claim link copied!");
                   });
                 },
@@ -2560,7 +2560,10 @@ function HomePage() {
                 size: "sm",
                 className: "flex-1 text-xs",
                 "data-ocid": "mint.open_claim_page_button",
-                onClick: () => window.open(mintedClaimUrl, "_blank"),
+                onClick: () => window.open(
+                  window.location.origin + mintedClaimUrl,
+                  "_blank"
+                ),
                 children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx(Share2, { className: "mr-1 h-3 w-3" }),
                   "Open"

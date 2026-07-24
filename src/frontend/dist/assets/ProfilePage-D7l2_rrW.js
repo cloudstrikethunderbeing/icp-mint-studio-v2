@@ -1,11 +1,11 @@
-import { a as useAuth, d as useQueryClient, r as reactExports, j as jsxRuntimeExports } from "./main-CWejzaZE.js";
-import { C as Check, a as Copy, L as Label } from "./label-DNxhsKaS.js";
-import { S as Skeleton } from "./skeleton-O2-FpMEk.js";
-import { u as useQuery } from "./useQuery-D2ENjbCA.js";
-import { o as useMyNfts, k as useMutation } from "./useQueries-CMicvt8Q.js";
-import { B as BrandedAuthGate } from "./BrandedAuthGate-CY7VUTVv.js";
-import { W as Wallet } from "./wallet-C0d2vmFP.js";
-import "./utils-DwKCcIUy.js";
+import { a as useAuth, d as useQueryClient, r as reactExports, j as jsxRuntimeExports } from "./main-BTokF3FK.js";
+import { C as Check, a as Copy, L as Label } from "./label-BChcrg3e.js";
+import { S as Skeleton } from "./skeleton-CasqKnz1.js";
+import { u as useQuery } from "./useQuery-BnOKrLmo.js";
+import { o as useMyNfts, k as useMutation } from "./useQueries-DyA-Fh_0.js";
+import { B as BrandedAuthGate } from "./BrandedAuthGate-LuLaoj5n.js";
+import { W as Wallet } from "./wallet-DNvrlztZ.js";
+import "./utils-CtwDn-BN.js";
 function truncatePrincipal(pid) {
   if (pid.length <= 16) return pid;
   return `${pid.slice(0, 8)}...${pid.slice(-8)}`;

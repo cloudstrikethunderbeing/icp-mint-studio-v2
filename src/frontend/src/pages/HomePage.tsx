@@ -1224,7 +1224,7 @@ export default function HomePage() {
                         className="text-xs text-foreground truncate flex-1 font-mono"
                         data-ocid="mint.claim_url"
                       >
-                        {mintedClaimUrl}
+                        {window.location.origin + mintedClaimUrl}
                       </span>
                     </div>
                     <div className="flex gap-2">
@@ -1236,7 +1236,7 @@ export default function HomePage() {
                         data-ocid="mint.copy_claim_url_button"
                         onClick={() => {
                           navigator.clipboard
-                            .writeText(mintedClaimUrl)
+                            .writeText(window.location.origin + mintedClaimUrl)
                             .then(() => {
                               toast.success("Claim link copied!");
                             });
@@ -1251,7 +1251,12 @@ export default function HomePage() {
                         size="sm"
                         className="flex-1 text-xs"
                         data-ocid="mint.open_claim_page_button"
-                        onClick={() => window.open(mintedClaimUrl, "_blank")}
+                        onClick={() =>
+                          window.open(
+                            window.location.origin + mintedClaimUrl,
+                            "_blank",
+                          )
+                        }
                       >
                         <Share2 className="mr-1 h-3 w-3" />
                         Open
