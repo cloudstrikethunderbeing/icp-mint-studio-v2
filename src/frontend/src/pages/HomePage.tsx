@@ -34,6 +34,8 @@ import {
   useGenerateClaimLink,
   useSearchNfts,
 } from "@/hooks/useQueries";
+import { devLog } from "@/utils/devLog";
+import { fileWithVerifiedImageType } from "@/utils/imageMagic";
 
 import { Principal } from "@icp-sdk/core/principal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -215,6 +217,11 @@ function UploadCard({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  // Ref holding the current blob: URL so we can revoke it before creating a
+  // new one, on reset, on dialog close, and on unmount. This prevents the
+  // preview image bytes from lingering in memory after the preview is closed
+  // or replaced (H6 blob URL leak fix).
+  const previewUrlRef = useRef<string | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [collectionId, setCollectionId] = useState<string>("");
@@ -244,6 +251,26 @@ function UploadCard({
   }, [tierMax, mintDialogOpen]);
   // isMintingLocal removed — use mintMutation.isPending as the single source of truth
 
+  // Revoke any outstanding blob: URL on unmount so preview image bytes are
+  // released from memory when the UploadCard leaves the DOM (H6 fix).
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+        previewUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  // Helper: revoke the previous preview blob URL (if any) and clear the ref.
+  // Called before creating a new URL, on reset, and on dialog close.
+  const revokePreviewUrl = useCallback(() => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     if (mintSuccessSignal > 0) {
       setMintDialogOpen(false);
@@ -264,24 +291,32 @@ function UploadCard({
   }, [mintSuccessSignal, setMintError, setMintDialogOpen, tierMax]);
 
   const handleFile = useCallback(
-    (f: File) => {
+    async (f: File) => {
       if (isMinting) return;
-      const validTypes = ["image/png", "image/jpeg", "image/webp"];
-      if (!validTypes.includes(f.type)) {
-        toast.error("Only PNG, JPG, and WEBP files are accepted.");
-        return;
-      }
       if (f.size > 1887436) {
         toast.error(
           "Image is too large. Please use an image under 1.8MB. Try compressing at squoosh.app or tinypng.com before uploading.",
         );
         return;
       }
-      setFile(f);
-      setPreview(URL.createObjectURL(f));
+      // Re-derive the Content-Type from the file's magic bytes instead of
+      // trusting the spoofable File.type. Rejects files whose magic bytes
+      // do not match a supported image format (PNG/JPEG/WebP).
+      const verified = await fileWithVerifiedImageType(f);
+      if (!verified) {
+        toast.error("Only PNG, JPG, and WEBP files are accepted.");
+        return;
+      }
+      // Revoke any previous preview blob URL before creating a new one so
+      // the previous image bytes are released from memory (H6 fix).
+      revokePreviewUrl();
+      setFile(verified);
+      const url = URL.createObjectURL(verified);
+      previewUrlRef.current = url;
+      setPreview(url);
       setMintDialogOpen(true);
     },
-    [setMintDialogOpen, isMinting],
+    [setMintDialogOpen, isMinting, revokePreviewUrl],
   );
 
   function handleDrop(e: React.DragEvent) {
@@ -348,6 +383,8 @@ function UploadCard({
     setDiscountCode("");
     setMembershipId("");
     setShowAdvanced(false);
+    // Revoke the preview blob URL so image bytes are released on reset.
+    revokePreviewUrl();
     // isMintingLocal removed — loading state comes from mintMutation.isPending
   }
 
@@ -415,6 +452,9 @@ function UploadCard({
             setShowAdvanced(false);
             setMintError(null);
             setSupplyLimit(tierMax);
+            // Revoke the preview blob URL on dialog close so image bytes
+            // are released from memory (H6 fix).
+            revokePreviewUrl();
           }
         }}
       >
@@ -643,12 +683,6 @@ export default function HomePage() {
     isAdmin,
     isAdminLoading,
   } = useAuth();
-  console.log("[RENDER] HomePage render:", {
-    authState,
-    isAuthenticated,
-    isAdmin,
-    actor: !!actor,
-  });
 
   const queryClient = useQueryClient();
   const _createSlotMutation = useCreateSlot();
@@ -664,6 +698,12 @@ export default function HomePage() {
     | { stage: "error"; message: string }
   >({ stage: "idle" });
   const [mintedClaimUrl, setMintedClaimUrl] = useState<string | null>(null);
+  devLog("[RENDER] HomePage render:", {
+    authState,
+    isAuthenticated,
+    isAdmin,
+    actor: !!actor,
+  });
 
   const [mintOverlayDismissVisible, setMintOverlayDismissVisible] =
     useState(false);
@@ -1255,6 +1295,7 @@ export default function HomePage() {
                           window.open(
                             window.location.origin + mintedClaimUrl,
                             "_blank",
+                            "noopener,noreferrer",
                           )
                         }
                       >

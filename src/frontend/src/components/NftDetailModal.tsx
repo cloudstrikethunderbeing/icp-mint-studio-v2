@@ -48,6 +48,7 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
+import { devLog } from "../utils/devLog";
 
 interface NftDetailModalProps {
   nft: Nft | null;
@@ -101,7 +102,7 @@ export function NftDetailModal({
 
   // Claim link state (admin only)
   const { isAdmin } = useAuth();
-  console.log("[RENDER] NftDetailModal render:", { isAdmin });
+  devLog("[RENDER] NftDetailModal render:", { isAdmin });
   const canGenerateClaimLink = isAdmin;
   const [claimUrlCopied, setClaimUrlCopied] = useState(false);
   const [generatedClaimPath, setGeneratedClaimPath] = useState<string | null>(

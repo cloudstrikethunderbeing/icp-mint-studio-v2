@@ -3,6 +3,8 @@ import List "mo:core/List";
 import Principal "mo:core/Principal";
 import Text "mo:core/Text";
 import Nat "mo:core/Nat";
+import Nat8 "mo:core/Nat8";
+import Nat32 "mo:core/Nat32";
 import Runtime "mo:core/Runtime";
 import Storage "mo:caffeineai-object-storage/Storage";
 import Common "../types/common";
@@ -292,6 +294,515 @@ module {
     };
   };
 
+  public type ImageFormatError = { message : Text };
+
+  /// Magic-byte allowlist: accept ONLY JPEG, PNG, WebP. Rejects everything else
+  /// (including SVG, which starts with '<' rather than a binary magic header).
+  /// No separate SVG check is needed — the allowlist implicitly excludes it.
+  /// Pure function — unit-testable without canister/auth context.
+  public func validateImageFormat(imageBlob : Storage.ExternalBlob) : Result.Result<(), ImageFormatError> {
+    let blobSize = imageBlob.size();
+    let isJpeg = blobSize >= 3
+      and imageBlob[0] == 0xFF
+      and imageBlob[1] == 0xD8
+      and imageBlob[2] == 0xFF;
+    let isPng = blobSize >= 4
+      and imageBlob[0] == 0x89
+      and imageBlob[1] == 0x50
+      and imageBlob[2] == 0x4E
+      and imageBlob[3] == 0x47;
+    let isWebp = blobSize >= 12
+      and imageBlob[0] == 0x52 // 'R'
+      and imageBlob[1] == 0x49 // 'I'
+      and imageBlob[2] == 0x46 // 'F'
+      and imageBlob[3] == 0x46 // 'F'
+      and imageBlob[8] == 0x57 // 'W'
+      and imageBlob[9] == 0x45 // 'E'
+      and imageBlob[10] == 0x42 // 'B'
+      and imageBlob[11] == 0x50; // 'P'
+    if (not isJpeg and not isPng and not isWebp) {
+      return #err({ message = "Unsupported image format. Only JPEG, PNG, and WebP are allowed." });
+    };
+    #ok()
+  };
+
+  /// Trailing-byte rejection: reject non-zero bytes after the format's EOF marker.
+  /// Find the LAST occurrence of the marker (JPEG FF D9 and PNG IEND can appear
+  /// inside compressed data, so a first-occurrence scan would reject valid images).
+  /// - JPEG: scan for the last FF D9; reject non-zero bytes after it.
+  /// - PNG: scan for the last IEND chunk trailer (49 45 4E 44 AE 42 60 82);
+  ///   reject non-zero bytes after the 8-byte trailer.
+  /// - WebP: RIFF size bounding. Parse the u32 LE declared size at offset 4-7
+  ///   and require the blob length to equal exactly 8 + declared_size. This
+  ///   rejects any trailing bytes beyond the RIFF container and any declared
+  ///   size that is inconsistent with the actual blob length. The WebP FourCC
+  ///   allowlist walk is performed separately by validateWebpChunks.
+  /// Pure function — unit-testable without canister/auth context.
+  public func validateTrailingBytes(imageBlob : Storage.ExternalBlob) : Result.Result<(), ImageFormatError> {
+    let blobSize = imageBlob.size();
+    // Detect format from magic bytes (mirrors validateImageFormat).
+    let isJpeg = blobSize >= 3
+      and imageBlob[0] == 0xFF
+      and imageBlob[1] == 0xD8
+      and imageBlob[2] == 0xFF;
+    let isPng = blobSize >= 4
+      and imageBlob[0] == 0x89
+      and imageBlob[1] == 0x50
+      and imageBlob[2] == 0x4E
+      and imageBlob[3] == 0x47;
+    let isWebp = blobSize >= 12
+      and imageBlob[0] == 0x52
+      and imageBlob[1] == 0x49
+      and imageBlob[2] == 0x46
+      and imageBlob[3] == 0x46
+      and imageBlob[8] == 0x57
+      and imageBlob[9] == 0x45
+      and imageBlob[10] == 0x42
+      and imageBlob[11] == 0x50;
+    if (isJpeg) {
+      var lastEoi : Nat = 0;
+      var foundEoi : Bool = false;
+      var i = 0;
+      while (i + 1 < blobSize) {
+        if (imageBlob[i] == 0xFF and imageBlob[i + 1] == 0xD9) {
+          lastEoi := i;
+          foundEoi := true;
+        };
+        i += 1;
+      };
+      if (foundEoi) {
+        var j = lastEoi + 2;
+        while (j < blobSize) {
+          if (imageBlob[j] != 0x00) {
+            return #err({ message = "Invalid JPEG: trailing bytes after EOI marker" });
+          };
+          j += 1;
+        };
+      } else {
+        // A JPEG without any FF D9 marker is malformed.
+        return #err({ message = "Invalid JPEG: missing EOI marker" });
+      };
+    } else if (isPng) {
+      // PNG IEND chunk: 4-byte length (0x00000000) + 4-byte type "IEND" + 4-byte CRC.
+      // The unique trailer is "IEND" + CRC = 49 45 4E 44 AE 42 60 82 (8 bytes).
+      // Scan for the last occurrence of this 8-byte sequence.
+      var lastIend : Nat = 0;
+      var foundIend : Bool = false;
+      var i = 0;
+      while (i + 8 <= blobSize) {
+        if (imageBlob[i] == 0x49 // 'I'
+          and imageBlob[i + 1] == 0x45 // 'E'
+          and imageBlob[i + 2] == 0x4E // 'N'
+          and imageBlob[i + 3] == 0x44 // 'D'
+          and imageBlob[i + 4] == 0xAE
+          and imageBlob[i + 5] == 0x42
+          and imageBlob[i + 6] == 0x60
+          and imageBlob[i + 7] == 0x82) {
+          lastIend := i;
+          foundIend := true;
+        };
+        i += 1;
+      };
+      if (foundIend) {
+        var j = lastIend + 8;
+        while (j < blobSize) {
+          if (imageBlob[j] != 0x00) {
+            return #err({ message = "Invalid PNG: trailing bytes after IEND chunk" });
+          };
+          j += 1;
+        };
+      } else {
+        // A PNG without an IEND chunk is malformed/truncated.
+        return #err({ message = "Invalid PNG: missing IEND chunk" });
+      };
+    } else if (isWebp) {
+      // WebP RIFF size bounding (replaces the v249 unconditional #ok skip).
+      // RIFF layout: bytes 0-3 = "RIFF", bytes 4-7 = u32 LE declared payload
+      // size (includes "WEBP " + chunks, NOT the 8-byte RIFF header itself),
+      // bytes 8-11 = "WEBP". The total file size must equal 8 + declared_size.
+      // Reject if declared size is inconsistent with the actual blob size.
+      if (blobSize < 12) {
+        return #err({ message = "Invalid WebP: blob too small for RIFF header" });
+      };
+      let declaredSize = imageBlob[4].toNat()
+        + imageBlob[5].toNat() * 256
+        + imageBlob[6].toNat() * 65536
+        + imageBlob[7].toNat() * 16777216;
+      // declared_size must be at least 4 (to contain the "WEBP" FourCC).
+      if (declaredSize < 4) {
+        return #err({ message = "Invalid WebP: RIFF declared size too small to contain WEBP header" });
+      };
+      // Total file size must equal 8 (RIFF header) + declared_size.
+      if (blobSize != 8 + declaredSize) {
+        return #err({ message = "Invalid WebP: RIFF declared size does not match blob length" });
+      };
+      // Reject any bytes beyond 8 + declared_size — already enforced by the
+      // exact-equality check above, so no trailing bytes can exist.
+    } else {
+      // Not a recognized format — validateImageFormat is responsible for that
+      // check; here we just pass through (no trailing-byte opinion).
+      return #ok();
+    };
+    #ok()
+  };
+
+  /// JPEG marker allowlist walk. After SOI (FF D8), walk markers and allow only:
+  /// SOI (FFD8), SOF0 (FFC0), SOF2 (FFC2), DHT (FFC4), DQT (FFDB), SOS (FFDA),
+  /// EOI (FFD9), RSTn (FFD0-FFD7), APP0/JFIF (FFE0). Reject COM (FFFE), reserved
+  /// JPG (FFC8), JPGn (FFF0-FFFD), APP1/EXIF (FFE1), and any non-allowlisted
+  /// marker. SOI and EOI have 0-length segments (no length field); every other
+  /// allowlisted marker is followed by a 2-byte big-endian length that includes
+  /// its own 2 bytes, and the segment must fit within the blob. SOS is followed
+  /// by entropy-coded data terminated by the next marker (no length walk past
+  /// SOS — scan for the next FF-prefixed marker, skipping FF 00 stuffing).
+  /// Pure function — unit-testable without canister/auth context.
+  public func validateJpegMarkers(imageBlob : Storage.ExternalBlob) : Result.Result<(), ImageFormatError> {
+    let blobSize = imageBlob.size();
+    // Must start with SOI (FF D8).
+    if (blobSize < 2 or imageBlob[0] != 0xFF or imageBlob[1] != 0xD8) {
+      return #err({ message = "Invalid JPEG: missing SOI marker" });
+    };
+    var i = 2;
+    var sawSos = false;
+    var sawEoi = false;
+    while (i < blobSize) {
+      // Find the next marker: a 0xFF byte. In entropy-coded data after SOS,
+      // 0xFF 00 is byte-stuffing (literal 0xFF in the stream) and is skipped;
+      // any other 0xFF xx introduces a real marker.
+      if (imageBlob[i] != 0xFF) {
+        // If we are past SOS, this is entropy-coded data — scan forward for
+        // the next 0xFF. If we are NOT past SOS, a non-0xFF byte outside a
+        // marker segment is malformed.
+        if (sawSos) {
+          i += 1;
+          continue;
+        } else {
+          return #err({ message = "Invalid JPEG: unexpected byte outside marker segment" });
+        };
+      };
+      // We are at a 0xFF. Skip any fill bytes (multiple 0xFF in a row before
+      // the actual marker tag) per the JPEG spec.
+      var markerStart = i;
+      while (markerStart < blobSize and imageBlob[markerStart] == 0xFF) {
+        markerStart += 1;
+      };
+      if (markerStart >= blobSize) {
+        return #err({ message = "Invalid JPEG: truncated marker after fill bytes" });
+      };
+      let tag = imageBlob[markerStart];
+      // 0xFF 00 is byte-stuffing inside entropy-coded data — skip both bytes.
+      if (tag == 0x00) {
+        if (not sawSos) {
+          return #err({ message = "Invalid JPEG: byte-stuffing 0xFF00 outside entropy data" });
+        };
+        i := markerStart + 1;
+        continue;
+      };
+      // SOI: 0-length segment, no length field. Must only appear at start.
+      if (tag == 0xD8) {
+        return #err({ message = "Invalid JPEG: SOI marker must only appear at start" });
+      };
+      // EOI: 0-length segment, no length field. Must be the last marker.
+      if (tag == 0xD9) {
+        sawEoi := true;
+        // EOI should be the final meaningful byte; any bytes after EOI are
+        // rejected by validateTrailingBytes. Here we just stop the walk.
+        return #ok();
+      };
+      // RSTn (FFD0-FFD7): 0-length segment, no length field. Only valid
+      // inside entropy-coded data (after SOS).
+      if (tag >= 0xD0 and tag <= 0xD7) {
+        if (not sawSos) {
+          return #err({ message = "Invalid JPEG: RSTn marker outside entropy data" });
+        };
+        i := markerStart + 1;
+        continue;
+      };
+      // Allowlisted markers with a 2-byte length field:
+      //   SOF0 (C0), SOF2 (C2), DHT (C4), DQT (DB), SOS (DA), APP0/JFIF (E0).
+      let isAllowlisted = switch (tag) {
+        case (0xC0) true; // SOF0
+        case (0xC2) true; // SOF2
+        case (0xC4) true; // DHT
+        case (0xDB) true; // DQT
+        case (0xDA) true; // SOS
+        case (0xE0) true; // APP0/JFIF
+        case (_) false;
+      };
+      if (not isAllowlisted) {
+        // Explicitly rejected markers (fail-closed with a specific message):
+        if (tag == 0xFE) {
+          return #err({ message = "Invalid JPEG: COM marker not allowed" });
+        };
+        if (tag == 0xC8) {
+          return #err({ message = "Invalid JPEG: reserved JPG marker not allowed" });
+        };
+        if (tag >= 0xF0 and tag <= 0xFD) {
+          return #err({ message = "Invalid JPEG: JPGn marker not allowed" });
+        };
+        if (tag == 0xE1) {
+          return #err({ message = "Invalid JPEG: APP1/EXIF marker not allowed" });
+        };
+        return #err({ message = "Invalid JPEG: non-allowlisted marker 0xFF" # tag.toText() });
+      };
+      // Need 2 bytes for the length field after the tag byte.
+      let lenOffset = markerStart + 1;
+      if (lenOffset + 1 >= blobSize) {
+        return #err({ message = "Invalid JPEG: truncated marker length field" });
+      };
+      let segLen = imageBlob[lenOffset].toNat() * 256 + imageBlob[lenOffset + 1].toNat();
+      // The length includes its own 2 bytes, so it must be >= 2.
+      if (segLen < 2) {
+        return #err({ message = "Invalid JPEG: marker segment length < 2" });
+      };
+      // The segment (length field + remaining segment bytes) must fit in blob.
+      // segLen covers [lenOffset .. lenOffset + segLen - 1].
+      if (lenOffset + segLen > blobSize) {
+        return #err({ message = "Invalid JPEG: marker segment exceeds blob bounds" });
+      };
+      if (tag == 0xDA) {
+        // SOS: after the SOS header segment, entropy-coded data begins. We
+        // stop walking structured markers here and scan for the next real
+        // marker (FF xx where xx != 00 and xx != FF).
+        sawSos := true;
+        i := lenOffset + segLen;
+        continue;
+      };
+      // For non-SOS markers, advance past the entire segment.
+      i := lenOffset + segLen;
+    };
+    if (not sawEoi) {
+      return #err({ message = "Invalid JPEG: missing EOI marker" });
+    };
+    #ok()
+  };
+
+  /// PNG chunk-type allowlist walk. After the 8-byte signature, walk chunks.
+  /// Allow only raster-essential chunk types: IHDR, PLTE, IDAT, IEND, tRNS,
+  /// gAMA, cHRM, sRGB, pHYs, bKGD, tIME. Reject caBX (C2PA/JUMBF), iCCP, sPLT,
+  /// tEXt, iTXt, zTXt, and any non-allowlisted chunk type. Each chunk is:
+  /// 4-byte big-endian length + 4-byte type + length bytes data + 4-byte CRC.
+  /// IHDR must be first; IEND must be present and last. Fixed-length chunks
+  /// are pinned: pHYs=9, sRGB=1, gAMA=4, cHRM=32. Pure function.
+  public func validatePngChunks(imageBlob : Storage.ExternalBlob) : Result.Result<(), ImageFormatError> {
+    let blobSize = imageBlob.size();
+    // Must start with the 8-byte PNG signature. Typed as [Nat8] so the
+    // per-byte comparison against imageBlob[s] (Nat8) is type-consistent
+    // (avoids M0062 Nat8-vs-Nat incompatible-comparison warning).
+    let sig : [Nat8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+    if (blobSize < 8) {
+      return #err({ message = "Invalid PNG: blob too small for signature" });
+    };
+    var s = 0;
+    while (s < 8) {
+      if (imageBlob[s] != sig[s]) {
+        return #err({ message = "Invalid PNG: bad signature" });
+      };
+      s += 1;
+    };
+    var i = 8;
+    var sawIhdr = false;
+    var sawIend = false;
+    while (i + 8 <= blobSize) {
+      if (sawIend) {
+        // validateTrailingBytes handles bytes after IEND; here we just stop.
+        return #ok();
+      };
+      let dataLen = imageBlob[i].toNat() * 16777216
+        + imageBlob[i + 1].toNat() * 65536
+        + imageBlob[i + 2].toNat() * 256
+        + imageBlob[i + 3].toNat();
+      let t0 = imageBlob[i + 4];
+      let t1 = imageBlob[i + 5];
+      let t2 = imageBlob[i + 6];
+      let t3 = imageBlob[i + 7];
+      // Chunk type as 4 chars for comparison. Uses the non-deprecated
+      // Nat.toNat32 + Nat32.toChar conversions (replaces the deprecated
+      // Nat32.fromNat + Char.fromNat32 pair flagged by M0154).
+      let typeText = t0.toNat().toNat32().toChar().toText()
+        # t1.toNat().toNat32().toChar().toText()
+        # t2.toNat().toNat32().toChar().toText()
+        # t3.toNat().toNat32().toChar().toText();
+      // Allowlist check.
+      let isAllowlisted = switch (typeText) {
+        case ("IHDR") true;
+        case ("PLTE") true;
+        case ("IDAT") true;
+        case ("IEND") true;
+        case ("tRNS") true;
+        case ("gAMA") true;
+        case ("cHRM") true;
+        case ("sRGB") true;
+        case ("pHYs") true;
+        case ("bKGD") true;
+        case ("tIME") true;
+        case (_) false;
+      };
+      if (not isAllowlisted) {
+        // Explicitly rejected chunk types (fail-closed with specific messages):
+        if (typeText == "caBX") {
+          return #err({ message = "Invalid PNG: caBX (C2PA/JUMBF) chunk not allowed" });
+        };
+        if (typeText == "iCCP") {
+          return #err({ message = "Invalid PNG: iCCP chunk not allowed" });
+        };
+        if (typeText == "sPLT") {
+          return #err({ message = "Invalid PNG: sPLT chunk not allowed" });
+        };
+        if (typeText == "tEXt") {
+          return #err({ message = "Invalid PNG: tEXt chunk not allowed" });
+        };
+        if (typeText == "iTXt") {
+          return #err({ message = "Invalid PNG: iTXt chunk not allowed" });
+        };
+        if (typeText == "zTXt") {
+          return #err({ message = "Invalid PNG: zTXt chunk not allowed" });
+        };
+        return #err({ message = "Invalid PNG: non-allowlisted chunk type " # typeText });
+      };
+      // IHDR must be the first chunk.
+      if (typeText == "IHDR") {
+        if (sawIhdr) {
+          return #err({ message = "Invalid PNG: multiple IHDR chunks" });
+        };
+        if (i != 8) {
+          return #err({ message = "Invalid PNG: IHDR must be the first chunk" });
+        };
+        sawIhdr := true;
+      } else {
+        if (not sawIhdr) {
+          return #err({ message = "Invalid PNG: chunk before IHDR" });
+        };
+      };
+      // Fixed-length chunk pinning.
+      let expectedLen : ?Nat = switch (typeText) {
+        case ("pHYs") ?9;
+        case ("sRGB") ?1;
+        case ("gAMA") ?4;
+        case ("cHRM") ?32;
+        case (_) null;
+      };
+      switch (expectedLen) {
+        case (?fixed) {
+          if (dataLen != fixed) {
+            return #err({ message = "Invalid PNG: " # typeText # " chunk length must be " # fixed.toText() # ", got " # dataLen.toText() });
+          };
+        };
+        case (null) {};
+      };
+      // The full chunk is 4 (len) + 4 (type) + dataLen (data) + 4 (CRC).
+      let chunkEnd = i + 4 + 4 + dataLen + 4;
+      if (chunkEnd > blobSize) {
+        return #err({ message = "Invalid PNG: chunk " # typeText # " exceeds blob bounds" });
+      };
+      if (typeText == "IEND") {
+        if (dataLen != 0) {
+          return #err({ message = "Invalid PNG: IEND chunk must have length 0" });
+        };
+        sawIend := true;
+      };
+      i := chunkEnd;
+    };
+    if (not sawIhdr) {
+      return #err({ message = "Invalid PNG: missing IHDR chunk" });
+    };
+    if (not sawIend) {
+      return #err({ message = "Invalid PNG: missing IEND chunk" });
+    };
+    #ok()
+  };
+
+  /// WebP FourCC allowlist walk. After RIFF bounding (performed in
+  /// validateTrailingBytes' WebP branch), walk the WebP chunks starting at
+  /// offset 12 (after "RIFF" + size + "WEBP"). Allow only VP8, VP8L, VP8X,
+  /// ALPH, ANIM, ANMF FourCCs. Reject EXIF, XMP, ICCP, PSAI and any
+  /// non-allowlisted FourCC. Each chunk is: 4-byte FourCC + 4-byte LE size +
+  /// size bytes data (+ 1 pad byte if size is odd). Validate chunk sizes
+  /// against the RIFF declared size. Pure function.
+  public func validateWebpChunks(imageBlob : Storage.ExternalBlob) : Result.Result<(), ImageFormatError> {
+    let blobSize = imageBlob.size();
+    if (blobSize < 12) {
+      return #err({ message = "Invalid WebP: blob too small for RIFF/WEBP header" });
+    };
+    // RIFF declared size (bytes 4-7, little-endian). Total file = 8 + declared.
+    let declaredSize = imageBlob[4].toNat()
+      + imageBlob[5].toNat() * 256
+      + imageBlob[6].toNat() * 65536
+      + imageBlob[7].toNat() * 16777216;
+    if (declaredSize < 4) {
+      return #err({ message = "Invalid WebP: RIFF declared size too small" });
+    };
+    if (blobSize != 8 + declaredSize) {
+      return #err({ message = "Invalid WebP: RIFF declared size does not match blob length" });
+    };
+    // Chunks live in [12 .. 8 + declaredSize). The "WEBP" FourCC occupies
+    // bytes 8-11, so chunk data starts at offset 12.
+    let riffEnd = 8 + declaredSize;
+    var i = 12;
+    var sawBitstream = false;
+    while (i + 8 <= riffEnd) {
+      let f0 = imageBlob[i];
+      let f1 = imageBlob[i + 1];
+      let f2 = imageBlob[i + 2];
+      let f3 = imageBlob[i + 3];
+      let fourcc = f0.toNat().toNat32().toChar().toText()
+        # f1.toNat().toNat32().toChar().toText()
+        # f2.toNat().toNat32().toChar().toText()
+        # f3.toNat().toNat32().toChar().toText();
+      let isAllowlisted = switch (fourcc) {
+        case ("VP8 ") true;
+        case ("VP8L") true;
+        case ("VP8X") true;
+        case ("ALPH") true;
+        case ("ANIM") true;
+        case ("ANMF") true;
+        case (_) false;
+      };
+      if (not isAllowlisted) {
+        if (fourcc == "EXIF") {
+          return #err({ message = "Invalid WebP: EXIF chunk not allowed" });
+        };
+        if (fourcc == "XMP ") {
+          return #err({ message = "Invalid WebP: XMP chunk not allowed" });
+        };
+        if (fourcc == "ICCP") {
+          return #err({ message = "Invalid WebP: ICCP chunk not allowed" });
+        };
+        if (fourcc == "PSAI") {
+          return #err({ message = "Invalid WebP: PSAI chunk not allowed" });
+        };
+        return #err({ message = "Invalid WebP: non-allowlisted FourCC " # fourcc });
+      };
+      // 4-byte little-endian chunk size after the FourCC.
+      let chunkSize = imageBlob[i + 4].toNat()
+        + imageBlob[i + 5].toNat() * 256
+        + imageBlob[i + 6].toNat() * 65536
+        + imageBlob[i + 7].toNat() * 16777216;
+      // Chunk payload occupies [i+8 .. i+8+chunkSize).
+      let payloadEnd = i + 8 + chunkSize;
+      if (payloadEnd > riffEnd) {
+        return #err({ message = "Invalid WebP: " # fourcc # " chunk exceeds RIFF bounds" });
+      };
+      // RIFF chunks are padded to even size: if chunkSize is odd, a single
+      // pad byte follows the payload.
+      var nextChunk = payloadEnd;
+      if (chunkSize % 2 == 1) {
+        nextChunk += 1;
+        if (nextChunk > riffEnd) {
+          return #err({ message = "Invalid WebP: " # fourcc # " chunk pad byte exceeds RIFF bounds" });
+        };
+      };
+      if (fourcc == "VP8 " or fourcc == "VP8L" or fourcc == "VP8X") {
+        sawBitstream := true;
+      };
+      i := nextChunk;
+    };
+    if (not sawBitstream) {
+      return #err({ message = "Invalid WebP: missing bitstream chunk (VP8/VP8L/VP8X)" });
+    };
+    #ok()
+  };
+
   public func validateAssetHash(assetHash : Text) : Bool {
     let trimmed = assetHash.trim(#text " \t\n\r");
     if (trimmed.size() != 64) {
@@ -301,7 +812,7 @@ module {
     var i = 0;
     while (i < 64) {
       let c = chars[i];
-      let valid = switch (Text.fromChar(c)) {
+      let valid = switch (c.toText()) {
         case ("0") true; case ("1") true; case ("2") true; case ("3") true;
         case ("4") true; case ("5") true; case ("6") true; case ("7") true;
         case ("8") true; case ("9") true; case ("a") true; case ("b") true;

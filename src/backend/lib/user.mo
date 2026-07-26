@@ -38,6 +38,10 @@ module {
       creatorId;
       oisyWalletAddress = null;
       email = null;
+      // [H5] Deny-by-default: a brand-new profile has no email and therefore
+      // no verified email. emailVerified is only ever set true by a real
+      // challenge-response verification flow (not implemented this pass).
+      emailVerified = false;
       emailAlerts = [];
       subscriptionTier = #free;
       creditsUsed = 0;
@@ -69,11 +73,17 @@ module {
     }
   };
 
+  // [H5] setEmail stores the email as UNVERIFIED. Deny-by-default: no flow may
+  // treat this email as verified without a real challenge-response. The
+  // emailVerified flag is reset to false on every setEmail call (so changing
+  // an already-verified email re-locks it until re-verification). The
+  // verifiedEmails stable Set in main.mo is the source of truth for
+  // actually-verified emails and is NOT written here.
   public func setEmail(store : UserStore, principalId : Principal, email : Text) : () {
     switch (store.get(principalId)) {
       case (null) {};
       case (?profile) {
-        store.add(principalId, { profile with email = ?email });
+        store.add(principalId, { profile with email = ?email; emailVerified = false });
       };
     }
   };

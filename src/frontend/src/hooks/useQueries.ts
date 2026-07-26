@@ -1,5 +1,11 @@
-import type { HealthMetrics } from "@/backend";
-import type { CollectionWithCount, Nft, VerifyResult } from "@/backend";
+import type {
+  CollectionWithCount,
+  HealthMetrics,
+  Nft,
+  NftClaimBreakdownEntry,
+  NftClaimCount,
+  VerifyResult,
+} from "@/backend";
 import { useAuth } from "@/contexts/AuthContext";
 import { addNotification } from "@/hooks/useNotifications";
 import type { PaymentProof } from "@/types";
@@ -708,8 +714,7 @@ export function useMyActiveNfts(principal: string | null) {
       return normalized;
     },
     enabled: !!actor,
-    staleTime: 0,
-    gcTime: 0,
+    staleTime: 30_000,
   });
 }
 
@@ -850,5 +855,39 @@ export function useSetUserStripeProductId() {
     onError: (err: Error) => {
       toast.error(err.message || "Failed to set Stripe product ID");
     },
+  });
+}
+
+// ── Claim-count hooks ───────────────────────────────────────────────────────
+// Public claim counts feed the Library card indicator visible to all visitors.
+// Admin breakdown feeds the Health tab per-NFT breakdown section.
+
+export function useNftClaimCounts() {
+  const { actor } = useAuth();
+
+  return useQuery<NftClaimCount[]>({
+    queryKey: ["nft-claim-counts"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor unavailable");
+      return await actor.getNftClaimCounts();
+    },
+    // Public query — no admin gate. Library may be viewed without login,
+    // in which case the anonymous actor still serves this public query.
+    enabled: !!actor,
+    staleTime: 30_000,
+  });
+}
+
+export function useNftClaimBreakdown(isAdmin: boolean) {
+  const { actor } = useAuth();
+
+  return useQuery<NftClaimBreakdownEntry[]>({
+    queryKey: ["nft-claim-breakdown"],
+    queryFn: async () => {
+      if (!actor) throw new Error("Actor unavailable");
+      return await actor.getNftClaimBreakdown();
+    },
+    enabled: !!actor && isAdmin,
+    staleTime: 30_000,
   });
 }

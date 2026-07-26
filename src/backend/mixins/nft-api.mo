@@ -120,6 +120,44 @@ mixin (
     if (imageBlob.size() > 10 * 1024 * 1024) {
       return #err({ message = "Image exceeds maximum size of 10 MiB" });
     };
+
+    // Magic-byte allowlist + trailing-byte rejection: extracted into pure
+    // helpers in NftLib so they are unit-testable without canister/auth context.
+    // Enforced AFTER size check, BEFORE SHA-256 recompute and createNft.
+    // Behavior is identical to the prior inlined implementation: same accepted
+    // formats, same error messages, same WebP trailing-byte skip.
+    switch (NftLib.validateImageFormat(imageBlob)) {
+      case (#err(e)) { return #err({ message = e.message }) };
+      case (#ok) {};
+    };
+    switch (NftLib.validateTrailingBytes(imageBlob)) {
+      case (#err(e)) { return #err({ message = e.message }) };
+      case (#ok) {};
+    };
+
+    // [IMGVAL] Structural validators (additive, after validateTrailingBytes,
+    // before SHA-256 recompute). Each is a pure function on the image blob.
+    // JPEG marker allowlist walk — rejects COM/APP1-EXIF/JPGn/reserved and
+    // any non-allowlisted marker; validates marker segment lengths.
+    switch (NftLib.validateJpegMarkers(imageBlob)) {
+      case (#err(e)) { return #err({ message = e.message }) };
+      case (#ok) {};
+    };
+    // PNG chunk-type allowlist walk — rejects caBX/iCCP/sPLT/tEXt/iTXt/zTXt
+    // and any non-allowlisted chunk; pins fixed-length chunks; requires IHDR
+    // first and IEND last.
+    switch (NftLib.validatePngChunks(imageBlob)) {
+      case (#err(e)) { return #err({ message = e.message }) };
+      case (#ok) {};
+    };
+    // WebP FourCC allowlist walk — rejects EXIF/XMP/ICCP/PSAI and any
+    // non-allowlisted FourCC; validates chunk sizes against the RIFF declared
+    // size from validateTrailingBytes' WebP bounding step.
+    switch (NftLib.validateWebpChunks(imageBlob)) {
+      case (#err(e)) { return #err({ message = e.message }) };
+      case (#ok) {};
+    };
+
     let computedHash = Sha256.fromBlob(imageBlob);
     var computedHex = "";
     for (b in computedHash.vals()) {
@@ -150,6 +188,19 @@ mixin (
     };
     if (computedHex != assetHash) {
       return #err({ message = "assetHash does not match image data" });
+    };
+
+    // [H1/M3/P2] supplyLimit validation for ALL callers (admin and non-admin):
+    // reject supplyLimit == 0 (deny-by-default — a 0-supply NFT would produce
+    // an edition string "1/0" on claim and is meaningless) and cap the absolute
+    // maximum at 500 for everyone, including admins. No unbounded admin mint.
+    // The 500 cap matches the highest tier (#org) so admins get no more than
+    // the top paid tier.
+    if (supplyLimit == 0) {
+      return #err({ message = "Supply limit must be at least 1" });
+    };
+    if (supplyLimit > 500) {
+      return #err({ message = "Supply limit exceeds absolute maximum of 500" });
     };
 
     let sanitizedTitle = NftLib.sanitizeText(title, 100);
@@ -670,6 +721,41 @@ mixin (
         if (not isOwner and not isAdmin) {
           return #err("Unauthorized: Only the owner or admin can update metadata");
         };
+        // P5: RewardTier self-assignment restriction. Safest conservative
+        // default (deny-by-default, reject over allow): non-admins may only
+        // set rewardTier to #none; any other value is rejected. Admins may
+        // set any rewardTier. This prevents owners from self-assigning
+        // gold/platinum tiers.
+        let newRewardTier = switch (updates.rewardTier) {
+          case (null) { nft.rewardTier };
+          case (?v) {
+            if (not isAdmin and v != #none) {
+              return #err("Unauthorized: Only admins can assign reward tiers above #none");
+            };
+            v
+          };
+        };
+        // M1: Sanitize each tag with sanitizeText(tag, MAX_TAG_LENGTH) and cap
+        // the tags array at MAX_TAGS. Reject (reject over allow) if more than
+        // MAX_TAGS tags are supplied. Empty tags after sanitization are dropped.
+        let MAX_TAGS = 20;
+        let MAX_TAG_LENGTH = 50;
+        let newTags = switch (updates.tags) {
+          case (null) { nft.tags };
+          case (?v) {
+            if (v.size() > MAX_TAGS) {
+              return #err("Too many tags: maximum " # MAX_TAGS.toText() # " tags allowed");
+            };
+            let sanitized = List.empty<Text>();
+            for (tag in v.vals()) {
+              let s = NftLib.sanitizeText(tag, MAX_TAG_LENGTH);
+              if (s.size() > 0) {
+                sanitized.add(s);
+              };
+            };
+            sanitized.toArray()
+          };
+        };
         let timestamp = Int.abs(Time.now());
         let updatedNft = {
           nft with
@@ -677,8 +763,8 @@ mixin (
           website = switch (updates.website) { case (?v) ?NftLib.sanitizeText(v, 500); case (null) nft.website };
           discountCode = switch (updates.discountCode) { case (?v) ?NftLib.sanitizeText(v, 50); case (null) nft.discountCode };
           membershipId = switch (updates.membershipId) { case (?v) ?NftLib.sanitizeText(v, 100); case (null) nft.membershipId };
-          rewardTier = switch (updates.rewardTier) { case (?v) v; case (null) nft.rewardTier };
-          tags = switch (updates.tags) { case (?v) v; case (null) nft.tags };
+          rewardTier = newRewardTier;
+          tags = newTags;
         };
         let entry : Common.AuditEntry = {
           action = "METADATA_UPDATE";

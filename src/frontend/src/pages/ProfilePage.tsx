@@ -8,6 +8,7 @@ import { Check, Copy, Wallet } from "lucide-react";
 import { useEffect, useState } from "react";
 import BrandedAuthGate from "../components/BrandedAuthGate";
 import { useMyNfts } from "../hooks/useQueries";
+import { devLog } from "../utils/devLog";
 
 function truncatePrincipal(pid: string) {
   if (pid.length <= 16) return pid;
@@ -17,12 +18,11 @@ function truncatePrincipal(pid: string) {
 function RoleBadge() {
   const { isAdmin, isAdminLoading } = useAuth();
 
+  const cardClassName = "bg-card border border-border rounded-xl p-4 space-y-2";
+
   if (isAdminLoading) {
     return (
-      <div
-        className="bg-card border border-border rounded-xl p-4 space-y-2"
-        data-ocid="profile.role_badge_card"
-      >
+      <div className={cardClassName} data-ocid="profile.role_badge_card">
         <Skeleton className="h-6 w-32" />
         <Skeleton className="h-4 w-48" />
       </div>
@@ -40,10 +40,7 @@ function RoleBadge() {
       };
 
   return (
-    <div
-      className="bg-card border border-border rounded-xl p-4 space-y-2"
-      data-ocid="profile.role_badge_card"
-    >
+    <div className={cardClassName} data-ocid="profile.role_badge_card">
       <div className="flex items-center gap-2">
         <span
           className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold border ${badge.className}`}
@@ -66,7 +63,7 @@ function RoleBadge() {
 
 export default function ProfilePage() {
   const { isAuthenticated, principal, identity, actor } = useAuth();
-  console.log("[RENDER] ProfilePage render:", {
+  devLog("[RENDER] ProfilePage render:", {
     isAuthenticated,
     principal,
     actor: !!actor,

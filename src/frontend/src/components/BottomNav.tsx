@@ -1,6 +1,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Library, Settings, Shield, Sparkles, User } from "lucide-react";
+import { devLog } from "../utils/devLog";
 
 interface BottomNavProps {
   shell: "collector" | "studio" | "none";
@@ -10,7 +11,7 @@ export function BottomNav({ shell }: BottomNavProps) {
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
   const { isAuthenticated } = useAuth();
-  console.log("[RENDER] BottomNav render:", { isAuthenticated });
+  devLog("[RENDER] BottomNav render:", { isAuthenticated });
 
   if (shell === "none") return null;
 

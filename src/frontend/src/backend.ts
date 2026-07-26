@@ -65,6 +65,11 @@ export interface Result__1 {
     hasMore: boolean;
     rows: Array<Array<Cell>>;
 }
+export interface NftClaimCount {
+    supplyLimit: bigint;
+    nftId: bigint;
+    claimedCount: bigint;
+}
 export interface AuditEntry {
     action: string;
     timestamp: Timestamp;
@@ -246,6 +251,16 @@ export interface CollectionSummary {
 export interface _ImmutableObjectStorageRefillInformation {
     proposed_top_up_amount?: bigint;
 }
+export interface NftClaimBreakdownEntry {
+    supplyLimit: bigint;
+    title: string;
+    nftId: bigint;
+    claimedCount: bigint;
+}
+export interface _ImmutableObjectStorageCreateCertificateResult {
+    method: string;
+    blob_hash: string;
+}
 export interface HealthMetrics {
     claimedNfts: bigint;
     storageUsage: bigint;
@@ -257,10 +272,6 @@ export interface HealthMetrics {
     totalClaims: bigint;
     activeNfts: bigint;
     canisterId: string;
-}
-export interface _ImmutableObjectStorageCreateCertificateResult {
-    method: string;
-    blob_hash: string;
 }
 export interface ClaimToken {
     supplyLimit: bigint;
@@ -308,6 +319,7 @@ export interface UserProfile {
     creditsTotal: bigint;
     oisyWalletAddress?: string;
     emailAlerts: Array<AlertType>;
+    emailVerified: boolean;
     maxSlots: bigint;
     createdAt: Timestamp;
     subscriptionTier: SubscriptionTier;
@@ -410,6 +422,8 @@ export interface backendInterface {
     getMetricsCanisterId(): Promise<string>;
     getMyPaymentProofs(): Promise<Array<PaymentProof>>;
     getNft(id: bigint): Promise<Nft | null>;
+    getNftClaimBreakdown(): Promise<Array<NftClaimBreakdownEntry>>;
+    getNftClaimCounts(): Promise<Array<NftClaimCount>>;
     getSlotsStatus(): Promise<{
         total: bigint;
         used: bigint;
@@ -449,7 +463,7 @@ export interface backendInterface {
     setEmail(email: string): Promise<void>;
     setEmailAlerts(alerts: Array<AlertType>): Promise<void>;
     setOisyWalletAddress(address: string): Promise<void>;
-    setStripeConfiguration(secretKey: string, publicKey: string): Promise<void>;
+    setStripeConfiguration(mode: string, publishableKey: string): Promise<void>;
     setUserStripeProductId(userPrincipal: Principal, productId: string): Promise<Result_2>;
     setupAdmin(): Promise<boolean>;
     submitPaymentProof(txHash: string, tierRequested: string, networkType: string): Promise<Result_3>;
@@ -1223,6 +1237,34 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.getNft(arg0);
             return from_candid_opt_n76(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getNftClaimBreakdown(): Promise<Array<NftClaimBreakdownEntry>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getNftClaimBreakdown();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getNftClaimBreakdown();
+            return result;
+        }
+    }
+    async getNftClaimCounts(): Promise<Array<NftClaimCount>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getNftClaimCounts();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getNftClaimCounts();
+            return result;
         }
     }
     async getSlotsStatus(): Promise<{
@@ -2115,6 +2157,7 @@ function from_candid_record_n39(_uploadFile: (file: ExternalBlob) => Promise<Uin
     creditsTotal: bigint;
     oisyWalletAddress: [] | [string];
     emailAlerts: Array<_AlertType>;
+    emailVerified: boolean;
     maxSlots: bigint;
     createdAt: _Timestamp;
     subscriptionTier: _SubscriptionTier;
@@ -2129,6 +2172,7 @@ function from_candid_record_n39(_uploadFile: (file: ExternalBlob) => Promise<Uin
     creditsTotal: bigint;
     oisyWalletAddress?: string;
     emailAlerts: Array<AlertType>;
+    emailVerified: boolean;
     maxSlots: bigint;
     createdAt: Timestamp;
     subscriptionTier: SubscriptionTier;
@@ -2144,6 +2188,7 @@ function from_candid_record_n39(_uploadFile: (file: ExternalBlob) => Promise<Uin
         creditsTotal: value.creditsTotal,
         oisyWalletAddress: record_opt_to_undefined(from_candid_opt_n13(_uploadFile, _downloadFile, value.oisyWalletAddress)),
         emailAlerts: from_candid_vec_n40(_uploadFile, _downloadFile, value.emailAlerts),
+        emailVerified: value.emailVerified,
         maxSlots: value.maxSlots,
         createdAt: value.createdAt,
         subscriptionTier: from_candid_SubscriptionTier_n14(_uploadFile, _downloadFile, value.subscriptionTier),
@@ -2728,6 +2773,7 @@ function to_candid_record_n86(_uploadFile: (file: ExternalBlob) => Promise<Uint8
     creditsTotal: bigint;
     oisyWalletAddress?: string;
     emailAlerts: Array<AlertType>;
+    emailVerified: boolean;
     maxSlots: bigint;
     createdAt: Timestamp;
     subscriptionTier: SubscriptionTier;
@@ -2742,6 +2788,7 @@ function to_candid_record_n86(_uploadFile: (file: ExternalBlob) => Promise<Uint8
     creditsTotal: bigint;
     oisyWalletAddress: [] | [string];
     emailAlerts: Array<_AlertType>;
+    emailVerified: boolean;
     maxSlots: bigint;
     createdAt: _Timestamp;
     subscriptionTier: _SubscriptionTier;
@@ -2757,6 +2804,7 @@ function to_candid_record_n86(_uploadFile: (file: ExternalBlob) => Promise<Uint8
         creditsTotal: value.creditsTotal,
         oisyWalletAddress: value.oisyWalletAddress ? candid_some(value.oisyWalletAddress) : candid_none(),
         emailAlerts: to_candid_vec_n87(_uploadFile, _downloadFile, value.emailAlerts),
+        emailVerified: value.emailVerified,
         maxSlots: value.maxSlots,
         createdAt: value.createdAt,
         subscriptionTier: to_candid_SubscriptionTier_n90(_uploadFile, _downloadFile, value.subscriptionTier),

@@ -8,6 +8,7 @@ import {
   useClaimedNfts,
   useHealthMetrics,
   useMetricsCanisterId,
+  useNftClaimBreakdown,
   useStorageUsage,
   useTotalClaims,
   useTotalCollections,
@@ -18,6 +19,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   BarChart3,
   Box,
   Boxes,
@@ -27,10 +31,12 @@ import {
   Database,
   HardDrive,
   Layers,
+  ListTree,
   RefreshCw,
   Shield,
   Users,
 } from "lucide-react";
+import { useMemo, useState } from "react";
 
 interface MetricCardProps {
   icon: React.ReactNode;
@@ -100,6 +106,260 @@ function formatTimestamp(ts: bigint | undefined): string {
   return new Date(ms).toLocaleString();
 }
 
+type BreakdownSortKey = "claimedCount" | "supplyLimit" | "remaining";
+type SortDirection = "asc" | "desc";
+
+interface SortConfig {
+  key: BreakdownSortKey;
+  direction: SortDirection;
+}
+
+function BreakdownSkeleton() {
+  return (
+    <div className="space-y-2">
+      {[
+        "breakdown-skeleton-1",
+        "breakdown-skeleton-2",
+        "breakdown-skeleton-3",
+        "breakdown-skeleton-4",
+      ].map((id) => (
+        <div
+          key={id}
+          className="flex items-center gap-3 bg-card border border-border rounded-lg p-3"
+        >
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-4 w-12 ml-auto" />
+          <Skeleton className="h-4 w-12" />
+          <Skeleton className="h-4 w-12" />
+          <Skeleton className="h-2 w-24" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BreakdownRow({
+  entry,
+  index,
+}: {
+  entry: {
+    nftId: bigint;
+    title: string;
+    claimedCount: bigint;
+    supplyLimit: bigint;
+  };
+  index: number;
+}) {
+  const claimed = Number(entry.claimedCount);
+  const supply = Number(entry.supplyLimit);
+  const remaining = supply - claimed;
+  const pct =
+    supply > 0 ? Math.min(100, Math.round((claimed / supply) * 100)) : 0;
+
+  return (
+    <tr
+      className="border-b border-border last:border-b-0 hover:bg-muted/40 transition-smooth"
+      data-ocid={`health.breakdown.row.${index}`}
+    >
+      <td className="px-3 py-2.5 text-sm text-foreground font-medium min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="truncate">{entry.title || "Untitled"}</span>
+          <Badge
+            variant="outline"
+            className="text-[10px] shrink-0 font-mono"
+            data-ocid={`health.breakdown.id_badge.${index}`}
+          >
+            #{entry.nftId.toString()}
+          </Badge>
+        </div>
+      </td>
+      <td
+        className="px-3 py-2.5 text-sm text-foreground text-right tabular-nums"
+        data-ocid={`health.breakdown.claimed.${index}`}
+      >
+        {formatNumber(entry.claimedCount)}
+      </td>
+      <td
+        className="px-3 py-2.5 text-sm text-foreground text-right tabular-nums"
+        data-ocid={`health.breakdown.supply.${index}`}
+      >
+        {formatNumber(entry.supplyLimit)}
+      </td>
+      <td
+        className="px-3 py-2.5 text-sm text-foreground text-right tabular-nums"
+        data-ocid={`health.breakdown.remaining.${index}`}
+      >
+        {formatNumber(BigInt(remaining))}
+      </td>
+      <td className="px-3 py-2.5 w-40">
+        <div className="flex items-center gap-2">
+          <div
+            className="h-2 flex-1 rounded-full bg-muted overflow-hidden"
+            data-ocid={`health.breakdown.progress.${index}`}
+          >
+            <div
+              className="h-full bg-primary rounded-full transition-smooth"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <span className="text-[10px] text-muted-foreground tabular-nums w-8 text-right">
+            {pct}%
+          </span>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function PerNftClaimBreakdown({
+  breakdown,
+}: {
+  breakdown: ReturnType<typeof useNftClaimBreakdown>;
+}) {
+  const [sort, setSort] = useState<SortConfig>({
+    key: "claimedCount",
+    direction: "desc",
+  });
+
+  const sorted = useMemo(() => {
+    const data = breakdown.data ?? [];
+    const factor = sort.direction === "desc" ? -1 : 1;
+    return [...data].sort((a, b) => {
+      let av: number;
+      let bv: number;
+      if (sort.key === "remaining") {
+        av = Number(a.supplyLimit) - Number(a.claimedCount);
+        bv = Number(b.supplyLimit) - Number(b.claimedCount);
+      } else {
+        av = Number(a[sort.key]);
+        bv = Number(b[sort.key]);
+      }
+      if (av < bv) return -1 * factor;
+      if (av > bv) return 1 * factor;
+      return 0;
+    });
+  }, [breakdown.data, sort]);
+
+  function toggleSort(key: BreakdownSortKey) {
+    setSort((prev) => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === "desc" ? "asc" : "desc" };
+      }
+      return { key, direction: "desc" };
+    });
+  }
+
+  function SortIcon({ column }: { column: BreakdownSortKey }) {
+    if (sort.key !== column) {
+      return <ArrowUpDown className="w-3 h-3 text-muted-foreground/60" />;
+    }
+    return sort.direction === "desc" ? (
+      <ArrowDown className="w-3 h-3 text-primary" />
+    ) : (
+      <ArrowUp className="w-3 h-3 text-primary" />
+    );
+  }
+
+  const headerCell = (
+    key: BreakdownSortKey,
+    label: string,
+    align: "left" | "right",
+  ) => (
+    <th
+      scope="col"
+      className={`px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground ${
+        align === "right" ? "text-right" : "text-left"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => toggleSort(key)}
+        className={`inline-flex items-center gap-1 hover:text-foreground transition-smooth ${
+          align === "right" ? "ml-auto" : ""
+        }`}
+        data-ocid={`health.breakdown.sort.${key}`}
+      >
+        <span>{label}</span>
+        <SortIcon column={key} />
+      </button>
+    </th>
+  );
+
+  return (
+    <div
+      className="bg-card border border-border rounded-xl overflow-hidden"
+      data-ocid="health.breakdown.section"
+    >
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+        <ListTree className="w-4 h-4 text-primary" />
+        <h3 className="text-sm font-semibold text-foreground">
+          Per-NFT Claim Breakdown
+        </h3>
+        <Badge
+          variant="outline"
+          className="text-[10px] ml-auto"
+          data-ocid="health.breakdown.count_badge"
+        >
+          {formatNumber(BigInt(breakdown.data?.length ?? 0))} NFTs
+        </Badge>
+      </div>
+
+      {breakdown.isLoading ? (
+        <div className="p-4" data-ocid="health.breakdown.loading_state">
+          <BreakdownSkeleton />
+        </div>
+      ) : !breakdown.data || breakdown.data.length === 0 ? (
+        <div
+          className="flex flex-col items-center justify-center py-10 gap-2"
+          data-ocid="health.breakdown.empty_state"
+        >
+          <Box className="w-8 h-8 text-muted-foreground/50" />
+          <p className="text-sm font-medium text-foreground">
+            No NFTs with claim tokens yet
+          </p>
+          <p className="text-xs text-muted-foreground text-center max-w-xs">
+            Per-NFT claim counts will appear here once NFTs have claim tokens
+            configured.
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-muted/30">
+              <tr>
+                <th
+                  scope="col"
+                  className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-left"
+                >
+                  Title
+                </th>
+                {headerCell("claimedCount", "Claimed", "right")}
+                {headerCell("supplyLimit", "Supply", "right")}
+                {headerCell("remaining", "Remaining", "right")}
+                <th
+                  scope="col"
+                  className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-left"
+                >
+                  Progress
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((entry, i) => (
+                <BreakdownRow
+                  key={entry.nftId.toString()}
+                  entry={entry}
+                  index={i}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function HealthTab() {
   const queryClient = useQueryClient();
 
@@ -114,6 +374,7 @@ export default function HealthTab() {
   const canisterId = useMetricsCanisterId(true);
   const backendBuildTimestamp = useBackendBuildTimestamp(true);
   const storageUsage = useStorageUsage(true);
+  const breakdown = useNftClaimBreakdown(true);
 
   const isLoading =
     health.isLoading ||
@@ -153,6 +414,7 @@ export default function HealthTab() {
     queryClient.invalidateQueries({ queryKey: ["metricsCanisterId"] });
     queryClient.invalidateQueries({ queryKey: ["backendBuildTimestamp"] });
     queryClient.invalidateQueries({ queryKey: ["storageUsage"] });
+    queryClient.invalidateQueries({ queryKey: ["nft-claim-breakdown"] });
   }
 
   if (isError) {
@@ -302,6 +564,9 @@ export default function HealthTab() {
       <p className="text-[10px] text-muted-foreground text-center">
         Metrics are cached for 30 seconds. Click Refresh for the latest data.
       </p>
+
+      {/* Per-NFT Claim Breakdown */}
+      <PerNftClaimBreakdown breakdown={breakdown} />
     </div>
   );
 }

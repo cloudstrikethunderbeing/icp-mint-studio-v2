@@ -1,6 +1,7 @@
 import { BottomNav } from "@/components/BottomNav";
 import { Header } from "@/components/Header";
 import { Outlet, useRouterState } from "@tanstack/react-router";
+import { devLog } from "../utils/devLog";
 
 /** Derive which shell we're in from the current pathname. */
 function useShell(): "claim" | "collector" | "studio" {
@@ -20,7 +21,7 @@ function useShell(): "claim" | "collector" | "studio" {
 
 export function Layout() {
   const shell = useShell();
-  console.log("[RENDER] Layout render:", { shell });
+  devLog("[RENDER] Layout render:", { shell });
 
   if (shell === "claim") {
     // Claim shell: no nav, no admin banner, minimal chrome

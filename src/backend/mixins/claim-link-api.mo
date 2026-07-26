@@ -10,6 +10,9 @@ import Common "../types/common";
 import Time "mo:core/Time";
 import UserLib "../lib/user";
 import Random "mo:core/Random";
+import Map "mo:core/Map";
+import Nat "mo:core/Nat";
+import Int "mo:core/Int";
 
 mixin (
   nftStore : NftLib.NftStore,
@@ -21,6 +24,15 @@ mixin (
   nextNftId : { var value : Nat },
   selfCanisterId : { var value : Text },
   admins : { var value : [Principal] },
+  // [H3] DEDICATED transient rate-limit store for claimNft, SEPARATE from the
+  // shared rateLimitStore. The NFT mint rate-limiter (mixins/nft-api.mo
+  // checkRateLimit) shares rateLimitStore and resets windowStart/count on
+  // every mint; if claimNft used the same store, an attacker minting a single
+  // NFT between claim attempts would reset the claim window and bypass the
+  // 1-claim-per-60s limit. Transient (rebuilt empty on every restart) —
+  // rate-limit state is not durable and does not need to survive upgrades, so
+  // no migration is required and the actor's stable state shape is unchanged.
+  claimRateLimitStore : Map.Map<Principal, { var lastClaimSec : Int }>,
 ) {
 
   /// Admin-only: generate a shareable claim URL for a specific NFT.
@@ -100,6 +112,29 @@ mixin (
     if (caller.isAnonymous()) {
       return #err("Authentication required to claim an NFT");
     };
+    // [H3] Per-principal rate limit: 1 claim per 60 SECONDS per principal.
+    // Uses the DEDICATED claimRateLimitStore (NOT the shared rateLimitStore)
+    // so the NFT mint limiter's window resets cannot interfere. Compares
+    // elapsed in SECONDS (Time.now() / 1_000_000_000), NOT nanoseconds — the
+    // pre-existing NFT limiter bug compares nanoseconds, which is why this
+    // store is separate.
+    let nowNs : Int = Time.now();
+    let nowSec : Int = nowNs / 1_000_000_000;
+    let claimWindowSec : Int = 60;
+    switch (claimRateLimitStore.get(caller)) {
+      case (null) {
+        let entry = { var lastClaimSec = nowSec };
+        claimRateLimitStore.add(caller, entry);
+      };
+      case (?entry) {
+        let elapsed : Int = nowSec - entry.lastClaimSec;
+        if (elapsed < claimWindowSec) {
+          return #err("Rate limit exceeded: please wait at least 60 seconds between claims");
+        };
+        entry.lastClaimSec := nowSec;
+        claimRateLimitStore.add(caller, entry);
+      };
+    };
     // Validate token exists
     let claimToken = switch (ClaimLib.getToken(claimTokenStore, token)) {
       case (null) { return #err("Invalid or expired claim token") };
@@ -119,16 +154,18 @@ mixin (
       case (#ok(())) {};
     };
     // Atomically: mark token used with incremented count
-    let now = Time.now();
-    let nowNat = Int.abs(now);
+    let nowNat = Int.abs(nowNs);
     let newClaimedCount = claimToken.claimedCount + 1;
-    switch (ClaimLib.useToken(claimTokenStore, claimersStore, token, caller, now, newClaimedCount)) {
+    switch (ClaimLib.useToken(claimTokenStore, claimersStore, token, caller, nowNs, newClaimedCount)) {
       case (#err(msg)) { return #err(msg) };
       case (#ok(_)) {};
     };
-    // Create a NEW NFT copied from the master
+    // [H2] Counter ordering fix: compute newId from nextNftId.value, build the
+    // NFT, and add it to nftStore FIRST. Only bump nextNftId.value AFTER the
+    // add succeeds. If nftStore.add traps, the counter is NOT bumped (the
+    // trap propagates before the bump line). The previous bug bumped
+    // nextNftId.value BEFORE the add, so a failed add would skip an id.
     let newId = nextNftId.value;
-    nextNftId.value += 1;
     let newNftUniqueId = selfCanisterId.value # ":0:" # newId.toText();
     let newAuditEntry : Common.AuditEntry = {
       action = "NFT_CLAIMED";
@@ -140,7 +177,7 @@ mixin (
       masterNft with
       id = newId;
       ownerId = caller;
-      edition = Nat.toText(newClaimedCount) # "/" # Nat.toText(claimToken.supplyLimit);
+      edition = newClaimedCount.toText() # "/" # claimToken.supplyLimit.toText();
       claimedAt = ?nowNat;
       collectionId = null;
       status = #active;
@@ -148,6 +185,8 @@ mixin (
       auditHistory = [newAuditEntry];
     };
     nftStore.add(newId, newNft);
+    // [H2] Bump the counter LAST, after the add succeeded.
+    nextNftId.value += 1;
     // Append to global audit log
     let globalEntry : Common.AuditEntry = {
       action = "NFT_CLAIMED";
@@ -189,5 +228,17 @@ mixin (
         })
       };
     }
+  };
+
+  /// PUBLIC (unauthenticated): per-NFT claim counts for every NFT that has a
+  /// ClaimToken. Returns an array of { nftId, claimedCount, supplyLimit } —
+  /// ONLY those three fields. No token string, usedBy, usedAt, or any Nft
+  /// redacted field (discountCode, membershipId) is exposed. Read-only; does
+  /// not mutate any store. This is the public surface for the Library card
+  /// indicator. Sits alongside getClaimPreview in the public-no-auth query
+  /// list. v251 security redactions preserved — only nftId/claimedCount/
+  /// supplyLimit are surfaced.
+  public query func getNftClaimCounts() : async [ClaimTypes.NftClaimCount] {
+    ClaimLib.getNftClaimCounts(claimTokenStore)
   };
 }

@@ -7,6 +7,7 @@ import Int "mo:core/Int";
 import NftLib "../lib/nft";
 import UserLib "../lib/user";
 import ClaimLib "../lib/claim-link";
+import ClaimTypes "../types/claim-link";
 import MetricsLib "../lib/metrics";
 import Types "../types/metrics";
 import PaymentProofLib "../lib/payment-proof";
@@ -123,5 +124,20 @@ mixin (
       paymentProofStore, globalAuditLog,
       selfCanisterId, backendBuildTimestamp.value,
     )
+  };
+
+  /// ADMIN-ONLY: per-NFT claim breakdown joined with the Nft store to include
+  /// the title for the Health tab breakdown table. Returns an array of
+  /// { nftId, title, claimedCount, supplyLimit } for every published NFT that
+  /// has a ClaimToken. Exposes ONLY those four fields — no discountCode,
+  /// membershipId, or other redacted fields. Rejects anonymous and non-admin
+  /// callers (returns [] for non-admins, consistent with the other admin-only
+  /// metrics queries in this mixin). Read-only; does not mutate any store.
+  /// Existing getClaimStatus remains admin-only and unchanged.
+  public query ({ caller }) func getNftClaimBreakdown() : async [ClaimTypes.NftClaimBreakdownEntry] {
+    if (not Auth.isAdmin(caller, admins.value)) {
+      return [];
+    };
+    ClaimLib.getNftClaimBreakdown(nftStore, claimTokenStore)
   };
 }

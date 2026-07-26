@@ -12,6 +12,7 @@ import { Loader2 } from "lucide-react";
 import { ThemeProvider } from "next-themes";
 import { Suspense, lazy } from "react";
 import { Toaster } from "sonner";
+import { devLog } from "./utils/devLog";
 
 const ClaimPage = lazy(() => import("@/pages/ClaimPage"));
 
@@ -89,7 +90,7 @@ declare module "@tanstack/react-router" {
 }
 
 export default function App() {
-  console.log("[RENDER] App render:", {});
+  devLog("[RENDER] App render:", {});
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <Toaster />

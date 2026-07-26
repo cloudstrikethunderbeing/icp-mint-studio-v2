@@ -109,6 +109,17 @@ export interface Nft {
   'membershipId' : [] | [string],
   'nftUniqueId' : string,
 }
+export interface NftClaimBreakdownEntry {
+  'supplyLimit' : bigint,
+  'title' : string,
+  'nftId' : bigint,
+  'claimedCount' : bigint,
+}
+export interface NftClaimCount {
+  'supplyLimit' : bigint,
+  'nftId' : bigint,
+  'claimedCount' : bigint,
+}
 export type NftStatus = { 'deleted' : null } |
   { 'active' : null } |
   { 'burned' : null };
@@ -184,6 +195,7 @@ export interface UserProfile {
   'creditsTotal' : bigint,
   'oisyWalletAddress' : [] | [string],
   'emailAlerts' : Array<AlertType>,
+  'emailVerified' : boolean,
   'maxSlots' : bigint,
   'createdAt' : Timestamp,
   'subscriptionTier' : SubscriptionTier,
@@ -329,6 +341,8 @@ export interface _SERVICE {
   'getMetricsCanisterId' : ActorMethod<[], string>,
   'getMyPaymentProofs' : ActorMethod<[], Array<PaymentProof>>,
   'getNft' : ActorMethod<[bigint], [] | [Nft]>,
+  'getNftClaimBreakdown' : ActorMethod<[], Array<NftClaimBreakdownEntry>>,
+  'getNftClaimCounts' : ActorMethod<[], Array<NftClaimCount>>,
   'getSlotsStatus' : ActorMethod<
     [],
     { 'total' : bigint, 'used' : bigint, 'remaining' : bigint }

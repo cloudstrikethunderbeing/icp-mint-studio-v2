@@ -1,4 +1,4 @@
-import type { CollectionWithCount, Nft } from "@/backend";
+import type { CollectionWithCount, Nft, NftClaimCount } from "@/backend";
 import { NftDetailModal } from "@/components/NftDetailModal";
 import {
   AlertDialog,
@@ -59,8 +59,10 @@ import {
   useDeleteNft,
   useMyActiveNfts,
   useMyNfts,
+  useNftClaimCounts,
   useRemoveNftFromCollection,
 } from "../hooks/useQueries";
+import { devLog } from "../utils/devLog";
 
 function resolveImageUrl(hashOrUrl: string | undefined): string {
   if (!hashOrUrl) return "";
@@ -80,6 +82,10 @@ interface NftCardProps {
   onAddToCollection?: (nftId: bigint, collectionId: bigint) => Promise<void>;
   collections: CollectionWithCount[];
   callerPrincipal: string;
+  // Public claim-count entry for this NFT, looked up from useNftClaimCounts.
+  // Undefined when no claim token exists for this NFT — in that case no
+  // claim-count badge is rendered (no zero-state clutter).
+  claimCount?: NftClaimCount;
 }
 
 type CardConfirmState =
@@ -99,6 +105,7 @@ function NftCard({
   onAddToCollection,
   collections,
   callerPrincipal,
+  claimCount,
 }: NftCardProps) {
   const imageUrl = nft.imageBlob?.getDirectURL() ?? "";
   const [confirm, setConfirm] = useState<CardConfirmState>({ kind: "none" });
@@ -427,6 +434,20 @@ function NftCard({
         >
           {nft.edition}
         </Badge>
+        {/* Public claim-count indicator — only when a claim token exists for
+            this NFT. Sits just below the edition badge (top-right). Visible to
+            all visitors (anonymous actor serves the public query). Shows only
+            the public count fields (claimedCount / supplyLimit). */}
+        {claimCount && (
+          <Badge
+            variant="secondary"
+            className="absolute top-9 right-2 text-[10px] font-mono"
+            data-ocid={`collector.nft.claim_count_badge.${index + 1}`}
+          >
+            {claimCount.claimedCount.toString()} /{" "}
+            {claimCount.supplyLimit.toString()} claimed
+          </Badge>
+        )}
         {/* Claimed / Created icon badge */}
         <div className="absolute top-2 left-2">
           {nft.claimedAt !== undefined && nft.claimedAt !== null ? (
@@ -490,7 +511,7 @@ function CollectorSkeleton() {
 
 export default function CollectorPage() {
   const { isAuthenticated, principal, authState } = useAuth();
-  console.log("[RENDER] CollectorPage render:", {
+  devLog("[RENDER] CollectorPage render:", {
     isAuthenticated,
     authState,
     principal,
@@ -514,11 +535,32 @@ export default function CollectorPage() {
   const { data: nfts = [], isLoading: nftsLoading } =
     useMyActiveNfts(principal);
   // Full feed (listMyNfts) includes claimed NFTs (claimedAt != null) that the
-  // active feed (listMyActiveNfts) excludes on the backend. The Claimed tab
-  // must source from this feed, not the active feed.
+  // active feed (listMyActiveNfts) excludes on the backend. The 'All' tab
+  // sources from this full feed so it shows every NFT the user owns (minted +
+  // claimed). The 'Created' and 'Recent' tabs stay on the active feed because
+  // claimed NFTs were not user-created and Recent reflects self-minting.
   const { data: allMyNfts = [] } = useMyNfts();
+  // 'All' tab source: the full feed (useMyNfts) so it shows every owned NFT
+  // (minted + claimed). Kept as a named memo so the 'All' tab, its count, and
+  // its collection-filtered variants all read from the same full-feed source.
+  const allTabNfts = allMyNfts;
   const { data: collections = [], isLoading: collectionsLoading } =
     useCollections();
+
+  // Public claim counts for the Library card indicator. Public query — no
+  // admin gate — so it works for anonymous viewers via the anonymous actor.
+  // Shares the 30-second cache window with other metrics; manual refresh of
+  // the Library re-fetches via the shared ['nft-claim-counts'] query key.
+  const { data: claimCounts = [] } = useNftClaimCounts();
+  // O(1) lookup from nftId (as string) -> NftClaimCount. Built once per
+  // claim-counts fetch so each NftCard can find its count without scanning.
+  const claimCountByNftId = useMemo(() => {
+    const map = new Map<string, NftClaimCount>();
+    for (const entry of claimCounts) {
+      map.set(String(entry.nftId), entry);
+    }
+    return map;
+  }, [claimCounts]);
 
   // Mutations for quick actions on NFT cards
   const deleteNft = useDeleteNft();
@@ -548,9 +590,9 @@ export default function CollectorPage() {
   const TABS = authState === "ready" ? ALL_TABS : FREE_TABS;
 
   // Claimed = NFTs actually claimed via a claim link, signalled by a non-null
-  // claimedAt bigint. Self-minted NFTs (claimedAt null/undefined) are excluded.
-  // Sourced from useMyNfts (listMyNfts) because the active feed excludes
-  // claimed NFTs on the backend.
+  // claimedAt bigint. Sourced from useMyNfts (listMyNfts) — the same full feed
+  // that powers the 'All' tab — and filtered to claimedAt != null. The 'All'
+  // tab shows the unfiltered full feed; this tab shows its claimed subset.
   const claimedNfts = useMemo(
     () => allMyNfts.filter((nft) => nft.claimedAt != null),
     [allMyNfts],
@@ -559,7 +601,7 @@ export default function CollectorPage() {
   function getTabCount(key: TabKey): number {
     switch (key) {
       case "all":
-        return nfts.length;
+        return allTabNfts.length;
       case "collections":
         return collections.length;
       case "claimed":
@@ -573,45 +615,50 @@ export default function CollectorPage() {
     }
   }
 
-  const collectionFilteredNfts = useMemo(() => {
-    if (selectedCollectionId === null) return nfts;
-    if (selectedCollectionId === "claimed") return claimedNfts;
-    return nfts.filter(
-      (nft) =>
-        nft.collectionId !== undefined &&
-        nft.collectionId !== null &&
-        nft.collectionId === selectedCollectionId,
-    );
-  }, [selectedCollectionId, nfts, claimedNfts]);
-
   const filteredNfts = useMemo(() => {
-    let base = collectionFilteredNfts;
     switch (activeTab) {
       case "all":
-        break;
+        // 'All' tab sources from the full feed (useMyNfts) so it shows every
+        // owned NFT (minted + claimed) across all collection-filter states.
+        if (selectedCollectionId === null) return allTabNfts;
+        if (selectedCollectionId === "claimed") return claimedNfts;
+        return allTabNfts.filter(
+          (nft) =>
+            nft.collectionId !== undefined &&
+            nft.collectionId !== null &&
+            nft.collectionId === selectedCollectionId,
+        );
       case "claimed":
         // Claimed tab renders NFTs actually claimed via a claim link
         // (claimedAt != null), sourced from the full feed (useMyNfts).
-        // When a collection filter is active, collectionFilteredNfts already
-        // returns the correct claimed slice; otherwise use claimedNfts.
-        base = selectedCollectionId === null ? claimedNfts : base;
-        break;
+        // When a collection filter is active, filter claimedNfts by that
+        // collection; otherwise use the unfiltered claimed slice.
+        if (selectedCollectionId === null) return claimedNfts;
+        if (selectedCollectionId === "claimed") return claimedNfts;
+        return claimedNfts.filter(
+          (nft) =>
+            nft.collectionId !== undefined &&
+            nft.collectionId !== null &&
+            nft.collectionId === selectedCollectionId,
+        );
       case "created":
-        base = base.filter((nft) => nft.creatorId === principalText);
-        break;
+        // 'Created' stays on the ACTIVE feed (useMyActiveNfts). Claimed NFTs
+        // were not created by the user, so they must not appear here.
+        return nfts.filter((nft) => nft.creatorId === principalText);
       case "recent":
-        base = [...base].sort(
+        // 'Recent' stays on the ACTIVE feed (useMyActiveNfts), sorted by
+        // mintDate desc. Recent reflects self-minting activity, not claims.
+        return [...nfts].sort(
           (a, b) => Number(b.mintDate) - Number(a.mintDate),
         );
-        break;
       default:
-        break;
+        return nfts;
     }
-    return base;
   }, [
     activeTab,
-    collectionFilteredNfts,
+    allTabNfts,
     claimedNfts,
+    nfts,
     selectedCollectionId,
     principalText,
   ]);
@@ -631,7 +678,7 @@ export default function CollectorPage() {
   const tabCount = useMemo(() => {
     switch (activeTab) {
       case "all":
-        return nfts.length;
+        return allTabNfts.length;
       case "claimed":
         return claimedNfts.length;
       case "created":
@@ -643,7 +690,7 @@ export default function CollectorPage() {
       default:
         return 0;
     }
-  }, [activeTab, nfts, collections, principalText, claimedNfts]);
+  }, [activeTab, nfts, collections, principalText, claimedNfts, allTabNfts]);
 
   if (!isAuthenticated) {
     return (
@@ -694,7 +741,7 @@ export default function CollectorPage() {
         data-ocid="collector.stats_line"
       >
         <span>
-          {nfts.length} NFT{nfts.length !== 1 ? "s" : ""}
+          {allTabNfts.length} NFT{allTabNfts.length !== 1 ? "s" : ""}
         </span>
         <span>·</span>
         <span>
@@ -939,6 +986,7 @@ export default function CollectorPage() {
                 }
                 collections={collections}
                 callerPrincipal={principalText}
+                claimCount={claimCountByNftId.get(String(nft.id))}
               />
             ))}
           </div>

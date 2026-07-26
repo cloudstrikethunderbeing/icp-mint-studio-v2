@@ -4,6 +4,7 @@ import type { AppNotification, NotificationType } from "@/types";
 import { useNavigate } from "@tanstack/react-router";
 import { AlertTriangle, Bell, BellOff, Info, XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { devLog } from "../utils/devLog";
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
@@ -91,7 +92,7 @@ function NotificationItem({
 
 export function NotificationBell() {
   const { principal } = useAuth();
-  console.log("[RENDER] NotificationBell render:", { principal });
+  devLog("[RENDER] NotificationBell render:", { principal });
   const { notifications, unreadCount, markAllRead, clearAll } =
     useNotifications(principal);
   const [open, setOpen] = useState(false);

@@ -4,6 +4,7 @@ import { StrictMode, useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { devError, devLog } from "./utils/devLog";
 
 // [RECON] Reconciliation event name — dispatched by AuthContext when the
 // wrapper's live post-login path fails (loginStatus === 'loginError' after a
@@ -36,8 +37,8 @@ const queryClient = new QueryClient({
 
 // TEMP LOG: verify which canister the frontend is wired to at boot
 import { CANISTERS, initCanisters } from "@/config/canisters";
-console.log("[MAIN] CANISTERS.backend:", CANISTERS.backend);
-console.log("[MAIN] CANISTERS.frontend:", CANISTERS.frontend);
+devLog("[MAIN] CANISTERS.backend:", CANISTERS.backend);
+devLog("[MAIN] CANISTERS.frontend:", CANISTERS.frontend);
 
 // [RECON] Root owns the providerKey state and the reconciliation event
 // listener. AuthContext (which lives INSIDE <InternetIdentityProvider>) cannot
@@ -51,9 +52,7 @@ function Root() {
 
   useEffect(() => {
     const handler = () => {
-      console.log(
-        "[RECON] reconcile-login event received; bumping providerKey",
-      );
+      devLog("[RECON] reconcile-login event received; bumping providerKey");
       setProviderKey((k) => k + 1);
     };
     window.addEventListener(RECONCILE_LOGIN_EVENT, handler);
@@ -81,14 +80,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 // log the resolved id here for boot diagnostics.
 initCanisters()
   .then(() => {
-    console.log(
+    devLog(
       "[BOOT] backend canister id (runtime /env.json):",
       CANISTERS.backend,
     );
   })
   .catch((e) => {
-    console.error(
-      "[BOOT] Failed to resolve backend canister id from /env.json:",
-      e,
-    );
+    devError("[BOOT] Failed to resolve backend canister id from /env.json:", e);
   });

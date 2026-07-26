@@ -1,20 +1,18 @@
 {
-  "overview": "ICP Mint Studio is an NFT minting and distribution platform on the Internet Computer with collections, claim links, and subscription tiers.",
+  "overview": "ICP Mint Studio with per-NFT claim-count visibility in the admin Health tab and public Library cards.",
   "features": [
-    "Mint and manage NFTs",
-    "Create and manage collections",
-    "Generate claim links for NFT distribution",
-    "Subscription tier management",
-    "Notification bell with full activity history",
-    "Admin dashboard with health metrics"
+    "Per-NFT claim-count breakdown in admin Health tab",
+    "Public claim-count indicator on Library NFT cards",
+    "Public read-only claim-count backend query",
+    "Admin batch claim-count backend query"
   ],
-  "category": "nft-platform",
+  "category": "productivity",
   "tags": [
     "nft",
-    "internet-computer",
-    "minting",
-    "collections",
-    "notifications"
+    "claims",
+    "admin",
+    "library",
+    "icp"
   ],
-  "last_updated": "2026-06-24T07:21:59.262Z"
+  "last_updated": "2026-07-26T03:21:54.161Z"
 }

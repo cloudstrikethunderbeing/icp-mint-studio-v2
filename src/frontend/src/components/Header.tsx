@@ -1,8 +1,8 @@
 import { useAuth } from "@/contexts/AuthContext";
+import { devLog } from "@/utils/devLog";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Diamond, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect } from "react";
 import { NotificationBell } from "./NotificationBell";
 
 interface HeaderProps {
@@ -12,33 +12,13 @@ interface HeaderProps {
 
 export function Header({ hideNav = false }: HeaderProps) {
   const { isAuthenticated, login, logout } = useAuth();
-  console.log("[RENDER] Header render:", { isAuthenticated });
+  devLog("[RENDER] Header render:", { isAuthenticated });
   const { resolvedTheme, setTheme } = useTheme();
   const navigate = useNavigate();
   const routerState = useRouterState();
 
-  // TEMP DIAGNOSTIC: observe auth button textContent changes for one test run.
-  useEffect(() => {
-    const node = document.querySelector("[data-ocid='header.auth_button']");
-    if (!node) {
-      console.log("[DOM] header.auth_button node NOT FOUND at observer setup");
-      return;
-    }
-    console.log("[DOM] header.auth_button textContent:", node.textContent);
-    const observer = new MutationObserver(() => {
-      console.log("[DOM] header.auth_button textContent:", node.textContent);
-    });
-    observer.observe(node, {
-      childList: true,
-      characterData: true,
-      subtree: true,
-    });
-    return () => observer.disconnect();
-  }, []);
-
   const handleLogoClick = () => {
     const path = routerState.location.pathname;
-    if (path.startsWith("/claim")) return; // claim shell: no-op
     if (path.startsWith("/collector")) {
       navigate({ to: "/collector" });
     } else {
@@ -90,7 +70,7 @@ export function Header({ hideNav = false }: HeaderProps) {
             <button
               type="button"
               onClick={() => {
-                console.log("[LOGIN] click handler entry:", {
+                devLog("[LOGIN] click handler entry:", {
                   isAuthenticated,
                   willCall: isAuthenticated ? "logout" : "login",
                 });

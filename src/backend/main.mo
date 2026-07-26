@@ -18,6 +18,7 @@ import NftTypes "types/nft";
 import _UserTypes "types/user";
 import NftLib "lib/nft";
 import UserLib "lib/user";
+import StripeLib "lib/stripe";
 
 import NftMixin "mixins/nft-api";
 import UserMixin "mixins/user-api";
@@ -67,7 +68,14 @@ actor Main {
   // durable state and does not need to survive upgrades, so no migration is
   // required and the actor's stable state shape is unchanged.
   transient let setupAdminRateLimitStore : Map.Map<Principal, {var count : Nat; var windowStart : Nat}> = Map.empty();
-  let stripeConfigStore : { var secretKey : ?Text; var publicKey : ?Text };
+  // [C1] Stripe config store: holds ONLY mode + publishableKey. The raw Stripe
+  // secret key is NEVER stored on-chain (see lib/stripe.mo). The old shape
+  // { var secretKey : ?Text; var publicKey : ?Text } is replaced by
+  // StripeLib.StripeConfigStore = { var mode : ?Text; var publishableKey : ?Text }.
+  // The migration (20260726_030000.mo) maps old publicKey → publishableKey,
+  // derives mode from the old secretKey prefix, and DISCARDS the old secretKey
+  // (never carried forward — secrets must not persist across upgrades).
+  let stripeConfigStore : StripeLib.StripeConfigStore;
   let verifiedEmails : { verifiedEmails : _Set.Set<Text> };
   let lastMintTime : { var value : Int };
   let mintCount : { var value : Nat };
@@ -87,6 +95,18 @@ actor Main {
   let claimersStore : ClaimLinkLib.ClaimersStore;
   let backendBuildTimestamp : { var value : Nat };
   let nftToClaimToken : ClaimLinkLib.NftToClaimStore;
+  // [H3] DEDICATED transient rate-limit store for claimNft, SEPARATE from the
+  // shared rateLimitStore (the NFT mint limiter shares rateLimitStore and
+  // resets windowStart/count on every mint; sharing would let an attacker
+  // reset the claim window by minting). Transient (rebuilt empty on every
+  // restart) — rate-limit state is not durable, so no migration is required
+  // and the actor's stable state shape is unchanged.
+  transient let claimRateLimitStore : Map.Map<Principal, { var lastClaimSec : Int }> = Map.empty();
+  // [H4] DEDICATED transient rate-limit store for submitPaymentProof, same
+  // rationale as claimRateLimitStore — keeps the payment-proof submission
+  // window isolated from the NFT mint limiter's resets. Transient; no
+  // migration required.
+  transient let paymentProofRateLimitStore : Map.Map<Principal, { var lastSubmitSec : Int }> = Map.empty();
 
   // adminPrincipals is a mutable record wrapper so mixins (which capture the
   // record by reference) always read the current array via .value. This matches
@@ -190,7 +210,7 @@ actor Main {
     };
   };
 
-  include ClaimLinkMixin(nftStore, claimTokenStore, claimersStore, nftToClaimToken, globalAuditLog, userStore, nextNftId, selfCanisterId, adminPrincipals);
+  include ClaimLinkMixin(nftStore, claimTokenStore, claimersStore, nftToClaimToken, globalAuditLog, userStore, nextNftId, selfCanisterId, adminPrincipals, claimRateLimitStore);
 
   include MixinObjectStorage();
 
@@ -224,8 +244,15 @@ actor Main {
         .payload("collectionId", func((_, n)) = switch (n.collectionId) { case (?v) v; case null 0 })
         .payload("businessName", func((_, n)) = switch (n.businessName) { case (?v) v; case null "" })
         .payload("website", func((_, n)) = switch (n.website) { case (?v) v; case null "" })
-        .payload("discountCode", func((_, n)) = switch (n.discountCode) { case (?v) v; case null "" })
-        .payload("membershipId", func((_, n)) = switch (n.membershipId) { case (?v) v; case null "" })
+        // [OQL-LOCKDOWN] discountCode and membershipId are deliberately NOT
+        // exposed via OQL. They are sensitive bearer-style fields (discount
+        // codes are redeemable value; membershipId links an NFT to a paid
+        // membership) and must never be queryable through any path — not
+        // public, not controllerOnly, not scoped. The Nft record still
+        // stores them for verifyNftPublic()'s admin-gated VerifyResult, but
+        // OQL projection omits them entirely so schema() and execute()
+        // cannot surface them to any caller. This is the C2 fix: no OQL
+        // entity exposes a secret field.
         .payload("rewardTier", func((_, n)) : Text = switch (n.rewardTier) { case (#none) "none"; case (#bronze) "bronze"; case (#silver) "silver"; case (#gold) "gold"; case (#platinum) "platinum" })
         .payload("nftUniqueId", func((_, n)) = n.nftUniqueId)
         .payload("tagsCount", func((_, n)) = n.tags.size())
@@ -316,7 +343,7 @@ actor Main {
 
   include NftMixin(nftStore, collectionStore, nextNftId, nextCollectionId, rateLimitStore, userStore, selfCanisterId, creatorIndex, claimTokenStore, nftToClaimToken, adminPrincipals);
   include UserMixin(userStore, nftStore, globalAuditLog, selfCanisterId, adminPrincipals);
-  include PaymentProofMixin(paymentProofStore, userStore, globalAuditLog, adminPrincipals);
+  include PaymentProofMixin(paymentProofStore, userStore, globalAuditLog, adminPrincipals, paymentProofRateLimitStore);
   include StripeMixin(stripeConfigStore, globalAuditLog, adminPrincipals);
   include CollectionMixin(collectionStore, nftStore);
   include MetricsMixin(nftStore, collectionStore, userStore, rateLimitStore, claimTokenStore, nftToClaimToken, creatorIndex, paymentProofStore, globalAuditLog, selfCanisterId, backendBuildTimestamp, adminPrincipals);

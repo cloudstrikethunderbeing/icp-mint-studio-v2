@@ -8,11 +8,13 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { createAuthenticatedActor } from "../backendSingleton";
 import { RECONCILE_LOGIN_EVENT } from "../main";
+import { devError, devLog, devWarn } from "../utils/devLog";
 
 interface AuthContextValue {
   authState: "loading" | "ready" | "unauthenticated";
@@ -70,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // [LOGIN] Provider-mount observer — confirms the AuthProvider is alive
   // when login is attempted. Mount-only (empty dep array).
   useEffect(() => {
-    console.log("[LOGIN] AuthProvider mounted");
+    devLog("[LOGIN] AuthProvider mounted");
   }, []);
 
   // [LOGIN] Identity-value observer — runs on every change of identity,
@@ -88,13 +90,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const principalText =
       identity != null ? identity.getPrincipal().toText() : "null";
     const isAnon = !principalText || principalText === "2vxsx-fae";
-    console.log("[LOGIN] identity value changed:", {
+    devLog("[LOGIN] identity value changed:", {
       identityIsNull,
       principalText,
       isAnonymous: isAnon,
       iiIsAuthenticated,
     });
-    console.log("[LOGIN] loginStatus transition:", {
+    devLog("[LOGIN] loginStatus transition:", {
       loginStatus,
       isLoginSuccess,
       iiIsAuthenticated,
@@ -122,7 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loginAttemptedRef.current &&
       (identityIsNull || isAnon)
     ) {
-      console.log(
+      devLog(
         "[RECON] loginError after login attempt with no published identity; dispatching reconcile event",
         {
           loginStatus,
@@ -136,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else if (isLoginError && !loginAttemptedRef.current) {
       // Defensive: a loginError with no prior login attempt (e.g. stale
       // state on mount) must NOT trigger reconciliation. Log only.
-      console.log(
+      devLog(
         "[RECON] loginError observed but loginAttemptedRef is false; not reconciling",
         { loginStatus, identityIsNull, isAnon, principalText },
       );
@@ -225,7 +227,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const isAnon = !pText || pText === "2vxsx-fae";
     const isAuthed = iiIsAuthenticated && !isAnon;
 
-    console.log("[AUTH] identity effect run:", {
+    devLog("[AUTH] identity effect run:", {
       hasIdentity,
       iiIsAuthenticated,
       principalText: pText,
@@ -238,7 +240,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Unauthenticated states: clear everything and reset tracking refs so
     // the next login re-initializes from scratch.
     if (!identity || !isAuthed) {
-      console.log("[AUTH] unauthenticated (no identity or anonymous)");
+      devLog("[AUTH] unauthenticated (no identity or anonymous)");
       setActor(null);
       setAuthState("unauthenticated");
       setIsAdmin(false);
@@ -255,7 +257,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const principalText = p.toText();
 
     if (p.isAnonymous() || principalText === "2vxsx-fae") {
-      console.log("[AUTH] anonymous identity, unauthenticated");
+      devLog("[AUTH] anonymous identity, unauthenticated");
       setActor(null);
       setAuthState("unauthenticated");
       setIsAdmin(false);
@@ -282,7 +284,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // the fix for failure modes (a) and (c): a cancelled admin fetch must
       // be retried, not silently dropped.
       if (adminResolvedForRef.current !== principalText && actorRef.current) {
-        console.log(
+        devLog(
           "[AUTH] re-launching cancelled admin resolution for principal:",
           principalText,
         );
@@ -296,12 +298,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         (async () => {
           try {
             const adminResult = await reActor.isAdmin();
-            console.log(
+            devLog(
               "[AUTH] re-check calling hasRealAdmin() for principal:",
               principalText,
             );
             const realAdminResult = await reActor.hasRealAdmin();
-            console.log(
+            devLog(
               "[AUTH] hasRealAdmin() re-check result:",
               realAdminResult,
               "principal:",
@@ -318,7 +320,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setHasRealAdminLoading(false);
             }
           } catch (err) {
-            console.error("[AUTH] admin re-check error:", err);
+            devError("[AUTH] admin re-check error:", err);
             if (
               adminResolvedForRef.current !== principalText &&
               lastReadyPrincipalRef.current === principalText
@@ -333,11 +335,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         })();
         // No cleanup — the IIFE is self-guarding.
       }
-      console.log(
-        "[AUTH] already ready for principal:",
-        principalText,
-        "skipping",
-      );
+      devLog("[AUTH] already ready for principal:", principalText, "skipping");
       // Only short-circuit when authState is ALREADY "ready" for this
       // principal. If authState is not yet "ready" (the post-login case
       // where the same principal text appears but the identity just
@@ -360,7 +358,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // (rapid re-render with same identity ref), do not launch a second
     // IIFE — its cleanup would cancel the first and leave authState stuck.
     if (pendingPrincipalRef.current === principalText) {
-      console.log(
+      devLog(
         "[AUTH] initialization already in flight for principal:",
         principalText,
         "skipping duplicate",
@@ -368,7 +366,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    console.log("[AUTH] initializing actor for principal:", principalText);
+    devLog("[AUTH] initializing actor for principal:", principalText);
     pendingPrincipalRef.current = principalText;
     // Set loading at the START so any consumer sees the loading state
     // immediately, before the async admin resolution begins.
@@ -390,7 +388,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         newActor = await createAuthenticatedActor(identity);
       } catch (err) {
         if (cancelled) return;
-        console.error("[AUTH] actor creation failed:", err);
+        devError("[AUTH] actor creation failed:", err);
         setActor(null);
         // Actor creation failure is a hard auth error — surface as
         // unauthenticated so the UI is not stuck on "loading" forever.
@@ -417,26 +415,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthState("ready");
       lastReadyPrincipalRef.current = principalText;
       pendingPrincipalRef.current = null;
-      console.log("[AUTH] authState -> ready for principal:", principalText);
+      devLog("[AUTH] authState -> ready for principal:", principalText);
 
       // Resolve admin status directly from backend, no caching. This runs
       // in the background and only updates isAdmin/isAdminLoading. It does
       // NOT gate authState — that was already set to "ready" above.
       try {
-        console.log("[AUTH] calling isAdmin() for principal:", principalText);
+        devLog("[AUTH] calling isAdmin() for principal:", principalText);
         const adminResult = await newActor.isAdmin();
-        console.log(
+        devLog(
           "[AUTH] isAdmin() result:",
           adminResult,
           "principal:",
           principalText,
         );
-        console.log(
-          "[AUTH] calling hasRealAdmin() for principal:",
-          principalText,
-        );
+        devLog("[AUTH] calling hasRealAdmin() for principal:", principalText);
         const realAdminResult = await newActor.hasRealAdmin();
-        console.log(
+        devLog(
           "[AUTH] hasRealAdmin() result:",
           realAdminResult,
           "principal:",
@@ -457,12 +452,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setHasRealAdminLoading(false);
         }
       } catch (err) {
-        console.error(
-          "[AUTH] admin check error:",
-          err,
-          "principal:",
-          principalText,
-        );
+        devError("[AUTH] admin check error:", err, "principal:", principalText);
         if (
           !cancelled &&
           adminResolvedForRef.current !== principalText &&
@@ -497,12 +487,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     iiIsAuthenticated && !isAnonymous && authState === "ready";
   const principal = isAuthenticated ? principalText : null;
   useEffect(() => {
-    console.log(
-      "[COMMIT] AuthProvider committed isAuthenticated:",
-      isAuthenticated,
-    );
+    devLog("[COMMIT] AuthProvider committed isAuthenticated:", isAuthenticated);
   }, [isAuthenticated]);
-  console.log("[RENDER] AuthProvider render:", {
+  devLog("[RENDER] AuthProvider render:", {
     authState,
     isAdmin,
     actor: !!actor,
@@ -525,8 +512,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(() => {
     // Reset redirect guard so it works after re-login
     redirectCheckedRef.current = false;
-    console.log("[LOGIN] login() invoked");
-    console.log("[LOGIN] calling iiLogin()");
+    devLog("[LOGIN] login() invoked");
+    devLog("[LOGIN] calling iiLogin()");
     // The wrapper's iiLogin() returns void (not a Promise) and exposes NO
     // onSuccess/onError callbacks. It internally awaits authClient.signIn()
     // and updates its own internal state (identity, loginStatus) via
@@ -546,7 +533,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // remount — not a stale mount-time state.
     loginAttemptedRef.current = true;
     iiLogin();
-    console.log(
+    devLog(
       "[LOGIN] iiLogin dispatched (void return); awaiting wrapper state transition",
     );
   }, [iiLogin]);
@@ -554,6 +541,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     try {
       clear();
+      // P10: Clear persisted notifications from localStorage on logout so a
+      // different user (or the same user on a fresh session) does not see
+      // the previous user's notification history. Iterate keys in reverse
+      // so removal during iteration does not skip entries. The key pattern
+      // is icpms_notifications_${principalId} (see useNotifications.ts).
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key?.startsWith("icpms_notifications_")) {
+          localStorage.removeItem(key);
+        }
+      }
       // Reset principal tracking and redirect guard on logout
       lastReadyPrincipalRef.current = null;
       pendingPrincipalRef.current = null;
@@ -575,18 +573,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshAdmin = useCallback(async () => {
     if (!actor) return;
     try {
-      console.log("[AUTH] refreshAdmin() calling isAdmin()");
+      devLog("[AUTH] refreshAdmin() calling isAdmin()");
       const adminResult = await actor.isAdmin();
       setIsAdmin(adminResult);
-      console.log("[AUTH] refreshAdmin() calling hasRealAdmin()");
+      devLog("[AUTH] refreshAdmin() calling hasRealAdmin()");
       const realAdminResult = await actor.hasRealAdmin();
       setHasRealAdmin(realAdminResult);
-      console.log(
-        "[AUTH] refreshAdmin() hasRealAdmin() result:",
-        realAdminResult,
-      );
+      devLog("[AUTH] refreshAdmin() hasRealAdmin() result:", realAdminResult);
     } catch (err) {
-      console.error("[AUTH] refreshAdmin() error:", err);
+      devError("[AUTH] refreshAdmin() error:", err);
       setIsAdmin(false);
       setHasRealAdmin(false);
     }
@@ -604,33 +599,192 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return result;
     } catch (err) {
-      console.error("[AUTH] setupAdmin() error:", err);
+      devError("[AUTH] setupAdmin() error:", err);
       return false;
     }
   }, [actor, refreshAdmin]);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        isAuthenticated,
-        principal,
-        identity: identity ?? null,
-        actor,
-        login,
-        logout,
-        isAdmin,
-        isAdminLoading,
-        hasRealAdmin,
-        hasRealAdminLoading,
-        authState,
-        isFetching: authState === "loading",
-        setupAdmin,
-        refreshAdmin,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  // [RENDER-DEPS] Observation-only instrumentation. Captures the reference
+  // identity of EACH of the 13 useMemo deps on EVERY AuthProvider render,
+  // diffs against the previous render, and logs which fields flipped
+  // reference (memoization-defeating) vs which changed value (legitimate)
+  // vs which stayed stable. Does NOT touch the useMemo, its deps array, or
+  // its value object. Wrap/extend only — observation only.
+  //
+  // Object/function fields use a reference-based identity signature; primitive
+  // fields use the value itself as the identity. This distinguishes
+  // "same value, new reference" (memo bug) from "new value" (legit re-render).
+  const renderDepsCounterRef = useRef(0);
+  const prevDepsRef = useRef<Record<string, unknown> | null>(null);
+  // Compute current dep identities in render order (must run before useMemo).
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- top-level render code, not a hook call
+  const currentDeps: Record<string, unknown> = {
+    isAuthenticated,
+    principal,
+    identity: identity ?? null,
+    actor,
+    login,
+    logout,
+    isAdmin,
+    isAdminLoading,
+    hasRealAdmin,
+    hasRealAdminLoading,
+    authState,
+    setupAdmin,
+    refreshAdmin,
+  };
+  // Primitive fields use value-as-identity; object/function fields use
+  // reference-as-identity. The signature is the value itself for primitives
+  // (so a value change is detectable) and the reference for objects/functions
+  // (so a reference flip is detectable even when the value is structurally
+  // equal). We store the raw reference for object/function fields so the diff
+  // can detect "same value, new reference" via Object.is.
+  const PRIMITIVE_DEP_FIELDS = new Set([
+    "isAuthenticated",
+    "principal",
+    "isAdmin",
+    "isAdminLoading",
+    "hasRealAdmin",
+    "hasRealAdminLoading",
+    "authState",
+  ]);
+  const identityChanged: string[] = [];
+  const valueChanged: string[] = [];
+  const prevDeps = prevDepsRef.current;
+  for (const field of Object.keys(currentDeps)) {
+    const curr = currentDeps[field];
+    if (prevDeps === null) {
+      // First render — no previous to diff against. Treat as stable baseline.
+      continue;
+    }
+    const prev = prevDeps[field];
+    const isPrimitive = PRIMITIVE_DEP_FIELDS.has(field);
+    if (isPrimitive) {
+      // For primitives, identity === value. A change is a legitimate value
+      // change (no separate reference concept).
+      if (!Object.is(prev, curr)) {
+        valueChanged.push(field);
+      }
+    } else {
+      // For object/function fields, detect reference flip (identity change)
+      // AND value change separately. Reference flip with same value === memo
+      // bug; reference flip with different value === legit change.
+      const refChanged = !Object.is(prev, curr);
+      if (refChanged) {
+        identityChanged.push(field);
+        // For functions there is no cheap "value" concept; for the identity
+        // object we compare by principal text. We do not attempt deep value
+        // comparison for object/function fields — a reference flip is the
+        // signal the user asked for. We still surface it under identityChanged
+        // so the user can see "same value, new reference" by correlating with
+        // the [RENDER] marker's value log.
+      }
+    }
+  }
+  prevDepsRef.current = currentDeps;
+  renderDepsCounterRef.current += 1;
+  const renderDepsCount = renderDepsCounterRef.current;
+  const allStable =
+    prevDeps !== null &&
+    identityChanged.length === 0 &&
+    valueChanged.length === 0;
+  // [RENDER-DEPS-ACTOR] Observation-only instrumentation. The single most
+  // important signal for the actor-flicker question: on EVERY AuthProvider
+  // render, log the actor reference identity (a per-reference counter so the
+  // value is greppable and stable across renders) AND whether the actor is
+  // the SAME reference as the previous render. If actor flips reference on
+  // SettingsPage visits, that cascades through refreshAdmin -> setupAdmin and
+  // defeats the useMemo. Wrap/extend only — observation only; does NOT touch
+  // the useMemo, its deps array, or its value object.
+  //
+  // We use a WeakMap keyed by the actor object reference to assign each
+  // distinct actor instance a stable small integer. A null actor is assigned
+  // id 0. This lets the log show "actor #3 (same)" vs "actor #4 (FLIPPED)"
+  // without relying on Object.is alone (which only gives a boolean).
+  const actorInstanceIdMapRef = useRef<WeakMap<object, number>>(new WeakMap());
+  const actorInstanceIdNextRef = useRef(1);
+  const prevActorRefRef = useRef<backendInterface | null>(null);
+  const actorInstanceId =
+    actor == null
+      ? 0
+      : (actorInstanceIdMapRef.current.get(actor) ??
+        (() => {
+          const id = actorInstanceIdNextRef.current;
+          actorInstanceIdNextRef.current += 1;
+          actorInstanceIdMapRef.current.set(actor, id);
+          return id;
+        })());
+  const actorRefChanged = !Object.is(prevActorRefRef.current, actor);
+  prevActorRefRef.current = actor;
+  devLog("[RENDER-DEPS-ACTOR] AuthProvider actor reference:", {
+    render: renderDepsCount,
+    actorInstanceId,
+    actorIsNull: actor == null,
+    refChanged: actorRefChanged, // true = actor reference FLIPPED this render (memo-defeating cascade source)
+    sameAsPrev: !actorRefChanged,
+  });
+
+  devLog("[RENDER-DEPS] AuthProvider useMemo deps diff:", {
+    render: renderDepsCount,
+    identityChanged, // reference flipped (memoization-defeating) — even if value is the same
+    valueChanged, // legitimate value change (primitives only)
+    allStable, // true if all 13 deps stable (no flip, no value change)
+    isFirstRender: prevDeps === null,
+  });
+  // [RENDER-DEPS] A reference flip (identityChanged non-empty) is the bug
+  // signal we care about most — it defeats the useMemo and cascades through
+  // refreshAdmin -> setupAdmin. ALSO emit it as a console.warn (in addition
+  // to the console.log above) so it surfaces even under default console
+  // verbosity filtering. The allStable / valueChanged / first-render cases
+  // keep console.log only. Observation-only — does not touch state or the
+  // useMemo.
+  if (identityChanged.length > 0) {
+    devWarn(
+      "[RENDER-DEPS] AuthProvider identityChanged (reference flip — memo-defeating):",
+      {
+        render: renderDepsCount,
+        identityChanged,
+        actorInstanceId,
+        actorRefChanged,
+      },
+    );
+  }
+
+  const value = useMemo(
+    () => ({
+      isAuthenticated,
+      principal,
+      identity: identity ?? null,
+      actor,
+      login,
+      logout,
+      isAdmin,
+      isAdminLoading,
+      hasRealAdmin,
+      hasRealAdminLoading,
+      authState,
+      isFetching: authState === "loading",
+      setupAdmin,
+      refreshAdmin,
+    }),
+    [
+      isAuthenticated,
+      principal,
+      identity,
+      actor,
+      login,
+      logout,
+      isAdmin,
+      isAdminLoading,
+      hasRealAdmin,
+      hasRealAdminLoading,
+      authState,
+      setupAdmin,
+      refreshAdmin,
+    ],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export type { AuthContextValue };

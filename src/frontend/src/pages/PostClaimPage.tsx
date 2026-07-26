@@ -19,6 +19,13 @@ export default function PostClaimPage() {
   const claimedNftSnapshot = useMemo(() => {
     try {
       const raw = sessionStorage.getItem(`claim_success_${claimToken}`);
+      // Remove the snapshot immediately after reading so the sensitive claim
+      // payload (title, edition, nftUniqueId, imageUrl) does not linger in
+      // sessionStorage beyond the single read. A direct URL revisit will now
+      // correctly redirect to /collector (no snapshot present).
+      if (raw) {
+        sessionStorage.removeItem(`claim_success_${claimToken}`);
+      }
       if (!raw) return null;
       return JSON.parse(raw) as {
         id: string;
@@ -110,7 +117,7 @@ export default function PostClaimPage() {
         data-ocid="post_claim.page"
       >
         {/* Success header */}
-        <div className="flex flex-col items-center gap-3 mb-8 text-center">
+        <div className="flex flex-col items-center gap-3 mb-6 text-center">
           <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
             <CheckCircle2 className="w-9 h-9 text-primary" />
           </div>
@@ -127,44 +134,10 @@ export default function PostClaimPage() {
           </div>
         </div>
 
-        {/* NFT preview card */}
+        {/* Action cards — rendered immediately after the success header so
+            they are visible without scrolling on the success state. */}
         <div
-          className="w-full max-w-xs mb-8"
-          data-ocid="post_claim.nft_preview_card"
-        >
-          <Card className="overflow-hidden">
-            <div className="aspect-square bg-muted overflow-hidden">
-              {imageUrl ? (
-                <img
-                  src={imageUrl}
-                  alt={claimedNft.title}
-                  className="w-full h-full object-cover"
-                  loading="eager"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <Sparkles className="w-10 h-10 text-muted-foreground" />
-                </div>
-              )}
-            </div>
-            <CardContent className="p-4 space-y-2">
-              <h2 className="font-semibold text-foreground truncate">
-                {claimedNft.title}
-              </h2>
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary" className="text-xs">
-                  Edition {claimedNft.edition}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Separator className="max-w-xs w-full mb-6" />
-
-        {/* Action cards */}
-        <div
-          className="flex flex-col gap-3 w-full max-w-xs"
+          className="flex flex-col gap-3 w-full max-w-xs mb-6"
           data-ocid="post_claim.actions_section"
         >
           {/* View My NFT */}
@@ -202,6 +175,41 @@ export default function PostClaimPage() {
           </button>
 
           {/* Unlock Creator Studio removed — per spec, only available in Settings/Profile */}
+        </div>
+
+        <Separator className="max-w-xs w-full mb-6" />
+
+        {/* NFT preview card */}
+        <div
+          className="w-full max-w-xs"
+          data-ocid="post_claim.nft_preview_card"
+        >
+          <Card className="overflow-hidden">
+            <div className="aspect-square bg-muted overflow-hidden">
+              {imageUrl ? (
+                <img
+                  src={imageUrl}
+                  alt={claimedNft.title}
+                  className="w-full h-full object-cover"
+                  loading="eager"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <Sparkles className="w-10 h-10 text-muted-foreground" />
+                </div>
+              )}
+            </div>
+            <CardContent className="p-4 space-y-2">
+              <h2 className="font-semibold text-foreground truncate">
+                {claimedNft.title}
+              </h2>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" className="text-xs">
+                  Edition {claimedNft.edition}
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </>

@@ -21,6 +21,11 @@ export interface Result__1 {
     hasMore: boolean;
     rows: Array<Array<Cell>>;
 }
+export interface NftClaimCount {
+    supplyLimit: bigint;
+    nftId: bigint;
+    claimedCount: bigint;
+}
 export interface AuditEntry {
     action: string;
     timestamp: Timestamp;
@@ -195,6 +200,12 @@ export interface CollectionSummary {
     name: string;
     nftCount: bigint;
 }
+export interface NftClaimBreakdownEntry {
+    supplyLimit: bigint;
+    title: string;
+    nftId: bigint;
+    claimedCount: bigint;
+}
 export interface HealthMetrics {
     claimedNfts: bigint;
     storageUsage: bigint;
@@ -253,6 +264,7 @@ export interface UserProfile {
     creditsTotal: bigint;
     oisyWalletAddress?: string;
     emailAlerts: Array<AlertType>;
+    emailVerified: boolean;
     maxSlots: bigint;
     createdAt: Timestamp;
     subscriptionTier: SubscriptionTier;
@@ -330,6 +342,8 @@ export interface backendInterface {
     getMetricsCanisterId(): Promise<string>;
     getMyPaymentProofs(): Promise<Array<PaymentProof>>;
     getNft(id: bigint): Promise<Nft | null>;
+    getNftClaimBreakdown(): Promise<Array<NftClaimBreakdownEntry>>;
+    getNftClaimCounts(): Promise<Array<NftClaimCount>>;
     getSlotsStatus(): Promise<{
         total: bigint;
         used: bigint;
@@ -369,7 +383,7 @@ export interface backendInterface {
     setEmail(email: string): Promise<void>;
     setEmailAlerts(alerts: Array<AlertType>): Promise<void>;
     setOisyWalletAddress(address: string): Promise<void>;
-    setStripeConfiguration(secretKey: string, publicKey: string): Promise<void>;
+    setStripeConfiguration(mode: string, publishableKey: string): Promise<void>;
     setUserStripeProductId(userPrincipal: Principal, productId: string): Promise<Result_2>;
     setupAdmin(): Promise<boolean>;
     submitPaymentProof(txHash: string, tierRequested: string, networkType: string): Promise<Result_3>;

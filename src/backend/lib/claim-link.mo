@@ -2,7 +2,9 @@ import Map "mo:core/Map";
 import Result "mo:core/Result";
 import Principal "mo:core/Principal";
 import Set "mo:core/Set";
+import Array "mo:core/Array";
 import NftTypes "../types/nft";
+import NftLib "../lib/nft";
 import ClaimTypes "../types/claim-link";
 import Nat8 "mo:core/Nat8";
 
@@ -154,5 +156,76 @@ module {
       return #err("NFT is not available for claiming (burned or deleted)");
     };
     #ok(())
+  };
+
+  /// Compute per-NFT claim counts by iterating the claimToken store and
+  /// grouping by nftId. Defensively sums claimedCount across multiple tokens
+  /// for the same nftId (typically one token per nftId, but handle multiple)
+  /// and takes the MAX supplyLimit across tokens for that nftId. Returns an
+  /// array of { nftId, claimedCount, supplyLimit } — ONLY those three fields,
+  /// no token string, usedBy, usedAt, or any Nft redacted field. Read-only;
+  /// does not mutate any store. Used by the PUBLIC getNftClaimCounts() query.
+  public func getNftClaimCounts(
+    claimTokenStore : ClaimTokenStore,
+  ) : [ClaimTypes.NftClaimCount] {
+    // Accumulator: nftId -> { claimedCount, supplyLimit } aggregated across
+    // all tokens for that nftId. Uses a Map so we can look up and update in
+    // O(log n) per token entry.
+    let acc : Map.Map<Nat, { var claimedCount : Nat; var supplyLimit : Nat }> = Map.empty();
+    for ((_, token) in claimTokenStore.entries()) {
+      switch (acc.get(token.nftId)) {
+        case (null) {
+          acc.add(token.nftId, { var claimedCount = token.claimedCount; var supplyLimit = token.supplyLimit });
+        };
+        case (?entry) {
+          entry.claimedCount += token.claimedCount;
+          if (token.supplyLimit > entry.supplyLimit) {
+            entry.supplyLimit := token.supplyLimit;
+          };
+        };
+      };
+    };
+    // Project to the public NftClaimCount shape — ONLY nftId, claimedCount,
+    // supplyLimit. No token string, usedBy, usedAt, or Nft redacted fields.
+    // Use Map.toArray then Array.map for a clean, type-stable projection.
+    acc.toArray().map(
+      func((nftId, entry)) : ClaimTypes.NftClaimCount {
+        {
+          nftId;
+          claimedCount = entry.claimedCount;
+          supplyLimit = entry.supplyLimit;
+        };
+      },
+    )
+  };
+
+  /// Compute the admin-only per-NFT claim breakdown by joining the claimToken
+  /// counts with the Nft store to include the title. Returns an array of
+  /// { nftId, title, claimedCount, supplyLimit } for every published NFT that
+  /// has a ClaimToken. Exposes ONLY those four fields — no discountCode,
+  /// membershipId, or other redacted fields. Read-only; does not mutate any
+  /// store. Used by the ADMIN-ONLY getNftClaimBreakdown() query.
+  public func getNftClaimBreakdown(
+    nftStore : NftLib.NftStore,
+    claimTokenStore : ClaimTokenStore,
+  ) : [ClaimTypes.NftClaimBreakdownEntry] {
+    // Reuse the per-NFT count aggregation, then join with the Nft store for
+    // the title. The counts come from getNftClaimCounts (already grouped by
+    // nftId with summed claimedCount and max supplyLimit).
+    let counts = getNftClaimCounts(claimTokenStore);
+    counts.map(
+      func(c : ClaimTypes.NftClaimCount) : ClaimTypes.NftClaimBreakdownEntry {
+        let title : Text = switch (nftStore.get(c.nftId)) {
+          case (?nft) { nft.title };
+          case (null) { "" };
+        };
+        {
+          nftId = c.nftId;
+          title;
+          claimedCount = c.claimedCount;
+          supplyLimit = c.supplyLimit;
+        };
+      },
+    )
   };
 }

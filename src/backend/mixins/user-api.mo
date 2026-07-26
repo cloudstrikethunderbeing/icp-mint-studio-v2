@@ -44,10 +44,18 @@ mixin (
         Runtime.trap("Profile not found");
       };
       case (?existing) {
+        // [H5] Lock emailVerified to the EXISTING value — a user must NOT be
+        // able to self-promote to verified by submitting a profile with
+        // emailVerified=true. Only a real challenge-response verification
+        // flow (not implemented this pass) may set emailVerified=true. If the
+        // user changes their email, setEmail() (called separately) resets
+        // emailVerified=false; here we preserve the existing flag so saving
+        // the profile alone does not change verification status.
         let lockedProfile = {
           existing with
           oisyWalletAddress = profile.oisyWalletAddress;
           email = profile.email;
+          emailVerified = existing.emailVerified;
           emailAlerts = profile.emailAlerts;
         };
         UserLib.updateProfile(userStore, caller, lockedProfile);

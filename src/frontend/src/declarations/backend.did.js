@@ -105,6 +105,7 @@ export const UserProfile = IDL.Record({
   'creditsTotal' : IDL.Nat,
   'oisyWalletAddress' : IDL.Opt(IDL.Text),
   'emailAlerts' : IDL.Vec(AlertType),
+  'emailVerified' : IDL.Bool,
   'maxSlots' : IDL.Nat,
   'createdAt' : Timestamp,
   'subscriptionTier' : SubscriptionTier,
@@ -176,6 +177,17 @@ export const HealthMetrics = IDL.Record({
   'totalClaims' : IDL.Nat,
   'activeNfts' : IDL.Nat,
   'canisterId' : IDL.Text,
+});
+export const NftClaimBreakdownEntry = IDL.Record({
+  'supplyLimit' : IDL.Nat,
+  'title' : IDL.Text,
+  'nftId' : IDL.Nat,
+  'claimedCount' : IDL.Nat,
+});
+export const NftClaimCount = IDL.Record({
+  'supplyLimit' : IDL.Nat,
+  'nftId' : IDL.Nat,
+  'claimedCount' : IDL.Nat,
 });
 export const CollectionWithCount = IDL.Record({
   'id' : IDL.Nat,
@@ -370,6 +382,12 @@ export const idlService = IDL.Service({
   'getMetricsCanisterId' : IDL.Func([], [IDL.Text], ['query']),
   'getMyPaymentProofs' : IDL.Func([], [IDL.Vec(PaymentProof)], ['query']),
   'getNft' : IDL.Func([IDL.Nat], [IDL.Opt(Nft)], ['query']),
+  'getNftClaimBreakdown' : IDL.Func(
+      [],
+      [IDL.Vec(NftClaimBreakdownEntry)],
+      ['query'],
+    ),
+  'getNftClaimCounts' : IDL.Func([], [IDL.Vec(NftClaimCount)], ['query']),
   'getSlotsStatus' : IDL.Func(
       [],
       [
@@ -564,6 +582,7 @@ export const idlFactory = ({ IDL }) => {
     'creditsTotal' : IDL.Nat,
     'oisyWalletAddress' : IDL.Opt(IDL.Text),
     'emailAlerts' : IDL.Vec(AlertType),
+    'emailVerified' : IDL.Bool,
     'maxSlots' : IDL.Nat,
     'createdAt' : Timestamp,
     'subscriptionTier' : SubscriptionTier,
@@ -635,6 +654,17 @@ export const idlFactory = ({ IDL }) => {
     'totalClaims' : IDL.Nat,
     'activeNfts' : IDL.Nat,
     'canisterId' : IDL.Text,
+  });
+  const NftClaimBreakdownEntry = IDL.Record({
+    'supplyLimit' : IDL.Nat,
+    'title' : IDL.Text,
+    'nftId' : IDL.Nat,
+    'claimedCount' : IDL.Nat,
+  });
+  const NftClaimCount = IDL.Record({
+    'supplyLimit' : IDL.Nat,
+    'nftId' : IDL.Nat,
+    'claimedCount' : IDL.Nat,
   });
   const CollectionWithCount = IDL.Record({
     'id' : IDL.Nat,
@@ -829,6 +859,12 @@ export const idlFactory = ({ IDL }) => {
     'getMetricsCanisterId' : IDL.Func([], [IDL.Text], ['query']),
     'getMyPaymentProofs' : IDL.Func([], [IDL.Vec(PaymentProof)], ['query']),
     'getNft' : IDL.Func([IDL.Nat], [IDL.Opt(Nft)], ['query']),
+    'getNftClaimBreakdown' : IDL.Func(
+        [],
+        [IDL.Vec(NftClaimBreakdownEntry)],
+        ['query'],
+      ),
+    'getNftClaimCounts' : IDL.Func([], [IDL.Vec(NftClaimCount)], ['query']),
     'getSlotsStatus' : IDL.Func(
         [],
         [

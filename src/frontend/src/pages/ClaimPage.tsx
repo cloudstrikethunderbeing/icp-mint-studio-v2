@@ -18,6 +18,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { devError, devLog } from "../utils/devLog";
 
 function ClaimSkeleton() {
   return (
@@ -69,7 +70,7 @@ export default function ClaimPage() {
     claimToken: string;
   };
   const { isAuthenticated, login, principal, actor, isFetching } = useAuth();
-  console.log("[RENDER] ClaimPage render:", {
+  devLog("[RENDER] ClaimPage render:", {
     isAuthenticated,
     actor: !!actor,
     isFetching,
@@ -105,7 +106,7 @@ export default function ClaimPage() {
         );
         if (!cancelled) setAnonymousActor(actor);
       } catch (err) {
-        console.error("[CLAIM] failed to resolve backend canister ID:", err);
+        devError("[CLAIM] failed to resolve backend canister ID:", err);
       }
     })();
     return () => {
@@ -134,7 +135,21 @@ export default function ClaimPage() {
 
   const preview: ClaimPreview | null =
     previewResult?.__kind__ === "ok" ? previewResult.ok : null;
-  const nft = preview?.nft ?? null;
+  // P7: Redact discountCode and membershipId from the public unauthenticated
+  // claim preview. These fields are sensitive (e.g. discount codes that grant
+  // price reductions, membership/ticket IDs that grant access) and must only
+  // be revealed to the caller AFTER a successful claim. The public preview is
+  // served to anonymous viewers via getClaimPreview(), so we strip these fields
+  // from the NFT object before any rendering can occur. Even though the current
+  // preview UI does not render them, this defense-in-depth redaction ensures
+  // they cannot leak via future UI changes or accidental rendering.
+  const nft = preview?.nft
+    ? {
+        ...preview.nft,
+        discountCode: "",
+        membershipId: "",
+      }
+    : null;
   const supplyLimit = preview?.supplyLimit ?? 0n;
   const claimedCount = preview?.claimedCount ?? 0n;
   const remaining = supplyLimit - claimedCount;
@@ -164,6 +179,18 @@ export default function ClaimPage() {
         // Force fresh metadata fetch before showing success page
         await queryClient.invalidateQueries({
           queryKey: ["nftDetail", nftUniqueId],
+        });
+        // Invalidate the caller's active-NFT set so the freshly claimed NFT
+        // appears on Profile/Library immediately rather than waiting up to
+        // 30s for useMyActiveNfts' staleTime to expire.
+        await queryClient.invalidateQueries({
+          queryKey: ["myActiveNfts"],
+        });
+        // Invalidate the caller's full NFT set so the Library 'Claimed' tab
+        // (filtered by claimedAt != null, fed by useMyNfts with staleTime: 30_000)
+        // refreshes immediately after a claim instead of staying empty for up to 30s.
+        await queryClient.invalidateQueries({
+          queryKey: ["myNfts"],
         });
         await queryClient.refetchQueries({
           queryKey: ["nftDetail", nftUniqueId],
@@ -291,7 +318,7 @@ export default function ClaimPage() {
                 type="button"
                 className="w-full"
                 onClick={() => {
-                  console.log("[LOGIN] claim connect button clicked");
+                  devLog("[LOGIN] claim connect button clicked");
                   login();
                 }}
                 data-ocid="claim.connect_wallet_button"

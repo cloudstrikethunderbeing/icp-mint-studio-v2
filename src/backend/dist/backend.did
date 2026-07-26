@@ -51,6 +51,7 @@ type UserProfile =
    creditsUsed: nat;
    email: opt text;
    emailAlerts: vec AlertType;
+   emailVerified: bool;
    maxSlots: nat;
    oisyWalletAddress: opt text;
    principalId: principal;
@@ -172,6 +173,19 @@ type NftStatus =
    active;
    burned;
    deleted;
+ };
+type NftClaimCount = 
+ record {
+   claimedCount: nat;
+   nftId: nat;
+   supplyLimit: nat;
+ };
+type NftClaimBreakdownEntry = 
+ record {
+   claimedCount: nat;
+   nftId: nat;
+   supplyLimit: nat;
+   title: text;
  };
 type Nft = 
  record {
@@ -379,6 +393,8 @@ service : {
   getMetricsCanisterId: () -> (text) query;
   getMyPaymentProofs: () -> (vec PaymentProof) query;
   getNft: (id: nat) -> (opt Nft) query;
+  getNftClaimBreakdown: () -> (vec NftClaimBreakdownEntry) query;
+  getNftClaimCounts: () -> (vec NftClaimCount) query;
   getSlotsStatus: () -> (record {
                            remaining: nat;
                            total: nat;
@@ -419,7 +435,7 @@ service : {
   setEmail: (email: text) -> ();
   setEmailAlerts: (alerts: vec AlertType) -> ();
   setOisyWalletAddress: (address: text) -> ();
-  setStripeConfiguration: (secretKey: text, publicKey: text) -> ();
+  setStripeConfiguration: (mode: text, publishableKey: text) -> ();
   setUserStripeProductId: (userPrincipal: principal, productId: text) ->
    (Result_2);
   setupAdmin: () -> (bool);

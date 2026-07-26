@@ -93,6 +93,7 @@ import { addNotification } from "@/hooks/useNotifications";
 import type { PaymentProof } from "@/types";
 import BrandedAuthGate from "../components/BrandedAuthGate";
 import InstallAppPrompt from "../components/InstallAppPrompt";
+import { devError, devLog } from "../utils/devLog";
 
 const TIERS = [
   {
@@ -208,7 +209,27 @@ export default function SettingsPage() {
     hasRealAdminLoading,
     setupAdmin,
   } = useAuth();
-  console.log("[RENDER] SettingsPage render:", { isAuthenticated, principal });
+  devLog("[RENDER] SettingsPage render:", { isAuthenticated, principal });
+
+  // [RENDER-DEPS] Parallel observation-only instrumentation. Logs a render
+  // counter and the values of the 8 useAuth fields SettingsPage destructures,
+  // so SettingsPage renders can be correlated with AuthProvider [RENDER-DEPS]
+  // renders. Observation only — does not touch state, effects, or business
+  // logic. The counter is a ref so it survives re-renders without triggering
+  // them.
+  const settingsRenderCounterRef = useRef(0);
+  settingsRenderCounterRef.current += 1;
+  devLog("[RENDER-DEPS] SettingsPage useAuth fields:", {
+    render: settingsRenderCounterRef.current,
+    isAuthenticated,
+    actor: !!actor,
+    principal,
+    isAdmin,
+    isAdminLoading,
+    hasRealAdmin,
+    hasRealAdminLoading,
+    setupAdmin: typeof setupAdmin === "function",
+  });
 
   // Runtime live/draft detection. Liveness is determined by the BACKEND at
   // runtime via isLiveCanister() — never by comparing a baked canister ID
@@ -244,7 +265,7 @@ export default function SettingsPage() {
       })
       .catch((e) => {
         if (cancelled) return;
-        console.error("[SETTINGS] isLiveCanister query failed:", e);
+        devError("[SETTINGS] isLiveCanister query failed:", e);
         // On failure, treat as non-live so admin-setup is reachable on draft.
         setIsLive(false);
       });
@@ -266,6 +287,21 @@ export default function SettingsPage() {
   }, [isAdmin, activeTab]);
 
   const handleSetupAdmin = async () => {
+    // P11: Deny-by-default on destructive action. When an admin already
+    // exists (hasRealAdmin === true), setupAdmin() on draft canisters
+    // overwrites the current admin. Require an explicit confirmation
+    // before proceeding so the overwrite is intentional, not accidental.
+    if (hasRealAdmin) {
+      const confirmed = window.confirm(
+        "An admin has already been set on this canister. " +
+          "On draft canisters, setupAdmin() always succeeds and overwrites " +
+          "the current admin. Do you want to overwrite the existing admin " +
+          "and set yourself as the new admin?",
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
     setSetupAdminError("");
     setSetupAdminPending(true);
     try {
