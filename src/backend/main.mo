@@ -47,6 +47,9 @@ import Time "mo:core/Time";
 import Auth "lib/auth";
 import Text "mo:core/Text";
 import Debug "mo:core/Debug";
+import ReferralRewardsLib "lib/referral-rewards";
+import ReferralRewardsMixin "mixins/referral-rewards-api";
+import ReferralTypes "types/referral-rewards";
 
 actor Main {
   let nftStore : NftLib.NftStore;
@@ -107,6 +110,43 @@ actor Main {
   // window isolated from the NFT mint limiter's resets. Transient; no
   // migration required.
   transient let paymentProofRateLimitStore : Map.Map<Principal, { var lastSubmitSec : Int }> = Map.empty();
+
+  // Referral-rewards stable stores (net-new, initialized by migration
+  // 20260726_050000.mo). All three are stable Maps so referral codes and
+  // eligible-pending entries SURVIVE upgrades — a transient store would
+  // reset on every redeploy, silently losing every referral code and every
+  // pending eligibility (defeating the NO EXPIRY + deactivation-preserves-
+  // pending-eligibility rules). NO EXPIRY — referral codes never expire, so
+  // there is no expiry sweep or TTL field by design.
+  // referralCodeStore: referralCode (Text) -> ReferralCodeMapping.
+  let referralCodeStore : ReferralRewardsLib.ReferralCodeStore;
+  // referrerCodeIndex: referrerPrincipal -> referralCode (Text). Reverse
+  // lookup so a caller can fetch their own code without scanning the whole
+  // code store.
+  let referrerCodeIndex : ReferralRewardsLib.ReferrerCodeIndex;
+  // eligiblePendingStore: referrerPrincipal -> EligiblePendingEntry. One
+  // entry per referrer per threshold tier (dedup by (principal, tier)).
+  // `enqueuedAt` drives earliest-eligible-first ordering for limited-supply
+  // awards. Deactivation preserves pending eligibility — entries are NOT
+  // removed on deactivation, only on actual award or admin purge.
+  let eligiblePendingStore : ReferralRewardsLib.EligiblePendingStore;
+  // batchAwardConfig: admin-tunable throttle config for the retroactive
+  // batch-award (default 25/cycle, 1s delay). Stable so an admin's tuning
+  // persists across upgrades. Initialized to DEFAULT_BATCH_AWARD_CONFIG by
+  // the migration chain on fresh installs. Wrapped in { var value } (the
+  // codebase convention for mutable shared state — matches nextNftId,
+  // selfCanisterId, adminPrincipals) so the ReferralRewardsMixin can mutate
+  // it by reference via adminUpdateBatchAwardConfig. The migration
+  // 20260726_050000.mo NewActor.batchAwardConfig shape uses the same
+  // { var value : BatchAwardConfig } wrapper so M0170 does not fire.
+  let batchAwardConfig : { var value : ReferralTypes.BatchAwardConfig };
+  // [BATCH-AWARD] DEDICATED transient throttle store for the retroactive
+  // batch-award, following the rate-limiting pattern (own dedicated Map, NOT
+  // the shared rateLimitStore — avoids the nanosecond-window bug). Holds the
+  // in-flight batch cursor and per-cycle awarded count. Transient (rebuilt
+  // empty on every restart) — throttle state is not durable, so no migration
+  // required and the actor's stable state shape is unchanged.
+  transient let batchAwardThrottleStore : ReferralRewardsLib.BatchAwardThrottleStore = Map.empty();
 
   // adminPrincipals is a mutable record wrapper so mixins (which capture the
   // record by reference) always read the current array via .value. This matches
@@ -210,7 +250,19 @@ actor Main {
     };
   };
 
-  include ClaimLinkMixin(nftStore, claimTokenStore, claimersStore, nftToClaimToken, globalAuditLog, userStore, nextNftId, selfCanisterId, adminPrincipals, claimRateLimitStore);
+  include ClaimLinkMixin(nftStore, claimTokenStore, claimersStore, nftToClaimToken, globalAuditLog, userStore, nextNftId, selfCanisterId, adminPrincipals, claimRateLimitStore, referralCodeStore, eligiblePendingStore);
+
+  // Referral-rewards API (getOrCreateMyReferralCode, recordReferral,
+  // getMyReferralStatus, runBatchAwardCycle, getReferralHealthMetrics,
+  // adminPurgeEligiblePending, adminUpdateBatchAwardConfig,
+  // adminSetNftRewardType, adminSetNftReferralThreshold). The mixin reuses
+  // claimNftInternal (extracted in claim-link-api.mo) for the retroactive
+  // batch-award via the canonical mint path — NOT a parallel mint. Passes
+  // the claim-link stores (claimTokenStore, claimersStore, nftToClaimToken,
+  // nextNftId) so runBatchAwardCycle can call claimNftInternal(referrer,
+  // internalToken, null). Preserves [OQL-LOCKDOWN] — never exposes
+  // discountCode, membershipId, secretKey, or stripe mode via any new field.
+  include ReferralRewardsMixin(nftStore, userStore, referralCodeStore, referrerCodeIndex, eligiblePendingStore, batchAwardThrottleStore, batchAwardConfig, globalAuditLog, selfCanisterId, adminPrincipals, claimTokenStore, claimersStore, nftToClaimToken, nextNftId, claimRateLimitStore);
 
   include MixinObjectStorage();
 
@@ -230,6 +282,31 @@ actor Main {
         "Nft",
         "id",
       )
+        .sample((0, ({
+          id = 0;
+          ownerId = Principal.fromText("aaaaa-aa");
+          creatorId = "";
+          imageBlob = "";
+          assetHash = "";
+          title = "";
+          description = "";
+          edition = "";
+          mintDate = 0;
+          claimedAt = null;
+          status = #active;
+          auditHistory = [];
+          collectionId = null;
+          businessName = null;
+          website = null;
+          discountCode = null;
+          membershipId = null;
+          rewardTier = #none;
+          nftUniqueId = "";
+          tags = [];
+          supplyLimit = 0;
+          rewardType = #none;
+          referralThreshold = 0;
+        } : NftTypes.Nft)))
         .payload("id", func((_, n)) = n.id)
         .payload("ownerId", func((_, n)) = n.ownerId)
         .payload("creatorId", func((_, n)) = n.creatorId)
@@ -257,6 +334,14 @@ actor Main {
         .payload("nftUniqueId", func((_, n)) = n.nftUniqueId)
         .payload("tagsCount", func((_, n)) = n.tags.size())
         .payload("supplyLimit", func((_, n)) = n.supplyLimit)
+        // Referral-rewards fields on Nft (net-new, non-sensitive). rewardType
+        // marks an NFT as the bonus asset awarded when a referrer crosses
+        // referralThreshold. Both are admin-tunable and queryable for the
+        // admin Health tab / referral analytics. Preserves [OQL-LOCKDOWN] —
+        // these are NOT discountCode/membershipId/secretKey/stripe mode; the
+        // redacted sensitive fields remain unexposed (see the comment above).
+        .payload("rewardType", func((_, n)) : Text = switch (n.rewardType) { case (#none) "none"; case (#referralBonus) "referralBonus" })
+        .payload("referralThreshold", func((_, n)) = n.referralThreshold)
         .controllerOnly()
         .build(),
 
@@ -267,6 +352,17 @@ actor Main {
         "Collection",
         "id",
       )
+        .sample((0, ({
+          id = 0;
+          ownerId = Principal.fromText("aaaaa-aa");
+          name = "";
+          description = "";
+          tier = #free;
+          maxSize = 0;
+          createdAt = 0;
+          previewImage = null;
+          nftIds = [];
+        } : NftTypes.Collection)))
         .payload("id", func((_, c)) = c.id)
         .payload("ownerId", func((_, c)) = c.ownerId)
         .payload("name", func((_, c)) = c.name)
@@ -299,6 +395,18 @@ actor Main {
         .payload("maxSlots", func((_, u)) = u.maxSlots)
         .payload("createdAt", func((_, u)) = u.createdAt)
         .payload("stripeProductId", func((_, u)) = switch (u.stripeProductId) { case (?v) v; case null "" })
+        // Referral-rewards fields on UserProfile (net-new, non-sensitive).
+        // referralCode is the caller's own shareable code (NO EXPIRY),
+        // referralsCount is the number of successful referrals, awardedTiers
+        // is the stacking-ready list of threshold tiers already awarded.
+        // Exposed here at the admin-gated (controllerOnly) userProfile entity
+        // for cross-user referral analytics (admin Health tab). The caller's
+        // OWN-rows view is the separate myReferralStatus entity below
+        // (controllerOrScoped + ownedBy). Preserves [OQL-LOCKDOWN] — these are
+        // NOT discountCode/membershipId/secretKey/stripe mode.
+        .payload("referralCode", func((_, u)) = switch (u.referralCode) { case (?v) v; case null "" })
+        .payload("referralsCount", func((_, u)) = u.referralsCount)
+        .payload("awardedTiersCount", func((_, u)) = u.awardedTiers.size())
         .controllerOnly()
         .build(),
 
@@ -337,6 +445,75 @@ actor Main {
         .payload("supplyLimit", func((_, t)) = t.supplyLimit)
         .payload("claimedCount", func((_, t)) = t.claimedCount)
         .controllerOnly()
+        .build(),
+
+      // referralCodeStore : Map<Text, ReferralCodeMapping> — admin-gated.
+      // referralCode (Text) -> { code, referrerPrincipal, createdAt }. Codes
+      // are random + unguessable and NEVER expire (NO EXPIRY). Admin-gated
+      // (controllerOnly) per the per-table authorization requirement — only
+      // admins query the full code-to-referrer mapping (e.g. for the admin
+      // Health tab / referral analytics). The caller's OWN code is surfaced
+      // via the caller-scoped myReferralStatus entity below, NOT here.
+      // Preserves [OQL-LOCKDOWN] — no discountCode/membershipId/secretKey/
+      // stripe mode.
+      OQL.Entity.manual<(Text, ReferralTypes.ReferralCodeMapping)>(
+        "referralCode",
+        func() = referralCodeStore.entries(),
+        "ReferralCodeMapping",
+        "code",
+      )
+        .payload("code", func((_, m)) = m.code)
+        .payload("referrerPrincipal", func((_, m)) = m.referrerPrincipal)
+        .payload("createdAt", func((_, m)) = m.createdAt)
+        .controllerOnly()
+        .build(),
+
+      // eligiblePendingStore : Map<Principal, EligiblePendingEntry> —
+      // admin-gated. referrerPrincipal -> { referrerPrincipal, thresholdTier,
+      // enqueuedAt }. The eligible-pending queue (users who crossed a
+      // threshold but no in-stock referralBonus NFT existed at the time).
+      // enqueuedAt drives earliest-eligible-first ordering for limited-supply
+      // awards. Deactivation preserves pending eligibility. Admin-gated
+      // (controllerOnly) per the per-table authorization requirement — only
+      // admins query the full pending queue (e.g. for the admin Health tab /
+      // batch-award monitoring). Preserves [OQL-LOCKDOWN] — no sensitive
+      // fields.
+      OQL.Entity.manual<(Principal, ReferralTypes.EligiblePendingEntry)>(
+        "eligiblePending",
+        func() = eligiblePendingStore.entries(),
+        "EligiblePendingEntry",
+        "referrerPrincipal",
+      )
+        .payload("referrerPrincipal", func((p, _)) = p)
+        .payload("thresholdTier", func((_, e)) = e.thresholdTier)
+        .payload("enqueuedAt", func((_, e)) = e.enqueuedAt)
+        .controllerOnly()
+        .build(),
+
+      // myReferralStatus : caller-scoped view over userStore — exposes ONLY
+      // the caller's OWN referral status (referralCode, referralsCount,
+      // awardedTiers). Per the per-table authorization requirement, user-
+      // facing own-referral-status data is caller-scoped: controllerOrScoped
+      // + .ownedBy("principalId") so a non-admin caller sees only the row
+      // whose principalId equals their own principal (admins see every row).
+      // This is the user-facing counterpart to the admin-gated userProfile
+      // entity above — same underlying userStore, but scoped to own-rows and
+      // projecting ONLY the non-sensitive referral fields. Preserves
+      // [OQL-LOCKDOWN] — never exposes discountCode, membershipId, secretKey,
+      // or stripe mode (those fields are not on UserProfile's referral fields
+      // and are not projected here). NO EXPIRY — referralCode never expires.
+      OQL.Entity.manual<(Principal, _UserTypes.UserProfile)>(
+        "myReferralStatus",
+        func() = userStore.entries(),
+        "MyReferralStatus",
+        "principalId",
+      )
+        .payload("principalId", func((p, _)) = p)
+        .payload("referralCode", func((_, u)) = switch (u.referralCode) { case (?v) v; case null "" })
+        .payload("referralsCount", func((_, u)) = u.referralsCount)
+        .payload("awardedTiersCount", func((_, u)) = u.awardedTiers.size())
+        .ownedBy("principalId")
+        .controllerOrScoped()
         .build(),
     ];
   });

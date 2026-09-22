@@ -13,6 +13,9 @@ import Random "mo:core/Random";
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
 import Int "mo:core/Int";
+import Debug "mo:core/Debug";
+import ReferralLib "../lib/referral-rewards";
+import ReferralTypes "../types/referral-rewards";
 
 mixin (
   nftStore : NftLib.NftStore,
@@ -33,6 +36,20 @@ mixin (
   // rate-limit state is not durable and does not need to survive upgrades, so
   // no migration is required and the actor's stable state shape is unchanged.
   claimRateLimitStore : Map.Map<Principal, { var lastClaimSec : Int }>,
+  // Referral-rewards stores required for the claimNft referral-recording +
+  // synchronous auto-award path. claimNft now accepts an optional ?ref code;
+  // after a successful claim it calls ReferralLib.recordReferral to increment
+  // the referrer's referralsCount, and if the referrer crosses an in-stock
+  // referralBonus NFT threshold (and is not already in awardedTiers for that
+  // tier), it triggers the synchronous auto-award by calling
+  // claimNftInternal(referrer, internalToken, null) — reusing the SAME
+  // validation path as the public claim (anonymous reject, [H3] rate limit,
+  // token validation, supply cap, assertClaimable, atomic useToken, [H2]
+  // counter-ordering, new NFT copy). If no in-stock bonus NFT exists at
+  // trigger time, the referrer is moved to eligible-pending (handled inside
+  // ReferralLib.recordReferral). Deactivation preserves pending eligibility.
+  referralCodeStore : ReferralLib.ReferralCodeStore,
+  eligiblePendingStore : ReferralLib.EligiblePendingStore,
 ) {
 
   /// Admin-only: generate a shareable claim URL for a specific NFT.
@@ -105,101 +122,254 @@ mixin (
     }
   };
 
-  /// Public: claim an NFT by presenting a valid token.
-  /// Creates a NEW NFT copy from the master; master NFT is never modified.
-  public shared ({ caller }) func claimNft(token : Text) : async Result.Result<NftTypes.Nft, Text> {
-    // Reject anonymous callers
-    if (caller.isAnonymous()) {
-      return #err("Authentication required to claim an NFT");
-    };
-    // [H3] Per-principal rate limit: 1 claim per 60 SECONDS per principal.
-    // Uses the DEDICATED claimRateLimitStore (NOT the shared rateLimitStore)
-    // so the NFT mint limiter's window resets cannot interfere. Compares
-    // elapsed in SECONDS (Time.now() / 1_000_000_000), NOT nanoseconds — the
-    // pre-existing NFT limiter bug compares nanoseconds, which is why this
-    // store is separate.
-    let nowNs : Int = Time.now();
-    let nowSec : Int = nowNs / 1_000_000_000;
-    let claimWindowSec : Int = 60;
-    switch (claimRateLimitStore.get(caller)) {
-      case (null) {
-        let entry = { var lastClaimSec = nowSec };
-        claimRateLimitStore.add(caller, entry);
+  /// NON-PUBLIC internal claim path. Contains the canonical validation flow
+  /// (anonymous reject, [H3] rate limit, token validation, supply cap,
+  /// assertClaimable, atomic useToken, [H2] counter-ordering, new NFT copy).
+  /// This is the SAME flow the public claimNft uses; it is now extracted as a
+  /// PUBLIC function in lib/claim-link.mo (ClaimLib.claimNftInternal) so the
+  /// referral auto-award and the retroactive batch-award can REUSE the
+  /// canonical mint path instead of creating a parallel mint. This mixin
+  /// delegates to ClaimLib.claimNftInternal with all the shared stores.
+  ///
+  /// `claimer` is the principal who will own the new NFT copy. For a public
+  /// claim this is the caller; for an auto-award this is the referrer; for a
+  /// batch-award this is the eligible-pending referrer. `ref` is the optional
+  /// referral code presented by the claimant — it is ONLY acted on by the
+  /// PUBLIC claimNft wrapper (which records the referral + triggers the
+  /// auto-award AFTER this internal func returns #ok). When the auto-award or
+  /// batch-award calls this internal func, it passes `null` for ref so no
+  /// referral is recorded on an auto-award (the referrer is being awarded,
+  /// not referring).
+
+  /// Public: claim an NFT by presenting a valid token. Creates a NEW NFT copy
+  /// from the master; master NFT is never modified. Accepts an optional
+  /// referral code (`ref`) — if present and valid, the referrer's
+  /// referralsCount is incremented after a successful claim, and if the
+  /// referrer now meets/exceeds a threshold for an active in-stock
+  /// referralBonus NFT (and is not already in awardedTiers for that tier),
+  /// the referrer is auto-awarded via claimNftInternal(referrer, internalToken,
+  /// null) — reusing the SAME validation path as this claim. If the bonus NFT
+  /// is sold out at trigger time, the referrer is moved to eligible-pending
+  /// (handled inside ReferralLib.recordReferral). Self-referrals (referrer ==
+  /// claimer) are rejected. Unknown/invalid ref codes fail OPEN — the claim
+  /// still succeeds; only the referral recording is skipped (a bad ref must
+  /// never block a legitimate claim).
+  public shared ({ caller }) func claimNft(token : Text, ref : ?Text) : async Result.Result<NftTypes.Nft, Text> {
+    // Run the canonical validation + mint flow via the lib's internal func.
+    let claimResult = ClaimLib.claimNftInternal(
+      caller,
+      token,
+      ref,
+      nftStore,
+      claimTokenStore,
+      claimersStore,
+      globalAuditLog,
+      nextNftId,
+      selfCanisterId,
+      claimRateLimitStore,
+    );
+    switch (claimResult) {
+      case (#err(msg)) {
+        // Claim failed — do NOT record any referral. Return the error.
+        return #err(msg);
       };
-      case (?entry) {
-        let elapsed : Int = nowSec - entry.lastClaimSec;
-        if (elapsed < claimWindowSec) {
-          return #err("Rate limit exceeded: please wait at least 60 seconds between claims");
+      case (#ok(newNft)) {
+        // Claim succeeded. Now handle the optional referral code.
+        switch (ref) {
+          case (null) {
+            // No referral code presented — nothing to record.
+            return #ok(newNft);
+          };
+          case (?refCode) {
+            // [REFERRAL] Resolve the referrer from the code. Codes never
+            // expire (NO EXPIRY). Fail OPEN on unknown/invalid codes — a bad
+            // ref must never block a legitimate claim that already succeeded.
+            let mapping = ReferralLib.resolveReferralCode(referralCodeStore, refCode);
+            switch (mapping) {
+              case (null) {
+                Debug.print("[REFERRAL] claimNft: unknown ref code '" # refCode # "' — claim succeeds, referral skipped (fail open)");
+                return #ok(newNft);
+              };
+              case (?m) {
+                // Reject self-referrals — a referrer cannot refer themselves.
+                // Fail OPEN here too (do not revert the successful claim);
+                // the self-referral is simply not recorded.
+                if (Principal.equal(m.referrerPrincipal, caller)) {
+                  Debug.print("[REFERRAL] claimNft: self-referral rejected (referrer == claimer) — claim succeeds, referral skipped");
+                  return #ok(newNft);
+                };
+                // Record the referral: increment the referrer's
+                // referralsCount. If no in-stock bonus NFT exists at the
+                // crossed threshold, this also enqueues the referrer as
+                // eligible-pending (deactivation preserves pending
+                // eligibility). If an in-stock bonus NFT exists, the lib
+                // returns the crossed thresholdTier so we can trigger the
+                // synchronous auto-award below.
+                let now : Common.Timestamp = Int.abs(Time.now());
+                let result = ReferralLib.recordReferral(
+                  userStore,
+                  referralCodeStore,
+                  eligiblePendingStore,
+                  nftStore,
+                  refCode,
+                  now,
+                );
+                Debug.print("[REFERRAL] claimNft: recorded referral for referrer " # m.referrerPrincipal.toText() # " newCount=" # result.newReferralsCount.toText() # " newlyEligiblePending=" # debug_show(result.newlyEligiblePending));
+                // [AUTO-AWARD] Synchronous auto-award: if the lib found an
+                // in-stock bonus NFT whose threshold was just crossed (and
+                // the referrer is not already in awardedTiers for that
+                // tier), trigger the auto-award by reusing
+                // claimNftInternal(referrer, internalToken, null). This goes
+                // through the SAME validation path as the public claim
+                // (anonymous reject, [H3] rate limit, token validation,
+                // supply cap, assertClaimable, atomic useToken, [H2]
+                // counter-ordering, new NFT copy). Pass null for ref so no
+                // referral is recorded on the auto-award (the referrer is
+                // being awarded, not referring).
+                switch (result.thresholdTier) {
+                  case (null) {
+                    // No in-stock bonus NFT crossed — the referrer was
+                    // either enqueued as eligible-pending (handled inside
+                    // recordReferral) or no threshold was crossed. Nothing
+                    // more to do.
+                    return #ok(newNft);
+                  };
+                  case (?tier) {
+                    // The lib found an in-stock bonus NFT for this tier.
+                    // Re-lookup the in-stock bonus NFT to get its nftId
+                    // (recordReferral returns the tier, not the nftId).
+                    let awardedTiers = switch (userStore.get(m.referrerPrincipal)) {
+                      case (null) { [] };
+                      case (?p) { p.awardedTiers };
+                    };
+                    let bonusNft = ReferralLib.findInStockBonusNft(nftStore, result.newReferralsCount, awardedTiers);
+                    switch (bonusNft) {
+                      case (null) {
+                        // Race: the in-stock bonus NFT was available when
+                        // recordReferral checked, but is no longer in-stock
+                        // now (e.g. another concurrent claim took the last
+                        // copy). Move the referrer to eligible-pending by
+                        // re-running recordReferral's enqueue path. The
+                        // simplest correct action is to call recordReferral
+                        // again — it is idempotent for the count (the
+                        // referrer's count was already incremented) BUT it
+                        // would double-increment. Instead, we rely on the
+                        // eligible-pending enqueue having already happened
+                        // inside recordReferral if no in-stock NFT existed
+                        // at that time. Since recordReferral returned a
+                        // non-null thresholdTier, it found an in-stock NFT
+                        // and did NOT enqueue. So we must enqueue here.
+                        // Use the lib's eligible-pending store directly:
+                        // the referrer crossed `tier` with no in-stock NFT
+                        // at this moment, so enqueue them.
+                        let entry : ReferralTypes.EligiblePendingEntry = {
+                          referrerPrincipal = m.referrerPrincipal;
+                          thresholdTier = tier;
+                          enqueuedAt = now;
+                        };
+                        switch (eligiblePendingStore.get(m.referrerPrincipal)) {
+                          case (?existing) {
+                            let keepEarliest = if (existing.enqueuedAt < now) { existing.enqueuedAt } else { now };
+                            let newTier = if (tier > existing.thresholdTier) { tier } else { existing.thresholdTier };
+                            eligiblePendingStore.add(m.referrerPrincipal, { entry with thresholdTier = newTier; enqueuedAt = keepEarliest });
+                          };
+                          case (null) {
+                            eligiblePendingStore.add(m.referrerPrincipal, entry);
+                          };
+                        };
+                        Debug.print("[AUTO-AWARD] referrer " # m.referrerPrincipal.toText() # " crossed tier " # tier.toText() # " but bonus NFT sold out at trigger time — moved to eligible-pending");
+                        return #ok(newNft);
+                      };
+                      case (?bonus) {
+                        // Look up the existing claim token for the master
+                        // bonus NFT. The admin must have generated a claim
+                        // link for the referralBonus NFT (via
+                        // generateClaimLink) so a token exists. If no token
+                        // exists, the auto-award cannot proceed via the
+                        // canonical path — move the referrer to
+                        // eligible-pending (deactivation preserves pending
+                        // eligibility; the next batch-award cycle will
+                        // retry once an admin generates a token).
+                        switch (nftToClaimToken.get(bonus.nftId)) {
+                          case (null) {
+                            let entry : ReferralTypes.EligiblePendingEntry = {
+                              referrerPrincipal = m.referrerPrincipal;
+                              thresholdTier = tier;
+                              enqueuedAt = now;
+                            };
+                            switch (eligiblePendingStore.get(m.referrerPrincipal)) {
+                              case (?existing) {
+                                let keepEarliest = if (existing.enqueuedAt < now) { existing.enqueuedAt } else { now };
+                                let newTier = if (tier > existing.thresholdTier) { tier } else { existing.thresholdTier };
+                                eligiblePendingStore.add(m.referrerPrincipal, { entry with thresholdTier = newTier; enqueuedAt = keepEarliest });
+                              };
+                              case (null) {
+                                eligiblePendingStore.add(m.referrerPrincipal, entry);
+                              };
+                            };
+                            Debug.print("[AUTO-AWARD] no claim token for bonus NFT " # bonus.nftId.toText() # " — referrer " # m.referrerPrincipal.toText() # " moved to eligible-pending (admin must generate a claim link for the referralBonus NFT)");
+                            return #ok(newNft);
+                          };
+                          case (?internalToken) {
+                            // Trigger the synchronous auto-award via
+                            // ClaimLib.claimNftInternal reuse. Pass null for ref.
+                            switch (ClaimLib.claimNftInternal(
+                              m.referrerPrincipal,
+                              internalToken,
+                              null,
+                              nftStore,
+                              claimTokenStore,
+                              claimersStore,
+                              globalAuditLog,
+                              nextNftId,
+                              selfCanisterId,
+                              claimRateLimitStore,
+                            )) {
+                              case (#err(msg)) {
+                                // Auto-award failed (sold out, rate-limited,
+                                // or token invalid). Move the referrer to
+                                // eligible-pending (deactivation preserves
+                                // pending eligibility; the next batch-award
+                                // cycle will retry).
+                                let entry : ReferralTypes.EligiblePendingEntry = {
+                                  referrerPrincipal = m.referrerPrincipal;
+                                  thresholdTier = tier;
+                                  enqueuedAt = now;
+                                };
+                                switch (eligiblePendingStore.get(m.referrerPrincipal)) {
+                                  case (?existing) {
+                                    let keepEarliest = if (existing.enqueuedAt < now) { existing.enqueuedAt } else { now };
+                                    let newTier = if (tier > existing.thresholdTier) { tier } else { existing.thresholdTier };
+                                    eligiblePendingStore.add(m.referrerPrincipal, { entry with thresholdTier = newTier; enqueuedAt = keepEarliest });
+                                  };
+                                  case (null) {
+                                    eligiblePendingStore.add(m.referrerPrincipal, entry);
+                                  };
+                                };
+                                Debug.print("[AUTO-AWARD] auto-award failed for referrer " # m.referrerPrincipal.toText() # ": " # msg # " — moved to eligible-pending");
+                              };
+                              case (#ok(_)) {
+                                // Auto-award succeeded — append the awarded
+                                // tier (dedup by tier) and dequeue any
+                                // eligible-pending entry for this referrer.
+                                ReferralLib.appendAwardedTier(userStore, m.referrerPrincipal, tier);
+                                ReferralLib.dequeueEligiblePending(eligiblePendingStore, m.referrerPrincipal);
+                                Debug.print("[AUTO-AWARD] auto-awarded referrer " # m.referrerPrincipal.toText() # " tier " # tier.toText());
+                              };
+                            };
+                          };
+                        };
+                      };
+                    };
+                    return #ok(newNft);
+                  };
+                };
+              };
+            };
+          };
         };
-        entry.lastClaimSec := nowSec;
-        claimRateLimitStore.add(caller, entry);
       };
     };
-    // Validate token exists
-    let claimToken = switch (ClaimLib.getToken(claimTokenStore, token)) {
-      case (null) { return #err("Invalid or expired claim token") };
-      case (?ct) { ct };
-    };
-    // Check supply cap
-    if (claimToken.claimedCount >= claimToken.supplyLimit) {
-      return #err("This drop is sold out");
-    };
-    // Fetch master NFT and validate it is active
-    let masterNft = switch (nftStore.get(claimToken.nftId)) {
-      case (null) { return #err("NFT not found") };
-      case (?n) { n };
-    };
-    switch (ClaimLib.assertClaimable(masterNft, claimToken)) {
-      case (#err(msg)) { return #err(msg) };
-      case (#ok(())) {};
-    };
-    // Atomically: mark token used with incremented count
-    let nowNat = Int.abs(nowNs);
-    let newClaimedCount = claimToken.claimedCount + 1;
-    switch (ClaimLib.useToken(claimTokenStore, claimersStore, token, caller, nowNs, newClaimedCount)) {
-      case (#err(msg)) { return #err(msg) };
-      case (#ok(_)) {};
-    };
-    // [H2] Counter ordering fix: compute newId from nextNftId.value, build the
-    // NFT, and add it to nftStore FIRST. Only bump nextNftId.value AFTER the
-    // add succeeds. If nftStore.add traps, the counter is NOT bumped (the
-    // trap propagates before the bump line). The previous bug bumped
-    // nextNftId.value BEFORE the add, so a failed add would skip an id.
-    let newId = nextNftId.value;
-    let newNftUniqueId = selfCanisterId.value # ":0:" # newId.toText();
-    let newAuditEntry : Common.AuditEntry = {
-      action = "NFT_CLAIMED";
-      caller;
-      timestamp = nowNat;
-      details = ?("Claimed via token: " # token);
-    };
-    let newNft : NftTypes.Nft = {
-      masterNft with
-      id = newId;
-      ownerId = caller;
-      edition = newClaimedCount.toText() # "/" # claimToken.supplyLimit.toText();
-      claimedAt = ?nowNat;
-      collectionId = null;
-      status = #active;
-      nftUniqueId = newNftUniqueId;
-      auditHistory = [newAuditEntry];
-    };
-    nftStore.add(newId, newNft);
-    // [H2] Bump the counter LAST, after the add succeeded.
-    nextNftId.value += 1;
-    // Append to global audit log
-    let globalEntry : Common.AuditEntry = {
-      action = "NFT_CLAIMED";
-      caller;
-      timestamp = nowNat;
-      details = ?("NFT " # newId.toText() # " claimed by " # caller.toText() # " token=" # token);
-    };
-    globalAuditLog.pushBack(globalEntry);
-    // Cap audit log at 500 entries
-    if (globalAuditLog.size() > 500) {
-      ignore globalAuditLog.popFront();
-    };
-    #ok(newNft)
   };
 
   /// Public (unauthenticated): retrieve NFT metadata for the claim page preview.

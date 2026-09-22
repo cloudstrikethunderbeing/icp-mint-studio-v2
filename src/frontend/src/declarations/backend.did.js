@@ -35,6 +35,11 @@ export const Collection = IDL.Record({
   'description' : IDL.Text,
   'maxSize' : IDL.Nat,
 });
+export const EligiblePendingEntry = IDL.Record({
+  'thresholdTier' : IDL.Nat,
+  'referrerPrincipal' : IDL.Principal,
+  'enqueuedAt' : Timestamp,
+});
 export const AuditEntry = IDL.Record({
   'action' : IDL.Text,
   'timestamp' : Timestamp,
@@ -55,6 +60,10 @@ export const RewardTier = IDL.Variant({
   'platinum' : IDL.Null,
   'silver' : IDL.Null,
 });
+export const RewardType = IDL.Variant({
+  'none' : IDL.Null,
+  'referralBonus' : IDL.Null,
+});
 export const Nft = IDL.Record({
   'id' : IDL.Nat,
   'status' : NftStatus,
@@ -63,6 +72,7 @@ export const Nft = IDL.Record({
   'imageBlob' : ExternalBlob,
   'edition' : IDL.Text,
   'collectionId' : IDL.Opt(IDL.Nat),
+  'referralThreshold' : IDL.Nat,
   'ownerId' : IDL.Principal,
   'discountCode' : IDL.Opt(IDL.Text),
   'tags' : IDL.Vec(IDL.Text),
@@ -74,6 +84,7 @@ export const Nft = IDL.Record({
   'claimedAt' : IDL.Opt(IDL.Nat),
   'auditHistory' : IDL.Vec(AuditEntry),
   'rewardTier' : RewardTier,
+  'rewardType' : RewardType,
   'assetHash' : IDL.Text,
   'membershipId' : IDL.Opt(IDL.Text),
   'nftUniqueId' : IDL.Text,
@@ -95,6 +106,11 @@ export const PaymentProof = IDL.Record({
   'tierRequested' : IDL.Text,
   'networkType' : IDL.Text,
 });
+export const ReferralCodeMapping = IDL.Record({
+  'code' : IDL.Text,
+  'createdAt' : Timestamp,
+  'referrerPrincipal' : IDL.Principal,
+});
 export const AlertType = IDL.Variant({
   'mint_confirmation' : IDL.Null,
   'draft_purge' : IDL.Null,
@@ -105,6 +121,7 @@ export const UserProfile = IDL.Record({
   'creditsTotal' : IDL.Nat,
   'oisyWalletAddress' : IDL.Opt(IDL.Text),
   'emailAlerts' : IDL.Vec(AlertType),
+  'referralCode' : IDL.Opt(IDL.Text),
   'emailVerified' : IDL.Bool,
   'maxSlots' : IDL.Nat,
   'createdAt' : Timestamp,
@@ -113,9 +130,11 @@ export const UserProfile = IDL.Record({
   'email' : IDL.Opt(IDL.Text),
   'stripeProductId' : IDL.Opt(IDL.Text),
   'activeSlots' : IDL.Nat,
+  'referralsCount' : IDL.Nat,
   'creditsUsed' : IDL.Nat,
   'principalId' : IDL.Principal,
   'creditsResetAt' : Timestamp,
+  'awardedTiers' : IDL.Vec(IDL.Nat),
 });
 export const _ImmutableObjectStorageCreateCertificateResult = IDL.Record({
   'method' : IDL.Text,
@@ -129,9 +148,14 @@ export const _ImmutableObjectStorageRefillResult = IDL.Record({
   'topped_up_amount' : IDL.Opt(IDL.Nat),
 });
 export const Result_2 = IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text });
+export const BatchAwardConfig = IDL.Record({
+  'delaySeconds' : IDL.Nat,
+  'cappedPerCycle' : IDL.Nat,
+  'batchSize' : IDL.Nat,
+});
 export const Result_3 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
-export const Result_8 = IDL.Variant({ 'ok' : Nft, 'err' : IDL.Text });
-export const Result_7 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
+export const Result_10 = IDL.Variant({ 'ok' : Nft, 'err' : IDL.Text });
+export const Result_9 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
 export const CollectionId = IDL.Nat;
 export const CollectionSummary = IDL.Record({
   'id' : CollectionId,
@@ -157,7 +181,7 @@ export const ClaimPreview = IDL.Record({
   'supplyLimit' : IDL.Nat,
   'claimedCount' : IDL.Nat,
 });
-export const Result_6 = IDL.Variant({ 'ok' : ClaimPreview, 'err' : IDL.Text });
+export const Result_8 = IDL.Variant({ 'ok' : ClaimPreview, 'err' : IDL.Text });
 export const ClaimStatus = IDL.Record({
   'supplyLimit' : IDL.Nat,
   'token' : IDL.Text,
@@ -165,7 +189,7 @@ export const ClaimStatus = IDL.Record({
   'claimedBy' : IDL.Opt(IDL.Principal),
   'claimedCount' : IDL.Nat,
 });
-export const Result_5 = IDL.Variant({ 'ok' : ClaimStatus, 'err' : IDL.Text });
+export const Result_7 = IDL.Variant({ 'ok' : ClaimStatus, 'err' : IDL.Text });
 export const HealthMetrics = IDL.Record({
   'claimedNfts' : IDL.Nat,
   'storageUsage' : IDL.Nat,
@@ -178,6 +202,11 @@ export const HealthMetrics = IDL.Record({
   'activeNfts' : IDL.Nat,
   'canisterId' : IDL.Text,
 });
+export const MyReferralStatus = IDL.Record({
+  'referralCode' : IDL.Opt(IDL.Text),
+  'referralsCount' : IDL.Nat,
+  'awardedTiers' : IDL.Vec(IDL.Nat),
+});
 export const NftClaimBreakdownEntry = IDL.Record({
   'supplyLimit' : IDL.Nat,
   'title' : IDL.Text,
@@ -188,6 +217,14 @@ export const NftClaimCount = IDL.Record({
   'supplyLimit' : IDL.Nat,
   'nftId' : IDL.Nat,
   'claimedCount' : IDL.Nat,
+});
+export const ReferralHealthMetrics = IDL.Record({
+  'totalReferralsCounted' : IDL.Nat,
+  'totalReferralCodes' : IDL.Nat,
+  'eligiblePendingQueueLengthPerTier' : IDL.Vec(IDL.Nat),
+  'eligiblePendingCount' : IDL.Nat,
+  'remainingBonusSupply' : IDL.Nat,
+  'bonusNftsAutoAwarded' : IDL.Nat,
 });
 export const CollectionWithCount = IDL.Record({
   'id' : IDL.Nat,
@@ -201,7 +238,7 @@ export const CollectionWithCount = IDL.Record({
   'nftCount' : IDL.Nat,
   'maxSize' : IDL.Nat,
 });
-export const Result_4 = IDL.Variant({
+export const Result_6 = IDL.Variant({
   'ok' : IDL.Record({
     'id' : IDL.Nat,
     'tokenId' : IDL.Nat,
@@ -210,9 +247,28 @@ export const Result_4 = IDL.Variant({
   }),
   'err' : IDL.Record({ 'message' : IDL.Text }),
 });
+export const RecordReferralResult = IDL.Record({
+  'newlyEligiblePending' : IDL.Bool,
+  'thresholdTier' : IDL.Opt(IDL.Nat),
+  'referrerPrincipal' : IDL.Principal,
+  'newReferralsCount' : IDL.Nat,
+});
+export const Result_5 = IDL.Variant({
+  'ok' : RecordReferralResult,
+  'err' : IDL.Text,
+});
 export const RenameCollectionRequest = IDL.Record({
   'collectionId' : CollectionId,
   'newName' : IDL.Text,
+});
+export const BatchAwardResult = IDL.Record({
+  'hitCycleCap' : IDL.Bool,
+  'awardedThisCycle' : IDL.Nat,
+  'remainingPending' : IDL.Nat,
+});
+export const Result_4 = IDL.Variant({
+  'ok' : BatchAwardResult,
+  'err' : IDL.Text,
 });
 export const TransferResult = IDL.Record({
   'newOwnerPrincipal' : IDL.Opt(IDL.Text),
@@ -256,6 +312,7 @@ export const Result = IDL.Variant({ 'ok' : VerifyResult, 'err' : IDL.Text });
 export const idlService = IDL.Service({
   '__adminPrincipals' : IDL.Func([], [IDL.Reserved], ['query']),
   '__backendBuildTimestamp' : IDL.Func([], [IDL.Reserved], ['query']),
+  '__batchAwardConfig' : IDL.Func([], [IDL.Reserved], ['query']),
   '__claimTokenStore' : IDL.Func(
       [IDL.Opt(IDL.Text), IDL.Opt(IDL.Nat)],
       [IDL.Vec(IDL.Tuple(IDL.Text, ClaimToken))],
@@ -268,6 +325,11 @@ export const idlService = IDL.Service({
       ['query'],
     ),
   '__creatorIndex' : IDL.Func([], [IDL.Reserved], ['query']),
+  '__eligiblePendingStore' : IDL.Func(
+      [IDL.Opt(IDL.Principal), IDL.Opt(IDL.Nat)],
+      [IDL.Vec(IDL.Tuple(IDL.Principal, EligiblePendingEntry))],
+      ['query'],
+    ),
   '__globalAuditLog' : IDL.Func(
       [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
       [IDL.Vec(AuditEntry)],
@@ -293,6 +355,16 @@ export const idlService = IDL.Service({
       ['query'],
     ),
   '__rateLimitStore' : IDL.Func([], [IDL.Reserved], ['query']),
+  '__referralCodeStore' : IDL.Func(
+      [IDL.Opt(IDL.Text), IDL.Opt(IDL.Nat)],
+      [IDL.Vec(IDL.Tuple(IDL.Text, ReferralCodeMapping))],
+      ['query'],
+    ),
+  '__referrerCodeIndex' : IDL.Func(
+      [IDL.Opt(IDL.Principal), IDL.Opt(IDL.Nat)],
+      [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Text))],
+      ['query'],
+    ),
   '__selfCanisterId' : IDL.Func([], [IDL.Reserved], ['query']),
   '__stripeConfigStore' : IDL.Func([], [IDL.Reserved], ['query']),
   '__userStore' : IDL.Func(
@@ -329,9 +401,17 @@ export const idlService = IDL.Service({
   '_immutableObjectStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
   'addAdmin' : IDL.Func([IDL.Principal], [IDL.Bool], []),
   'addNftToCollection' : IDL.Func([IDL.Nat, IDL.Nat], [Result_2], []),
+  'adminPurgeEligiblePending' : IDL.Func([IDL.Principal], [IDL.Bool], []),
+  'adminSetNftReferralThreshold' : IDL.Func([IDL.Nat, IDL.Nat], [Result_2], []),
+  'adminSetNftRewardType' : IDL.Func([IDL.Nat, RewardType], [Result_2], []),
+  'adminUpdateBatchAwardConfig' : IDL.Func(
+      [BatchAwardConfig],
+      [BatchAwardConfig],
+      [],
+    ),
   'approvePaymentProof' : IDL.Func([IDL.Text], [Result_3], []),
   'burnNft' : IDL.Func([IDL.Nat], [Result_2], []),
-  'claimNft' : IDL.Func([IDL.Text], [Result_8], []),
+  'claimNft' : IDL.Func([IDL.Text, IDL.Opt(IDL.Text)], [Result_10], []),
   'createCheckoutSession' : IDL.Func(
       [
         IDL.Vec(IDL.Record({ 'name' : IDL.Text, 'price' : IDL.Nat })),
@@ -341,8 +421,8 @@ export const idlService = IDL.Service({
       [IDL.Text],
       [],
     ),
-  'createCollection' : IDL.Func([IDL.Text, IDL.Text], [Result_7], []),
-  'createSlot' : IDL.Func([], [Result_7], []),
+  'createCollection' : IDL.Func([IDL.Text, IDL.Text], [Result_9], []),
+  'createSlot' : IDL.Func([], [Result_9], []),
   'deleteCollection' : IDL.Func([IDL.Nat], [], []),
   'deleteCollectionAndUnassignNfts' : IDL.Func(
       [CollectionId],
@@ -358,8 +438,19 @@ export const idlService = IDL.Service({
   'getCallerProfile' : IDL.Func([], [UserProfile], []),
   'getCanisterId' : IDL.Func([], [IDL.Text], ['query']),
   'getCanisterIdSafe' : IDL.Func([], [IDL.Text], ['query']),
-  'getClaimPreview' : IDL.Func([IDL.Text], [Result_6], ['query']),
-  'getClaimStatus' : IDL.Func([IDL.Nat], [Result_5], ['query']),
+  'getCatalogIntegrity' : IDL.Func(
+      [],
+      [
+        IDL.Record({
+          'myActiveNftCount' : IDL.Nat,
+          'totalNftCount' : IDL.Nat,
+          'myNftCount' : IDL.Nat,
+        }),
+      ],
+      ['query'],
+    ),
+  'getClaimPreview' : IDL.Func([IDL.Text], [Result_8], ['query']),
+  'getClaimStatus' : IDL.Func([IDL.Nat], [Result_7], ['query']),
   'getClaimedNfts' : IDL.Func([], [IDL.Nat], ['query']),
   'getCollection' : IDL.Func([IDL.Nat], [IDL.Opt(Collection)], ['query']),
   'getCollectionIdByName' : IDL.Func(
@@ -381,6 +472,7 @@ export const idlService = IDL.Service({
   'getHealthMetrics' : IDL.Func([], [HealthMetrics], ['query']),
   'getMetricsCanisterId' : IDL.Func([], [IDL.Text], ['query']),
   'getMyPaymentProofs' : IDL.Func([], [IDL.Vec(PaymentProof)], ['query']),
+  'getMyReferralStatus' : IDL.Func([], [IDL.Opt(MyReferralStatus)], ['query']),
   'getNft' : IDL.Func([IDL.Nat], [IDL.Opt(Nft)], ['query']),
   'getNftClaimBreakdown' : IDL.Func(
       [],
@@ -388,6 +480,8 @@ export const idlService = IDL.Service({
       ['query'],
     ),
   'getNftClaimCounts' : IDL.Func([], [IDL.Vec(NftClaimCount)], ['query']),
+  'getOrCreateMyReferralCode' : IDL.Func([], [Result_3], []),
+  'getReferralHealthMetrics' : IDL.Func([], [ReferralHealthMetrics], ['query']),
   'getSlotsStatus' : IDL.Func(
       [],
       [
@@ -395,6 +489,18 @@ export const idlService = IDL.Service({
           'total' : IDL.Nat,
           'used' : IDL.Nat,
           'remaining' : IDL.Nat,
+        }),
+      ],
+      ['query'],
+    ),
+  'getStableStateIntegrity' : IDL.Func(
+      [],
+      [
+        IDL.Record({
+          'collectionCount' : IDL.Nat,
+          'nftCount' : IDL.Nat,
+          'claimTokenCount' : IDL.Nat,
+          'userCount' : IDL.Nat,
         }),
       ],
       ['query'],
@@ -414,12 +520,14 @@ export const idlService = IDL.Service({
   'getTotalCollections' : IDL.Func([], [IDL.Nat], ['query']),
   'getTotalCreators' : IDL.Func([], [IDL.Nat], ['query']),
   'getTotalMinted' : IDL.Func([], [IDL.Nat], ['query']),
+  'getTotalNftCount' : IDL.Func([], [IDL.Nat], ['query']),
   'getTotalNfts' : IDL.Func([], [IDL.Nat], ['query']),
   'hasRealAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'isAdmin' : IDL.Func([], [IDL.Bool], ['query']),
   'isLiveCanister' : IDL.Func([], [IDL.Bool], ['query']),
   'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
   'listAdmins' : IDL.Func([], [IDL.Vec(IDL.Principal)], ['query']),
+  'listAllNfts' : IDL.Func([], [IDL.Vec(Nft)], ['query']),
   'listMyActiveNfts' : IDL.Func([], [IDL.Vec(Nft)], ['query']),
   'listMyCollections' : IDL.Func([], [IDL.Vec(CollectionWithCount)], ['query']),
   'listMyNfts' : IDL.Func([], [IDL.Vec(Nft)], ['query']),
@@ -437,9 +545,10 @@ export const idlService = IDL.Service({
         IDL.Opt(IDL.Text),
         IDL.Nat,
       ],
-      [Result_4],
+      [Result_6],
       [],
     ),
+  'recordReferral' : IDL.Func([IDL.Text], [Result_5], []),
   'rejectPaymentProof' : IDL.Func([IDL.Text, IDL.Text], [Result_3], []),
   'removeAdmin' : IDL.Func([IDL.Principal], [IDL.Bool], []),
   'removeNftFromCollection' : IDL.Func([IDL.Nat, IDL.Nat], [Result_2], []),
@@ -448,6 +557,7 @@ export const idlService = IDL.Service({
       [CollectionSummary],
       [],
     ),
+  'runBatchAwardCycle' : IDL.Func([], [Result_4], []),
   'saveCallerProfile' : IDL.Func([UserProfile], [], []),
   'schema' : IDL.Func([], [IDL.Text], ['query']),
   'searchNfts' : IDL.Func([IDL.Text], [IDL.Vec(Nft)], ['query']),
@@ -512,6 +622,11 @@ export const idlFactory = ({ IDL }) => {
     'description' : IDL.Text,
     'maxSize' : IDL.Nat,
   });
+  const EligiblePendingEntry = IDL.Record({
+    'thresholdTier' : IDL.Nat,
+    'referrerPrincipal' : IDL.Principal,
+    'enqueuedAt' : Timestamp,
+  });
   const AuditEntry = IDL.Record({
     'action' : IDL.Text,
     'timestamp' : Timestamp,
@@ -532,6 +647,10 @@ export const idlFactory = ({ IDL }) => {
     'platinum' : IDL.Null,
     'silver' : IDL.Null,
   });
+  const RewardType = IDL.Variant({
+    'none' : IDL.Null,
+    'referralBonus' : IDL.Null,
+  });
   const Nft = IDL.Record({
     'id' : IDL.Nat,
     'status' : NftStatus,
@@ -540,6 +659,7 @@ export const idlFactory = ({ IDL }) => {
     'imageBlob' : ExternalBlob,
     'edition' : IDL.Text,
     'collectionId' : IDL.Opt(IDL.Nat),
+    'referralThreshold' : IDL.Nat,
     'ownerId' : IDL.Principal,
     'discountCode' : IDL.Opt(IDL.Text),
     'tags' : IDL.Vec(IDL.Text),
@@ -551,6 +671,7 @@ export const idlFactory = ({ IDL }) => {
     'claimedAt' : IDL.Opt(IDL.Nat),
     'auditHistory' : IDL.Vec(AuditEntry),
     'rewardTier' : RewardTier,
+    'rewardType' : RewardType,
     'assetHash' : IDL.Text,
     'membershipId' : IDL.Opt(IDL.Text),
     'nftUniqueId' : IDL.Text,
@@ -572,6 +693,11 @@ export const idlFactory = ({ IDL }) => {
     'tierRequested' : IDL.Text,
     'networkType' : IDL.Text,
   });
+  const ReferralCodeMapping = IDL.Record({
+    'code' : IDL.Text,
+    'createdAt' : Timestamp,
+    'referrerPrincipal' : IDL.Principal,
+  });
   const AlertType = IDL.Variant({
     'mint_confirmation' : IDL.Null,
     'draft_purge' : IDL.Null,
@@ -582,6 +708,7 @@ export const idlFactory = ({ IDL }) => {
     'creditsTotal' : IDL.Nat,
     'oisyWalletAddress' : IDL.Opt(IDL.Text),
     'emailAlerts' : IDL.Vec(AlertType),
+    'referralCode' : IDL.Opt(IDL.Text),
     'emailVerified' : IDL.Bool,
     'maxSlots' : IDL.Nat,
     'createdAt' : Timestamp,
@@ -590,9 +717,11 @@ export const idlFactory = ({ IDL }) => {
     'email' : IDL.Opt(IDL.Text),
     'stripeProductId' : IDL.Opt(IDL.Text),
     'activeSlots' : IDL.Nat,
+    'referralsCount' : IDL.Nat,
     'creditsUsed' : IDL.Nat,
     'principalId' : IDL.Principal,
     'creditsResetAt' : Timestamp,
+    'awardedTiers' : IDL.Vec(IDL.Nat),
   });
   const _ImmutableObjectStorageCreateCertificateResult = IDL.Record({
     'method' : IDL.Text,
@@ -606,9 +735,14 @@ export const idlFactory = ({ IDL }) => {
     'topped_up_amount' : IDL.Opt(IDL.Nat),
   });
   const Result_2 = IDL.Variant({ 'ok' : IDL.Null, 'err' : IDL.Text });
+  const BatchAwardConfig = IDL.Record({
+    'delaySeconds' : IDL.Nat,
+    'cappedPerCycle' : IDL.Nat,
+    'batchSize' : IDL.Nat,
+  });
   const Result_3 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
-  const Result_8 = IDL.Variant({ 'ok' : Nft, 'err' : IDL.Text });
-  const Result_7 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
+  const Result_10 = IDL.Variant({ 'ok' : Nft, 'err' : IDL.Text });
+  const Result_9 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
   const CollectionId = IDL.Nat;
   const CollectionSummary = IDL.Record({
     'id' : CollectionId,
@@ -634,7 +768,7 @@ export const idlFactory = ({ IDL }) => {
     'supplyLimit' : IDL.Nat,
     'claimedCount' : IDL.Nat,
   });
-  const Result_6 = IDL.Variant({ 'ok' : ClaimPreview, 'err' : IDL.Text });
+  const Result_8 = IDL.Variant({ 'ok' : ClaimPreview, 'err' : IDL.Text });
   const ClaimStatus = IDL.Record({
     'supplyLimit' : IDL.Nat,
     'token' : IDL.Text,
@@ -642,7 +776,7 @@ export const idlFactory = ({ IDL }) => {
     'claimedBy' : IDL.Opt(IDL.Principal),
     'claimedCount' : IDL.Nat,
   });
-  const Result_5 = IDL.Variant({ 'ok' : ClaimStatus, 'err' : IDL.Text });
+  const Result_7 = IDL.Variant({ 'ok' : ClaimStatus, 'err' : IDL.Text });
   const HealthMetrics = IDL.Record({
     'claimedNfts' : IDL.Nat,
     'storageUsage' : IDL.Nat,
@@ -655,6 +789,11 @@ export const idlFactory = ({ IDL }) => {
     'activeNfts' : IDL.Nat,
     'canisterId' : IDL.Text,
   });
+  const MyReferralStatus = IDL.Record({
+    'referralCode' : IDL.Opt(IDL.Text),
+    'referralsCount' : IDL.Nat,
+    'awardedTiers' : IDL.Vec(IDL.Nat),
+  });
   const NftClaimBreakdownEntry = IDL.Record({
     'supplyLimit' : IDL.Nat,
     'title' : IDL.Text,
@@ -665,6 +804,14 @@ export const idlFactory = ({ IDL }) => {
     'supplyLimit' : IDL.Nat,
     'nftId' : IDL.Nat,
     'claimedCount' : IDL.Nat,
+  });
+  const ReferralHealthMetrics = IDL.Record({
+    'totalReferralsCounted' : IDL.Nat,
+    'totalReferralCodes' : IDL.Nat,
+    'eligiblePendingQueueLengthPerTier' : IDL.Vec(IDL.Nat),
+    'eligiblePendingCount' : IDL.Nat,
+    'remainingBonusSupply' : IDL.Nat,
+    'bonusNftsAutoAwarded' : IDL.Nat,
   });
   const CollectionWithCount = IDL.Record({
     'id' : IDL.Nat,
@@ -678,7 +825,7 @@ export const idlFactory = ({ IDL }) => {
     'nftCount' : IDL.Nat,
     'maxSize' : IDL.Nat,
   });
-  const Result_4 = IDL.Variant({
+  const Result_6 = IDL.Variant({
     'ok' : IDL.Record({
       'id' : IDL.Nat,
       'tokenId' : IDL.Nat,
@@ -687,10 +834,26 @@ export const idlFactory = ({ IDL }) => {
     }),
     'err' : IDL.Record({ 'message' : IDL.Text }),
   });
+  const RecordReferralResult = IDL.Record({
+    'newlyEligiblePending' : IDL.Bool,
+    'thresholdTier' : IDL.Opt(IDL.Nat),
+    'referrerPrincipal' : IDL.Principal,
+    'newReferralsCount' : IDL.Nat,
+  });
+  const Result_5 = IDL.Variant({
+    'ok' : RecordReferralResult,
+    'err' : IDL.Text,
+  });
   const RenameCollectionRequest = IDL.Record({
     'collectionId' : CollectionId,
     'newName' : IDL.Text,
   });
+  const BatchAwardResult = IDL.Record({
+    'hitCycleCap' : IDL.Bool,
+    'awardedThisCycle' : IDL.Nat,
+    'remainingPending' : IDL.Nat,
+  });
+  const Result_4 = IDL.Variant({ 'ok' : BatchAwardResult, 'err' : IDL.Text });
   const TransferResult = IDL.Record({
     'newOwnerPrincipal' : IDL.Opt(IDL.Text),
     'error' : IDL.Opt(IDL.Text),
@@ -733,6 +896,7 @@ export const idlFactory = ({ IDL }) => {
   return IDL.Service({
     '__adminPrincipals' : IDL.Func([], [IDL.Reserved], ['query']),
     '__backendBuildTimestamp' : IDL.Func([], [IDL.Reserved], ['query']),
+    '__batchAwardConfig' : IDL.Func([], [IDL.Reserved], ['query']),
     '__claimTokenStore' : IDL.Func(
         [IDL.Opt(IDL.Text), IDL.Opt(IDL.Nat)],
         [IDL.Vec(IDL.Tuple(IDL.Text, ClaimToken))],
@@ -745,6 +909,11 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     '__creatorIndex' : IDL.Func([], [IDL.Reserved], ['query']),
+    '__eligiblePendingStore' : IDL.Func(
+        [IDL.Opt(IDL.Principal), IDL.Opt(IDL.Nat)],
+        [IDL.Vec(IDL.Tuple(IDL.Principal, EligiblePendingEntry))],
+        ['query'],
+      ),
     '__globalAuditLog' : IDL.Func(
         [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
         [IDL.Vec(AuditEntry)],
@@ -770,6 +939,16 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     '__rateLimitStore' : IDL.Func([], [IDL.Reserved], ['query']),
+    '__referralCodeStore' : IDL.Func(
+        [IDL.Opt(IDL.Text), IDL.Opt(IDL.Nat)],
+        [IDL.Vec(IDL.Tuple(IDL.Text, ReferralCodeMapping))],
+        ['query'],
+      ),
+    '__referrerCodeIndex' : IDL.Func(
+        [IDL.Opt(IDL.Principal), IDL.Opt(IDL.Nat)],
+        [IDL.Vec(IDL.Tuple(IDL.Principal, IDL.Text))],
+        ['query'],
+      ),
     '__selfCanisterId' : IDL.Func([], [IDL.Reserved], ['query']),
     '__stripeConfigStore' : IDL.Func([], [IDL.Reserved], ['query']),
     '__userStore' : IDL.Func(
@@ -806,9 +985,21 @@ export const idlFactory = ({ IDL }) => {
     '_immutableObjectStorageUpdateGatewayPrincipals' : IDL.Func([], [], []),
     'addAdmin' : IDL.Func([IDL.Principal], [IDL.Bool], []),
     'addNftToCollection' : IDL.Func([IDL.Nat, IDL.Nat], [Result_2], []),
+    'adminPurgeEligiblePending' : IDL.Func([IDL.Principal], [IDL.Bool], []),
+    'adminSetNftReferralThreshold' : IDL.Func(
+        [IDL.Nat, IDL.Nat],
+        [Result_2],
+        [],
+      ),
+    'adminSetNftRewardType' : IDL.Func([IDL.Nat, RewardType], [Result_2], []),
+    'adminUpdateBatchAwardConfig' : IDL.Func(
+        [BatchAwardConfig],
+        [BatchAwardConfig],
+        [],
+      ),
     'approvePaymentProof' : IDL.Func([IDL.Text], [Result_3], []),
     'burnNft' : IDL.Func([IDL.Nat], [Result_2], []),
-    'claimNft' : IDL.Func([IDL.Text], [Result_8], []),
+    'claimNft' : IDL.Func([IDL.Text, IDL.Opt(IDL.Text)], [Result_10], []),
     'createCheckoutSession' : IDL.Func(
         [
           IDL.Vec(IDL.Record({ 'name' : IDL.Text, 'price' : IDL.Nat })),
@@ -818,8 +1009,8 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Text],
         [],
       ),
-    'createCollection' : IDL.Func([IDL.Text, IDL.Text], [Result_7], []),
-    'createSlot' : IDL.Func([], [Result_7], []),
+    'createCollection' : IDL.Func([IDL.Text, IDL.Text], [Result_9], []),
+    'createSlot' : IDL.Func([], [Result_9], []),
     'deleteCollection' : IDL.Func([IDL.Nat], [], []),
     'deleteCollectionAndUnassignNfts' : IDL.Func(
         [CollectionId],
@@ -835,8 +1026,19 @@ export const idlFactory = ({ IDL }) => {
     'getCallerProfile' : IDL.Func([], [UserProfile], []),
     'getCanisterId' : IDL.Func([], [IDL.Text], ['query']),
     'getCanisterIdSafe' : IDL.Func([], [IDL.Text], ['query']),
-    'getClaimPreview' : IDL.Func([IDL.Text], [Result_6], ['query']),
-    'getClaimStatus' : IDL.Func([IDL.Nat], [Result_5], ['query']),
+    'getCatalogIntegrity' : IDL.Func(
+        [],
+        [
+          IDL.Record({
+            'myActiveNftCount' : IDL.Nat,
+            'totalNftCount' : IDL.Nat,
+            'myNftCount' : IDL.Nat,
+          }),
+        ],
+        ['query'],
+      ),
+    'getClaimPreview' : IDL.Func([IDL.Text], [Result_8], ['query']),
+    'getClaimStatus' : IDL.Func([IDL.Nat], [Result_7], ['query']),
     'getClaimedNfts' : IDL.Func([], [IDL.Nat], ['query']),
     'getCollection' : IDL.Func([IDL.Nat], [IDL.Opt(Collection)], ['query']),
     'getCollectionIdByName' : IDL.Func(
@@ -858,6 +1060,11 @@ export const idlFactory = ({ IDL }) => {
     'getHealthMetrics' : IDL.Func([], [HealthMetrics], ['query']),
     'getMetricsCanisterId' : IDL.Func([], [IDL.Text], ['query']),
     'getMyPaymentProofs' : IDL.Func([], [IDL.Vec(PaymentProof)], ['query']),
+    'getMyReferralStatus' : IDL.Func(
+        [],
+        [IDL.Opt(MyReferralStatus)],
+        ['query'],
+      ),
     'getNft' : IDL.Func([IDL.Nat], [IDL.Opt(Nft)], ['query']),
     'getNftClaimBreakdown' : IDL.Func(
         [],
@@ -865,6 +1072,12 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'getNftClaimCounts' : IDL.Func([], [IDL.Vec(NftClaimCount)], ['query']),
+    'getOrCreateMyReferralCode' : IDL.Func([], [Result_3], []),
+    'getReferralHealthMetrics' : IDL.Func(
+        [],
+        [ReferralHealthMetrics],
+        ['query'],
+      ),
     'getSlotsStatus' : IDL.Func(
         [],
         [
@@ -872,6 +1085,18 @@ export const idlFactory = ({ IDL }) => {
             'total' : IDL.Nat,
             'used' : IDL.Nat,
             'remaining' : IDL.Nat,
+          }),
+        ],
+        ['query'],
+      ),
+    'getStableStateIntegrity' : IDL.Func(
+        [],
+        [
+          IDL.Record({
+            'collectionCount' : IDL.Nat,
+            'nftCount' : IDL.Nat,
+            'claimTokenCount' : IDL.Nat,
+            'userCount' : IDL.Nat,
           }),
         ],
         ['query'],
@@ -891,12 +1116,14 @@ export const idlFactory = ({ IDL }) => {
     'getTotalCollections' : IDL.Func([], [IDL.Nat], ['query']),
     'getTotalCreators' : IDL.Func([], [IDL.Nat], ['query']),
     'getTotalMinted' : IDL.Func([], [IDL.Nat], ['query']),
+    'getTotalNftCount' : IDL.Func([], [IDL.Nat], ['query']),
     'getTotalNfts' : IDL.Func([], [IDL.Nat], ['query']),
     'hasRealAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'isAdmin' : IDL.Func([], [IDL.Bool], ['query']),
     'isLiveCanister' : IDL.Func([], [IDL.Bool], ['query']),
     'isStripeConfigured' : IDL.Func([], [IDL.Bool], ['query']),
     'listAdmins' : IDL.Func([], [IDL.Vec(IDL.Principal)], ['query']),
+    'listAllNfts' : IDL.Func([], [IDL.Vec(Nft)], ['query']),
     'listMyActiveNfts' : IDL.Func([], [IDL.Vec(Nft)], ['query']),
     'listMyCollections' : IDL.Func(
         [],
@@ -918,9 +1145,10 @@ export const idlFactory = ({ IDL }) => {
           IDL.Opt(IDL.Text),
           IDL.Nat,
         ],
-        [Result_4],
+        [Result_6],
         [],
       ),
+    'recordReferral' : IDL.Func([IDL.Text], [Result_5], []),
     'rejectPaymentProof' : IDL.Func([IDL.Text, IDL.Text], [Result_3], []),
     'removeAdmin' : IDL.Func([IDL.Principal], [IDL.Bool], []),
     'removeNftFromCollection' : IDL.Func([IDL.Nat, IDL.Nat], [Result_2], []),
@@ -929,6 +1157,7 @@ export const idlFactory = ({ IDL }) => {
         [CollectionSummary],
         [],
       ),
+    'runBatchAwardCycle' : IDL.Func([], [Result_4], []),
     'saveCallerProfile' : IDL.Func([UserProfile], [], []),
     'schema' : IDL.Func([], [IDL.Text], ['query']),
     'searchNfts' : IDL.Func([IDL.Text], [IDL.Vec(Nft)], ['query']),

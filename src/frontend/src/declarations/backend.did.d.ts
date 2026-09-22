@@ -20,6 +20,16 @@ export interface AuditEntry {
   'details' : [] | [string],
   'caller' : Principal,
 }
+export interface BatchAwardConfig {
+  'delaySeconds' : bigint,
+  'cappedPerCycle' : bigint,
+  'batchSize' : bigint,
+}
+export interface BatchAwardResult {
+  'hitCycleCap' : boolean,
+  'awardedThisCycle' : bigint,
+  'remainingPending' : bigint,
+}
 export interface Cell { 'value' : Value, 'name' : string }
 export interface ClaimPreview {
   'nft' : Nft,
@@ -73,6 +83,11 @@ export interface CollectionWithCount {
   'maxSize' : bigint,
 }
 export type CreatorId = string;
+export interface EligiblePendingEntry {
+  'thresholdTier' : bigint,
+  'referrerPrincipal' : Principal,
+  'enqueuedAt' : Timestamp,
+}
 export type ExternalBlob = Uint8Array;
 export interface HealthMetrics {
   'claimedNfts' : bigint,
@@ -86,6 +101,11 @@ export interface HealthMetrics {
   'activeNfts' : bigint,
   'canisterId' : string,
 }
+export interface MyReferralStatus {
+  'referralCode' : [] | [string],
+  'referralsCount' : bigint,
+  'awardedTiers' : Array<bigint>,
+}
 export interface Nft {
   'id' : bigint,
   'status' : NftStatus,
@@ -94,6 +114,7 @@ export interface Nft {
   'imageBlob' : ExternalBlob,
   'edition' : string,
   'collectionId' : [] | [bigint],
+  'referralThreshold' : bigint,
   'ownerId' : Principal,
   'discountCode' : [] | [string],
   'tags' : Array<string>,
@@ -105,6 +126,7 @@ export interface Nft {
   'claimedAt' : [] | [bigint],
   'auditHistory' : Array<AuditEntry>,
   'rewardTier' : RewardTier,
+  'rewardType' : RewardType,
   'assetHash' : string,
   'membershipId' : [] | [string],
   'nftUniqueId' : string,
@@ -138,6 +160,25 @@ export interface PaymentProof {
 export type PaymentProofStatus = { 'pending' : null } |
   { 'approved' : null } |
   { 'rejected' : null };
+export interface RecordReferralResult {
+  'newlyEligiblePending' : boolean,
+  'thresholdTier' : [] | [bigint],
+  'referrerPrincipal' : Principal,
+  'newReferralsCount' : bigint,
+}
+export interface ReferralCodeMapping {
+  'code' : string,
+  'createdAt' : Timestamp,
+  'referrerPrincipal' : Principal,
+}
+export interface ReferralHealthMetrics {
+  'totalReferralsCounted' : bigint,
+  'totalReferralCodes' : bigint,
+  'eligiblePendingQueueLengthPerTier' : Array<bigint>,
+  'eligiblePendingCount' : bigint,
+  'remainingBonusSupply' : bigint,
+  'bonusNftsAutoAwarded' : bigint,
+}
 export interface RenameCollectionRequest {
   'collectionId' : CollectionId,
   'newName' : string,
@@ -146,11 +187,17 @@ export type Result = { 'ok' : VerifyResult } |
   { 'err' : string };
 export type Result_1 = { 'ok' : Array<VerifyResult> } |
   { 'err' : string };
+export type Result_10 = { 'ok' : Nft } |
+  { 'err' : string };
 export type Result_2 = { 'ok' : null } |
   { 'err' : string };
 export type Result_3 = { 'ok' : string } |
   { 'err' : string };
-export type Result_4 = {
+export type Result_4 = { 'ok' : BatchAwardResult } |
+  { 'err' : string };
+export type Result_5 = { 'ok' : RecordReferralResult } |
+  { 'err' : string };
+export type Result_6 = {
     'ok' : {
       'id' : bigint,
       'tokenId' : bigint,
@@ -159,13 +206,11 @@ export type Result_4 = {
     }
   } |
   { 'err' : { 'message' : string } };
-export type Result_5 = { 'ok' : ClaimStatus } |
+export type Result_7 = { 'ok' : ClaimStatus } |
   { 'err' : string };
-export type Result_6 = { 'ok' : ClaimPreview } |
+export type Result_8 = { 'ok' : ClaimPreview } |
   { 'err' : string };
-export type Result_7 = { 'ok' : bigint } |
-  { 'err' : string };
-export type Result_8 = { 'ok' : Nft } |
+export type Result_9 = { 'ok' : bigint } |
   { 'err' : string };
 export interface Result__1 { 'hasMore' : boolean, 'rows' : Array<Array<Cell>> }
 export type RewardTier = { 'bronze' : null } |
@@ -173,6 +218,8 @@ export type RewardTier = { 'bronze' : null } |
   { 'none' : null } |
   { 'platinum' : null } |
   { 'silver' : null };
+export type RewardType = { 'none' : null } |
+  { 'referralBonus' : null };
 export type SubscriptionTier = { 'org' : null } |
   { 'pro' : null } |
   { 'creator' : null } |
@@ -195,6 +242,7 @@ export interface UserProfile {
   'creditsTotal' : bigint,
   'oisyWalletAddress' : [] | [string],
   'emailAlerts' : Array<AlertType>,
+  'referralCode' : [] | [string],
   'emailVerified' : boolean,
   'maxSlots' : bigint,
   'createdAt' : Timestamp,
@@ -203,9 +251,11 @@ export interface UserProfile {
   'email' : [] | [string],
   'stripeProductId' : [] | [string],
   'activeSlots' : bigint,
+  'referralsCount' : bigint,
   'creditsUsed' : bigint,
   'principalId' : Principal,
   'creditsResetAt' : Timestamp,
+  'awardedTiers' : Array<bigint>,
 }
 export type Value = { 'int' : bigint } |
   { 'nat' : bigint } |
@@ -247,6 +297,7 @@ export interface _ImmutableObjectStorageRefillResult {
 export interface _SERVICE {
   '__adminPrincipals' : ActorMethod<[], any>,
   '__backendBuildTimestamp' : ActorMethod<[], any>,
+  '__batchAwardConfig' : ActorMethod<[], any>,
   '__claimTokenStore' : ActorMethod<
     [[] | [string], [] | [bigint]],
     Array<[string, ClaimToken]>
@@ -257,6 +308,10 @@ export interface _SERVICE {
     Array<[bigint, Collection]>
   >,
   '__creatorIndex' : ActorMethod<[], any>,
+  '__eligiblePendingStore' : ActorMethod<
+    [[] | [Principal], [] | [bigint]],
+    Array<[Principal, EligiblePendingEntry]>
+  >,
   '__globalAuditLog' : ActorMethod<
     [[] | [bigint], [] | [bigint]],
     Array<AuditEntry>
@@ -278,6 +333,14 @@ export interface _SERVICE {
     Array<[string, PaymentProof]>
   >,
   '__rateLimitStore' : ActorMethod<[], any>,
+  '__referralCodeStore' : ActorMethod<
+    [[] | [string], [] | [bigint]],
+    Array<[string, ReferralCodeMapping]>
+  >,
+  '__referrerCodeIndex' : ActorMethod<
+    [[] | [Principal], [] | [bigint]],
+    Array<[Principal, string]>
+  >,
   '__selfCanisterId' : ActorMethod<[], any>,
   '__stripeConfigStore' : ActorMethod<[], any>,
   '__userStore' : ActorMethod<
@@ -305,15 +368,22 @@ export interface _SERVICE {
   '_immutableObjectStorageUpdateGatewayPrincipals' : ActorMethod<[], undefined>,
   'addAdmin' : ActorMethod<[Principal], boolean>,
   'addNftToCollection' : ActorMethod<[bigint, bigint], Result_2>,
+  'adminPurgeEligiblePending' : ActorMethod<[Principal], boolean>,
+  'adminSetNftReferralThreshold' : ActorMethod<[bigint, bigint], Result_2>,
+  'adminSetNftRewardType' : ActorMethod<[bigint, RewardType], Result_2>,
+  'adminUpdateBatchAwardConfig' : ActorMethod<
+    [BatchAwardConfig],
+    BatchAwardConfig
+  >,
   'approvePaymentProof' : ActorMethod<[string], Result_3>,
   'burnNft' : ActorMethod<[bigint], Result_2>,
-  'claimNft' : ActorMethod<[string], Result_8>,
+  'claimNft' : ActorMethod<[string, [] | [string]], Result_10>,
   'createCheckoutSession' : ActorMethod<
     [Array<{ 'name' : string, 'price' : bigint }>, string, string],
     string
   >,
-  'createCollection' : ActorMethod<[string, string], Result_7>,
-  'createSlot' : ActorMethod<[], Result_7>,
+  'createCollection' : ActorMethod<[string, string], Result_9>,
+  'createSlot' : ActorMethod<[], Result_9>,
   'deleteCollection' : ActorMethod<[bigint], undefined>,
   'deleteCollectionAndUnassignNfts' : ActorMethod<
     [CollectionId],
@@ -328,8 +398,16 @@ export interface _SERVICE {
   'getCallerProfile' : ActorMethod<[], UserProfile>,
   'getCanisterId' : ActorMethod<[], string>,
   'getCanisterIdSafe' : ActorMethod<[], string>,
-  'getClaimPreview' : ActorMethod<[string], Result_6>,
-  'getClaimStatus' : ActorMethod<[bigint], Result_5>,
+  'getCatalogIntegrity' : ActorMethod<
+    [],
+    {
+      'myActiveNftCount' : bigint,
+      'totalNftCount' : bigint,
+      'myNftCount' : bigint,
+    }
+  >,
+  'getClaimPreview' : ActorMethod<[string], Result_8>,
+  'getClaimStatus' : ActorMethod<[bigint], Result_7>,
   'getClaimedNfts' : ActorMethod<[], bigint>,
   'getCollection' : ActorMethod<[bigint], [] | [Collection]>,
   'getCollectionIdByName' : ActorMethod<[string], [] | [CollectionId]>,
@@ -340,12 +418,24 @@ export interface _SERVICE {
   'getHealthMetrics' : ActorMethod<[], HealthMetrics>,
   'getMetricsCanisterId' : ActorMethod<[], string>,
   'getMyPaymentProofs' : ActorMethod<[], Array<PaymentProof>>,
+  'getMyReferralStatus' : ActorMethod<[], [] | [MyReferralStatus]>,
   'getNft' : ActorMethod<[bigint], [] | [Nft]>,
   'getNftClaimBreakdown' : ActorMethod<[], Array<NftClaimBreakdownEntry>>,
   'getNftClaimCounts' : ActorMethod<[], Array<NftClaimCount>>,
+  'getOrCreateMyReferralCode' : ActorMethod<[], Result_3>,
+  'getReferralHealthMetrics' : ActorMethod<[], ReferralHealthMetrics>,
   'getSlotsStatus' : ActorMethod<
     [],
     { 'total' : bigint, 'used' : bigint, 'remaining' : bigint }
+  >,
+  'getStableStateIntegrity' : ActorMethod<
+    [],
+    {
+      'collectionCount' : bigint,
+      'nftCount' : bigint,
+      'claimTokenCount' : bigint,
+      'userCount' : bigint,
+    }
   >,
   'getStorageUsage' : ActorMethod<[], bigint>,
   'getStripeSessionStatus' : ActorMethod<[string], { 'status' : string }>,
@@ -357,12 +447,14 @@ export interface _SERVICE {
   'getTotalCollections' : ActorMethod<[], bigint>,
   'getTotalCreators' : ActorMethod<[], bigint>,
   'getTotalMinted' : ActorMethod<[], bigint>,
+  'getTotalNftCount' : ActorMethod<[], bigint>,
   'getTotalNfts' : ActorMethod<[], bigint>,
   'hasRealAdmin' : ActorMethod<[], boolean>,
   'isAdmin' : ActorMethod<[], boolean>,
   'isLiveCanister' : ActorMethod<[], boolean>,
   'isStripeConfigured' : ActorMethod<[], boolean>,
   'listAdmins' : ActorMethod<[], Array<Principal>>,
+  'listAllNfts' : ActorMethod<[], Array<Nft>>,
   'listMyActiveNfts' : ActorMethod<[], Array<Nft>>,
   'listMyCollections' : ActorMethod<[], Array<CollectionWithCount>>,
   'listMyNfts' : ActorMethod<[], Array<Nft>>,
@@ -380,8 +472,9 @@ export interface _SERVICE {
       [] | [string],
       bigint,
     ],
-    Result_4
+    Result_6
   >,
+  'recordReferral' : ActorMethod<[string], Result_5>,
   'rejectPaymentProof' : ActorMethod<[string, string], Result_3>,
   'removeAdmin' : ActorMethod<[Principal], boolean>,
   'removeNftFromCollection' : ActorMethod<[bigint, bigint], Result_2>,
@@ -389,6 +482,7 @@ export interface _SERVICE {
     [RenameCollectionRequest],
     CollectionSummary
   >,
+  'runBatchAwardCycle' : ActorMethod<[], Result_4>,
   'saveCallerProfile' : ActorMethod<[UserProfile], undefined>,
   'schema' : ActorMethod<[], string>,
   'searchNfts' : ActorMethod<[string], Array<Nft>>,

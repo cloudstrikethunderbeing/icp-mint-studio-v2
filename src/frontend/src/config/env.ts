@@ -1,7 +1,15 @@
 // Runtime environment loader.
 // The backend canister ID is resolved at RUNTIME by fetching /env.json,
 // which the platform injects at deploy time. This is the SINGLE source of truth
-// for the backend canister ID. There is NO bake-time fallback and NO draft fallback.
+// for the backend canister ID. There is NO bake-time fallback and NO draft
+// fallback, and NO hardcoded live-canister pin.
+//
+// Rotation defense: the deploy-injected /env.json value is authoritative and
+// correct for the CURRENT deployment (draft or live). We trust it as the
+// expected canister. We throw loudly ONLY when the resolved ID is missing or
+// empty (so we never silently fall back to a rotated/recycled canister). The
+// actor-level check (getCanisterIdSafe() vs the deploy-injected ID) and the
+// empty-backend health check (getTotalNftCount) live in useBackendHealth.
 
 export interface RuntimeEnv {
   backend_canister_id: string;
@@ -82,5 +90,11 @@ export function getEnv(): Promise<RuntimeEnv> {
 
 export async function getBackendCanisterId(): Promise<string> {
   const env = await getEnv();
+  // The deploy-injected /env.json value is authoritative and correct for the
+  // CURRENT deployment (draft or live). loadEnv() already throws loudly when
+  // backend_canister_id is missing or empty, so we never silently fall back to
+  // a rotated/recycled canister. We do NOT compare against a hardcoded live
+  // canister here — that would break the draft deployment. The actor-level
+  // mismatch check (getCanisterIdSafe vs this ID) happens in useBackendHealth.
   return env.backend_canister_id;
 }

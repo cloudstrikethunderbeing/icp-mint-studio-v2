@@ -1,6 +1,13 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Library, Settings, Shield, Sparkles, User } from "lucide-react";
+import {
+  HelpCircle,
+  Library,
+  Settings,
+  Shield,
+  Sparkles,
+  User,
+} from "lucide-react";
 import { devLog } from "../utils/devLog";
 
 interface BottomNavProps {
@@ -27,6 +34,12 @@ export function BottomNav({ shell }: BottomNavProps) {
           ocid: "nav.collector.library",
         },
         { to: "/verify", label: "Verify", Icon: Shield, ocid: "nav.verify" },
+        {
+          to: "/how-it-works",
+          label: "How It Works",
+          Icon: HelpCircle,
+          ocid: "nav.how_it_works",
+        },
         { to: "/profile", label: "Profile", Icon: User, ocid: "nav.profile" },
         {
           to: "/settings",
@@ -36,7 +49,15 @@ export function BottomNav({ shell }: BottomNavProps) {
         },
         { to: "/", label: "Studio", Icon: Sparkles, ocid: "nav.studio" },
       ]
-    : [{ to: "/verify", label: "Verify", Icon: Shield, ocid: "nav.verify" }];
+    : [
+        { to: "/verify", label: "Verify", Icon: Shield, ocid: "nav.verify" },
+        {
+          to: "/how-it-works",
+          label: "How It Works",
+          Icon: HelpCircle,
+          ocid: "nav.how_it_works",
+        },
+      ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border safe-area-inset-bottom">

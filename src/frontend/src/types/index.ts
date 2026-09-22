@@ -42,7 +42,25 @@ export type {
   AuditEntry,
   VerifyResult,
   PaymentProof,
+  MyReferralStatus,
+  ReferralHealthMetrics,
+  BatchAwardConfig,
+  RewardType,
 } from "@/backend";
+
+// ── Referral status ──────────────────────────────────────────────────────────
+// Banner state derived from the caller's MyReferralStatus. The backend exposes
+// referralsCount + awardedTiers; the frontend decides which banner copy to show
+// based on whether a bonus NFT is claimable yet (eligible-pending) or has been
+// auto-awarded and is waiting to be viewed (newly-awarded).
+//
+// - "none": caller has no referral activity worth surfacing.
+// - "eligible-pending": referralsCount meets the threshold but no bonus NFT
+//   has been auto-awarded yet. We must NOT tell the user to claim — nothing is
+//   claimable. Copy explains a reward is on the way.
+// - "newly-awarded": a bonus NFT was auto-awarded and is waiting to be
+//   claimed/viewed in the Dashboard/Library. Copy directs the user to claim.
+export type ReferralBannerState = "none" | "eligible-pending" | "newly-awarded";
 
 // Tier display name mapping
 export const TIER_PRODUCT_MAP: Record<string, string> = {

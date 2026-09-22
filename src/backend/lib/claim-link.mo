@@ -3,9 +3,13 @@ import Result "mo:core/Result";
 import Principal "mo:core/Principal";
 import Set "mo:core/Set";
 import Array "mo:core/Array";
+import Int "mo:core/Int";
+import Time "mo:core/Time";
+import Queue "mo:core/Queue";
 import NftTypes "../types/nft";
 import NftLib "../lib/nft";
 import ClaimTypes "../types/claim-link";
+import Common "../types/common";
 import Nat8 "mo:core/Nat8";
 
 module {
@@ -227,5 +231,161 @@ module {
         };
       },
     )
+  };
+
+  /// NON-PUBLIC canonical claim/mint path. Contains the canonical validation
+  /// flow (anonymous reject, [H3] rate limit, token validation, supply cap,
+  /// assertClaimable, atomic useToken, [H2] counter-ordering, new NFT copy).
+  /// This is the SAME flow the public claimNft uses; extracting it as a public
+  /// lib function lets the claim-link mixin, the referral auto-award, and the
+  /// retroactive batch-award REUSE the canonical mint path instead of creating
+  /// a parallel mint.
+  ///
+  /// `claimer` is the principal who will own the new NFT copy. For a public
+  /// claim this is the caller; for an auto-award this is the referrer; for a
+  /// batch-award this is the eligible-pending referrer. `ref` is the optional
+  /// referral code presented by the claimant — it is ONLY acted on by the
+  /// PUBLIC claimNft wrapper (which records the referral + triggers the
+  /// auto-award AFTER this internal func returns #ok). When the auto-award or
+  /// batch-award calls this internal func, it passes `null` for ref so no
+  /// referral is recorded on an auto-award (the referrer is being awarded,
+  /// not referring).
+  ///
+  /// All needed stores are passed as params so this function is stateless and
+  /// callable from any mixin that has access to the shared claim-link stores.
+  public func claimNftInternal(
+    claimer : Principal,
+    token : Text,
+    ref : ?Text,
+    nftStore : NftLib.NftStore,
+    claimTokenStore : ClaimTokenStore,
+    claimersStore : ClaimersStore,
+    globalAuditLog : Queue.Queue<Common.AuditEntry>,
+    nextNftId : { var value : Nat },
+    selfCanisterId : { var value : Text },
+    claimRateLimitStore : Map.Map<Principal, { var lastClaimSec : Int }>,
+  ) : Result.Result<NftTypes.Nft, Text> {
+    // Reject anonymous claimers — a real principal is required to own the
+    // new NFT copy. (For auto-award/batch-award the referrer always has a
+    // profile, so this is a defensive guard.)
+    if (claimer.isAnonymous()) {
+      return #err("Authentication required to claim an NFT");
+    };
+    // [H3] Per-principal rate limit: 1 claim per 60 SECONDS per principal.
+    // Uses the DEDICATED claimRateLimitStore (NOT the shared rateLimitStore)
+    // so the NFT mint limiter's window resets cannot interfere. Compares
+    // elapsed in SECONDS (Time.now() / 1_000_000_000), NOT nanoseconds — the
+    // pre-existing NFT limiter bug compares nanoseconds, which is why this
+    // store is separate. NOTE: the auto-award reuses this same limiter, so a
+    // referrer who just claimed is rate-limited from receiving an auto-award
+    // within the same 60s window — this is intentional (the auto-award will
+    // be retried by the next batch-award cycle if it cannot fire now).
+    let nowNs : Int = Time.now();
+    let nowSec : Int = nowNs / 1_000_000_000;
+    let claimWindowSec : Int = 60;
+    switch (claimRateLimitStore.get(claimer)) {
+      case (null) {
+        let entry = { var lastClaimSec = nowSec };
+        claimRateLimitStore.add(claimer, entry);
+      };
+      case (?entry) {
+        let elapsed : Int = nowSec - entry.lastClaimSec;
+        if (elapsed < claimWindowSec) {
+          return #err("Rate limit exceeded: please wait at least 60 seconds between claims");
+        };
+        entry.lastClaimSec := nowSec;
+        claimRateLimitStore.add(claimer, entry);
+      };
+    };
+    // Validate token exists
+    let claimToken = switch (getToken(claimTokenStore, token)) {
+      case (null) { return #err("Invalid or expired claim token") };
+      case (?ct) { ct };
+    };
+    // Check supply cap
+    if (claimToken.claimedCount >= claimToken.supplyLimit) {
+      return #err("This drop is sold out");
+    };
+    // Fetch master NFT and validate it is active
+    let masterNft = switch (nftStore.get(claimToken.nftId)) {
+      case (null) { return #err("NFT not found") };
+      case (?n) { n };
+    };
+    switch (assertClaimable(masterNft, claimToken)) {
+      case (#err(msg)) { return #err(msg) };
+      case (#ok(())) {};
+    };
+    // Atomically: mark token used with incremented count
+    let nowNat = Int.abs(nowNs);
+    let newClaimedCount = claimToken.claimedCount + 1;
+    switch (useToken(claimTokenStore, claimersStore, token, claimer, nowNs, newClaimedCount)) {
+      case (#err(msg)) { return #err(msg) };
+      case (#ok(_)) {};
+    };
+    // [H2] Counter ordering fix: compute newId from nextNftId.value, build the
+    // NFT, and add it to nftStore FIRST. Only bump nextNftId.value AFTER the
+    // add succeeds. If nftStore.add traps, the counter is NOT bumped (the
+    // trap propagates before the bump line). The previous bug bumped
+    // nextNftId.value BEFORE the add, so a failed add would skip an id.
+    let newId = nextNftId.value;
+    // [NFT-INTEGRITY] Mint-path guard: a claim must be purely additive and
+    // must never overwrite/reset/rebuild existing NFT state. Refuse before
+    // persisting if the id would clobber an existing NFT.
+    switch (NftLib.guardMintAdditive(nftStore, newId)) {
+      case (#err(msg)) { return #err(msg) };
+      case (#ok) {};
+    };
+    // [NFT-INTEGRITY] Snapshot the catalog BEFORE the claim so the post-claim
+    // integrity check can prove the claim was purely additive.
+    let integritySnapshot = NftLib.snapshotIntegrity(nftStore);
+    let newNftUniqueId = selfCanisterId.value # ":0:" # newId.toText();
+    let refDetail : Text = switch (ref) {
+      case (?r) { " ref=" # r };
+      case (null) { "" };
+    };
+    let newAuditEntry : Common.AuditEntry = {
+      action = "NFT_CLAIMED";
+      caller = claimer;
+      timestamp = nowNat;
+      details = ?("Claimed via token: " # token # refDetail);
+    };
+    let newNft : NftTypes.Nft = {
+      masterNft with
+      id = newId;
+      ownerId = claimer;
+      edition = newClaimedCount.toText() # "/" # claimToken.supplyLimit.toText();
+      claimedAt = ?nowNat;
+      collectionId = null;
+      status = #active;
+      nftUniqueId = newNftUniqueId;
+      auditHistory = [newAuditEntry];
+    };
+    nftStore.add(newId, newNft);
+    // [NFT-INTEGRITY] Post-claim integrity check: pre-claim count + 1 must
+    // equal post-claim count AND all pre-existing NFT ids must remain listed.
+    // If it fails, remove the freshly claimed NFT (leaving the catalog
+    // unchanged) and surface a clear error.
+    switch (NftLib.verifyMintIntegrity(nftStore, integritySnapshot, newId)) {
+      case (#err(msg)) {
+        NftLib.removeNft(nftStore, newId);
+        return #err(msg);
+      };
+      case (#ok) {};
+    };
+    // [H2] Bump the counter LAST, after the add succeeded.
+    nextNftId.value += 1;
+    // Append to global audit log
+    let globalEntry : Common.AuditEntry = {
+      action = "NFT_CLAIMED";
+      caller = claimer;
+      timestamp = nowNat;
+      details = ?("NFT " # newId.toText() # " claimed by " # claimer.toText() # " token=" # token # refDetail);
+    };
+    globalAuditLog.pushBack(globalEntry);
+    // Cap audit log at 500 entries
+    if (globalAuditLog.size() > 500) {
+      ignore globalAuditLog.popFront();
+    };
+    #ok(newNft)
   };
 }

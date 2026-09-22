@@ -36,7 +36,8 @@ export async function createAuthenticatedActor(
   }
 
   // Resolve the backend canister ID at RUNTIME from /env.json. Throws
-  // loudly if /env.json is missing/malformed/empty — NO fallback.
+  // loudly if /env.json is missing/malformed/empty — NO fallback. The
+  // deploy-injected value is authoritative for the current deployment.
   const canisterId = await getBackendCanisterId();
 
   // TEMP LOG: actor creation lifecycle

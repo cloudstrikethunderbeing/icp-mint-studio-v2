@@ -1,7 +1,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { devLog } from "@/utils/devLog";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { Diamond, Moon, Sun } from "lucide-react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { Activity, Diamond, HelpCircle, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { NotificationBell } from "./NotificationBell";
 
@@ -11,11 +11,14 @@ interface HeaderProps {
 }
 
 export function Header({ hideNav = false }: HeaderProps) {
-  const { isAuthenticated, login, logout } = useAuth();
+  const { isAuthenticated, login, logout, isAdmin } = useAuth();
   devLog("[RENDER] Header render:", { isAuthenticated });
   const { resolvedTheme, setTheme } = useTheme();
   const navigate = useNavigate();
   const routerState = useRouterState();
+  const currentPath = routerState.location.pathname;
+  const howItWorksActive = currentPath.startsWith("/how-it-works");
+  const healthActive = currentPath.startsWith("/health");
 
   const handleLogoClick = () => {
     const path = routerState.location.pathname;
@@ -53,6 +56,32 @@ export function Header({ hideNav = false }: HeaderProps) {
         </button>
         {!hideNav && (
           <div className="flex items-center gap-3">
+            <Link
+              to="/how-it-works"
+              className={`flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-medium transition-colors ${
+                howItWorksActive
+                  ? "text-accent bg-accent/10"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+              data-ocid="header.how_it_works_link"
+            >
+              <HelpCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">How It Works</span>
+            </Link>
+            {isAdmin && (
+              <Link
+                to="/health"
+                className={`flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-medium transition-colors ${
+                  healthActive
+                    ? "text-accent bg-accent/10"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+                data-ocid="header.health_link"
+              >
+                <Activity className="w-4 h-4" />
+                <span className="hidden sm:inline">Health</span>
+              </Link>
+            )}
             <button
               type="button"
               onClick={toggleTheme}

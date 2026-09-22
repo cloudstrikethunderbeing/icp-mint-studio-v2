@@ -9,6 +9,7 @@ import Runtime "mo:core/Runtime";
 import Storage "mo:caffeineai-object-storage/Storage";
 import Common "../types/common";
 import Types "../types/nft";
+import ReferralTypes "../types/referral-rewards";
 import Iter "mo:core/Iter";
 import Array "mo:core/Array";
 import Char "mo:core/Char";
@@ -17,6 +18,16 @@ import Result "mo:core/Result";
 module {
   public type NftStore = Map.Map<Nat, Types.Nft>;
   public type CollectionStore = Map.Map<Nat, Types.Collection>;
+
+  // Format a Nat8 as a two-digit uppercase hex string (e.g. 0xE2 -> "E2").
+  // Used for unambiguous JPEG marker-tag error messages (tag.toText() emits
+  // decimal, which renders 0xE2 as "226" — confusing in a "0xFF..." context).
+  func nat8ToHex(b : Nat8) : Text {
+    let hexChars = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F"];
+    let high = Nat8.toNat(b / 16);
+    let low = Nat8.toNat(b % 16);
+    hexChars[high] # hexChars[low]
+  };
 
   public func initNftStore() : NftStore {
     Map.empty()
@@ -110,6 +121,12 @@ module {
       tags = [];
       nftUniqueId;
       supplyLimit;
+      // Referral-rewards defaults for a brand-new NFT: not a referral bonus
+      // asset (#none) and the default referral threshold placeholder (3,
+      // admin-tunable via adminSetNftReferralThreshold). Only meaningful when
+      // an admin later flips rewardType to #referralBonus.
+      rewardType = #none;
+      referralThreshold = ReferralTypes.DEFAULT_REFERRAL_THRESHOLD;
     };
     store.add(id, nft);
     nft
@@ -175,6 +192,117 @@ module {
       };
     };
     results.toArray()
+  };
+
+  // [NFT-INTEGRITY] Safe all-NFT listing. Returns EVERY NFT in the store with
+  // NO hardcoded result cap — a capped listing would silently truncate the
+  // catalog at scale, making NFTs appear to "disappear". Read-only O(N) scan
+  // (never destructive, never clears/rebuilds state). The caller (an
+  // admin-gated query in the mixin) decides authorization; this function is
+  // purely a complete, uncapped projection of the store.
+  public func listAllNfts(store : NftStore, canisterId : Text) : [Types.Nft] {
+    let results = List.empty<Types.Nft>();
+    for ((_, nft) in store.entries()) {
+      let nftUniqueId = canisterId # ":0:" # nft.id.toText();
+      results.add({ nft with nftUniqueId });
+    };
+    results.toArray()
+  };
+
+  // [NFT-INTEGRITY] Mint-path integrity guard. A mint must be PURELY ADDITIVE:
+  // it adds exactly one NFT and must never overwrite, reset, or rebuild any
+  // existing NFT state. This guard refuses to mint into an id that already
+  // exists in the store, making the invariant explicit and fail-closed. Since
+  // nextNftId is monotonically increasing this should never fire, but it
+  // guarantees no code path can clobber existing state as a side effect of a
+  // single mint.
+  public func guardMintAdditive(store : NftStore, id : Nat) : Result.Result<(), Text> {
+    switch (store.get(id)) {
+      case (null) { #ok() };
+      case (?_) {
+        #err("Mint integrity guard: NFT id " # id.toText() # " already exists — refusing to overwrite existing state")
+      };
+    }
+  };
+
+  // [NFT-INTEGRITY] Snapshot of the catalog taken BEFORE a mint/claim so the
+  // post-mint integrity check can prove the operation was purely additive.
+  // Captures the pre-mint count and the set of pre-existing NFT ids. Read-only.
+  public type MintIntegrity = {
+    preCount : Nat;
+    preExistingIds : [Nat];
+  };
+
+  // [NFT-INTEGRITY] Captures the pre-mint catalog snapshot. Read-only O(N)
+  // scan; never destructive. Called immediately before a mint/claim persists
+  // its new NFT so verifyMintIntegrity can compare against it afterwards.
+  public func snapshotIntegrity(store : NftStore) : MintIntegrity {
+    let ids = List.empty<Nat>();
+    for ((id, _) in store.entries()) {
+      ids.add(id);
+    };
+    { preCount = store.size(); preExistingIds = ids.toArray() }
+  };
+
+  // [NFT-INTEGRITY] Post-mint integrity check. Verifies the mint/claim was
+  // PURELY ADDITIVE: the post-mint count equals pre-mint count + 1, every
+  // pre-existing NFT id is still listed, and the newly minted id is present.
+  // If any invariant fails, returns #err so the caller can surface a clear
+  // error and roll back the freshly minted NFT (leaving the catalog unchanged).
+  public func verifyMintIntegrity(store : NftStore, snapshot : MintIntegrity, newId : Nat) : Result.Result<(), Text> {
+    let postCount = store.size();
+    let expected = snapshot.preCount + 1;
+    if (postCount != expected) {
+      return #err("Mint integrity check failed: expected post-mint count " # expected.toText() # " but got " # postCount.toText());
+    };
+    for (id in snapshot.preExistingIds.values()) {
+      switch (store.get(id)) {
+        case (null) {
+          return #err("Mint integrity check failed: pre-existing NFT id " # id.toText() # " is missing after mint");
+        };
+        case (?_) {};
+      };
+    };
+    switch (store.get(newId)) {
+      case (null) {
+        return #err("Mint integrity check failed: newly minted NFT id " # newId.toText() # " is not present after mint");
+      };
+      case (?_) {};
+    };
+    #ok()
+  };
+
+  // [NFT-INTEGRITY] Hard-removes a single NFT from the store. Used ONLY as the
+  // rollback for a failed post-mint integrity check, where the freshly minted
+  // NFT must be removed to leave the catalog exactly as it was before the mint.
+  // This is NOT a general delete path — deleteNft/burnNft use softDeleteNft/
+  // burnNft (status transitions) to preserve audit history.
+  public func removeNft(store : NftStore, id : Nat) {
+    store.remove(id);
+  };
+
+  // [NFT-INTEGRITY] Stable-storage integrity guard. Verifies the NFT store is
+  // intact (not wiped to empty by a reinstall/Init-style migration). Returns
+  // the current NFT count so an operator can manually confirm the catalog
+  // survived an upgrade/reinstall. This is a MANUAL diagnostic — it does NOT
+  // perform automated alerting (out of scope).
+  public func countNfts(store : NftStore) : Nat {
+    store.size()
+  };
+
+  // [NFT-INTEGRITY] Count of NFTs owned by a given principal (any status).
+  // Account-scoped counterpart to countNfts (store-wide). Used by the public
+  // getCatalogIntegrity diagnostic so the frontend can distinguish 'catalog is
+  // empty' (store-wide zero) from 'no NFTs for this account' (store has NFTs
+  // but none owned by the caller).
+  public func countNftsByOwner(store : NftStore, ownerId : Principal) : Nat {
+    var count = 0;
+    for ((_, nft) in store.entries()) {
+      if (Principal.equal(nft.ownerId, ownerId)) {
+        count += 1;
+      };
+    };
+    count
   };
 
   public func countActiveNftsByOwner(store : NftStore, ownerId : Principal) : Nat {
@@ -255,6 +383,25 @@ module {
         }
       };
     }
+  };
+
+  // [NFT-INTEGRITY] Redacts the sensitive bearer-style fields (discountCode,
+  // membershipId) from a VerifyResult. Applied ONLY on the PUBLIC verify paths
+  // (verifyNftPublic, verifyNftByCreatorId) so redacted fields are never
+  // re-exposed to unauthenticated callers. Admin-gated surfaces
+  // (verifyNftByCreatorIdWithHistory) keep the full VerifyResult.
+  public func redactVerifyResult(r : Types.VerifyResult) : Types.VerifyResult {
+    { r with discountCode = null; membershipId = null }
+  };
+
+  // [NFT-INTEGRITY] Redacts the sensitive bearer-style fields (discountCode,
+  // membershipId) from a full Nft record. Applied on authenticated query paths
+  // (getNft, listMyNfts, listMyActiveNfts) so redacted fields are never
+  // re-exposed to non-admin callers, consistent with the redaction already
+  // applied to the public verify paths. They remain only in admin-gated
+  // surfaces.
+  public func redactNft(n : Types.Nft) : Types.Nft {
+    { n with discountCode = null; membershipId = null }
   };
 
   public func validateEdition(edition : Text) : { #ok : { current : Nat; total : Nat }; #err : Text } {
@@ -446,16 +593,59 @@ module {
     #ok()
   };
 
+  /// [IMGVAL] Format-dispatched structural validation. Detects the image
+  /// format from magic bytes (the same isJpeg/isPng/isWebp checks used by
+  /// validateTrailingBytes and validateImageFormat) and runs ONLY the matching
+  /// structural validator. A JPEG runs validateJpegMarkers and skips the PNG
+  /// and WebP validators entirely (and symmetrically for PNG/WebP). An unknown
+  /// format returns #ok — by the time this runs, validateImageFormat has
+  /// already rejected anything that is not JPEG/PNG/WebP, so reaching the
+  /// else-branch with #ok preserves the existing early-return behavior.
+  /// Pure function — unit-testable without canister/auth context.
+  public func validateStructure(imageBlob : Storage.ExternalBlob) : Result.Result<(), ImageFormatError> {
+    let blobSize = imageBlob.size();
+    let isJpeg = blobSize >= 3
+      and imageBlob[0] == 0xFF
+      and imageBlob[1] == 0xD8
+      and imageBlob[2] == 0xFF;
+    let isPng = blobSize >= 4
+      and imageBlob[0] == 0x89
+      and imageBlob[1] == 0x50
+      and imageBlob[2] == 0x4E
+      and imageBlob[3] == 0x47;
+    let isWebp = blobSize >= 12
+      and imageBlob[0] == 0x52
+      and imageBlob[1] == 0x49
+      and imageBlob[2] == 0x46
+      and imageBlob[3] == 0x46
+      and imageBlob[8] == 0x57
+      and imageBlob[9] == 0x45
+      and imageBlob[10] == 0x42
+      and imageBlob[11] == 0x50;
+    if (isJpeg) {
+      validateJpegMarkers(imageBlob);
+    } else if (isPng) {
+      validatePngChunks(imageBlob);
+    } else if (isWebp) {
+      validateWebpChunks(imageBlob);
+    } else {
+      // Unknown format — validateImageFormat already rejected it earlier;
+      // preserve the existing early-return behavior by passing through.
+      #ok();
+    };
+  };
+
   /// JPEG marker allowlist walk. After SOI (FF D8), walk markers and allow only:
   /// SOI (FFD8), SOF0 (FFC0), SOF2 (FFC2), DHT (FFC4), DQT (FFDB), SOS (FFDA),
-  /// EOI (FFD9), RSTn (FFD0-FFD7), APP0/JFIF (FFE0). Reject COM (FFFE), reserved
-  /// JPG (FFC8), JPGn (FFF0-FFFD), APP1/EXIF (FFE1), and any non-allowlisted
-  /// marker. SOI and EOI have 0-length segments (no length field); every other
-  /// allowlisted marker is followed by a 2-byte big-endian length that includes
-  /// its own 2 bytes, and the segment must fit within the blob. SOS is followed
-  /// by entropy-coded data terminated by the next marker (no length walk past
-  /// SOS — scan for the next FF-prefixed marker, skipping FF 00 stuffing).
-  /// Pure function — unit-testable without canister/auth context.
+  /// EOI (FFD9), RSTn (FFD0-FFD7), APP0/JFIF (FFE0), APP2/ICC (FFE2). Reject
+  /// COM (FFFE), reserved JPG (FFC8), JPGn (FFF0-FFFD), APP1/EXIF (FFE1), and
+  /// any non-allowlisted marker. SOI and EOI have 0-length segments (no length
+  /// field); every other allowlisted marker is followed by a 2-byte big-endian
+  /// length that includes its own 2 bytes, and the segment must fit within the
+  /// blob. SOS is followed by entropy-coded data terminated by the next marker
+  /// (no length walk past SOS — scan for the next FF-prefixed marker, skipping
+  /// FF 00 stuffing). Pure function — unit-testable without canister/auth
+  /// context.
   public func validateJpegMarkers(imageBlob : Storage.ExternalBlob) : Result.Result<(), ImageFormatError> {
     let blobSize = imageBlob.size();
     // Must start with SOI (FF D8).
@@ -519,7 +709,8 @@ module {
         continue;
       };
       // Allowlisted markers with a 2-byte length field:
-      //   SOF0 (C0), SOF2 (C2), DHT (C4), DQT (DB), SOS (DA), APP0/JFIF (E0).
+      //   SOF0 (C0), SOF2 (C2), DHT (C4), DQT (DB), SOS (DA), APP0/JFIF (E0),
+      //   APP2/ICC (E2).
       let isAllowlisted = switch (tag) {
         case (0xC0) true; // SOF0
         case (0xC2) true; // SOF2
@@ -527,23 +718,24 @@ module {
         case (0xDB) true; // DQT
         case (0xDA) true; // SOS
         case (0xE0) true; // APP0/JFIF
+        case (0xE2) true; // APP2/ICC color profile
         case (_) false;
       };
       if (not isAllowlisted) {
         // Explicitly rejected markers (fail-closed with a specific message):
         if (tag == 0xFE) {
-          return #err({ message = "Invalid JPEG: COM marker not allowed" });
+          return #err({ message = "Invalid JPEG: COM marker not allowed (0xFFFE)" });
         };
         if (tag == 0xC8) {
-          return #err({ message = "Invalid JPEG: reserved JPG marker not allowed" });
+          return #err({ message = "Invalid JPEG: reserved JPG marker not allowed (0xFFC8)" });
         };
         if (tag >= 0xF0 and tag <= 0xFD) {
-          return #err({ message = "Invalid JPEG: JPGn marker not allowed" });
+          return #err({ message = "Invalid JPEG: JPGn marker not allowed (0xFF" # nat8ToHex(tag) # ")" });
         };
         if (tag == 0xE1) {
-          return #err({ message = "Invalid JPEG: APP1/EXIF marker not allowed" });
+          return #err({ message = "Invalid JPEG: APP1/EXIF marker not allowed (0xFFE1)" });
         };
-        return #err({ message = "Invalid JPEG: non-allowlisted marker 0xFF" # tag.toText() });
+        return #err({ message = "Invalid JPEG: non-allowlisted marker 0xFF" # nat8ToHex(tag) });
       };
       // Need 2 bytes for the length field after the tag byte.
       let lenOffset = markerStart + 1;

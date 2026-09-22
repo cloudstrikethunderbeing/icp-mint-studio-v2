@@ -1,4 +1,4 @@
-import type { Nft, VerifyResult } from "@/backend";
+import { type Nft, RewardType, type VerifyResult } from "@/backend";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +22,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   useAddNftToCollection,
+  useAdminSetNftReferralThreshold,
+  useAdminSetNftRewardType,
   useCollections,
   useGenerateClaimLink,
   useGetClaimStatus,
@@ -94,6 +96,10 @@ export function NftDetailModal({
   const [editDiscountCode, setEditDiscountCode] = useState("");
   const [editMembershipId, setEditMembershipId] = useState("");
   const [editRewardTier, setEditRewardTier] = useState<RewardTier>("none");
+  const [editRewardType, setEditRewardType] = useState<RewardType>(
+    RewardType.none,
+  );
+  const [editReferralThreshold, setEditReferralThreshold] = useState<number>(3);
   const [editTags, setEditTags] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [editSuccess, setEditSuccess] = useState(false);
@@ -130,6 +136,8 @@ export function NftDetailModal({
     setShowEdit(false);
     setEditError(null);
     setEditSuccess(false);
+    setEditRewardType(RewardType.none);
+    setEditReferralThreshold(3);
   }, [nftId]);
   const [collectionActionError, setCollectionActionError] = useState<
     string | null
@@ -153,6 +161,10 @@ export function NftDetailModal({
   const addToCollection = useAddNftToCollection();
   const removeFromCollection = useRemoveNftFromCollection();
   const generateClaimLink = useGenerateClaimLink();
+  // Admin-only referral metadata setters. Applied to the NFT directly via
+  // dedicated admin endpoints (not part of the generic updateMetadata flow).
+  const setNftRewardType = useAdminSetNftRewardType(isAdmin);
+  const setNftReferralThreshold = useAdminSetNftReferralThreshold(isAdmin);
   const [claimLinkError, setClaimLinkError] = useState<string | null>(null);
   // Fetch existing claim status for this NFT (admin only, only when modal is open)
   const { data: claimStatusData, isLoading: claimStatusLoading } =
@@ -281,6 +293,10 @@ export function NftDetailModal({
     setEditDiscountCode(nft.discountCode ?? "");
     setEditMembershipId(nft.membershipId ?? "");
     setEditRewardTier((nft.rewardTier as RewardTier) ?? "none");
+    setEditRewardType((nft.rewardType as RewardType) ?? "none");
+    setEditReferralThreshold(
+      nft.referralThreshold !== undefined ? Number(nft.referralThreshold) : 3,
+    );
     setEditTags((nft.tags ?? []).join(", "));
     setEditError(null);
     setEditSuccess(false);
@@ -305,6 +321,30 @@ export function NftDetailModal({
     };
     try {
       await updateMetadata.mutateAsync({ nftId: nft.id, updates });
+      // Admin-only referral metadata. Fire only when the value actually
+      // changed from the current NFT record, to avoid no-op admin writes.
+      if (isAdmin) {
+        const currentRewardType = (nft.rewardType as RewardType) ?? "none";
+        if (editRewardType !== currentRewardType) {
+          await setNftRewardType.mutateAsync({
+            nftId: nft.id,
+            rewardType: editRewardType,
+          });
+        }
+        const currentThreshold =
+          nft.referralThreshold !== undefined
+            ? Number(nft.referralThreshold)
+            : 3;
+        if (
+          editRewardType === "referralBonus" &&
+          editReferralThreshold !== currentThreshold
+        ) {
+          await setNftReferralThreshold.mutateAsync({
+            nftId: nft.id,
+            threshold: BigInt(editReferralThreshold),
+          });
+        }
+      }
       setEditSuccess(true);
       setTimeout(() => {
         setShowEdit(false);
@@ -595,6 +635,31 @@ export function NftDetailModal({
                 </dd>
               </div>
             )}
+            {nft.rewardType && nft.rewardType !== "none" && (
+              <div className="flex flex-col gap-0.5">
+                <dt className="text-xs text-muted-foreground">Reward Type</dt>
+                <dd>
+                  <span
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 border border-primary/20 text-primary text-[11px] font-medium"
+                    data-ocid="nft_detail.reward_type_badge"
+                  >
+                    {nft.rewardType === "referralBonus"
+                      ? "Referral Bonus"
+                      : nft.rewardType}
+                  </span>
+                </dd>
+              </div>
+            )}
+            {nft.rewardType === "referralBonus" &&
+              nft.referralThreshold !== undefined &&
+              nft.referralThreshold > 0n && (
+                <MetaRow
+                  label="Referral Threshold"
+                  value={`${nft.referralThreshold.toString()} referral${
+                    nft.referralThreshold === 1n ? "" : "s"
+                  } (codes never expire)`}
+                />
+              )}
             {nft.tags && nft.tags.length > 0 && (
               <MetaRow label="Tags" value={nft.tags.join(", ")} />
             )}
@@ -804,6 +869,46 @@ export function NftDetailModal({
                   <option value="platinum">Platinum</option>
                 </select>
               </div>
+              {isAdmin && (
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">
+                    Reward Type
+                  </Label>
+                  <select
+                    value={editRewardType}
+                    onChange={(e) =>
+                      setEditRewardType(e.target.value as RewardType)
+                    }
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-xs text-foreground"
+                    data-ocid="nft_detail.edit_reward_type"
+                  >
+                    <option value="none">None</option>
+                    <option value="referralBonus">Referral Bonus</option>
+                  </select>
+                </div>
+              )}
+              {isAdmin && editRewardType === "referralBonus" && (
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">
+                    Referral Threshold
+                  </Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={editReferralThreshold}
+                    onChange={(e) =>
+                      setEditReferralThreshold(Number(e.target.value))
+                    }
+                    placeholder="3"
+                    className="text-xs"
+                    data-ocid="nft_detail.edit_referral_threshold"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    Number of referrals required to award this bonus NFT. Codes
+                    never expire.
+                  </p>
+                </div>
+              )}
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">
                   Tags (comma-separated)
@@ -831,10 +936,16 @@ export function NftDetailModal({
                   type="submit"
                   size="sm"
                   className="flex-1"
-                  disabled={updateMetadata.isPending}
+                  disabled={
+                    updateMetadata.isPending ||
+                    setNftRewardType.isPending ||
+                    setNftReferralThreshold.isPending
+                  }
                   data-ocid="nft_detail.edit_save_button"
                 >
-                  {updateMetadata.isPending ? (
+                  {updateMetadata.isPending ||
+                  setNftRewardType.isPending ||
+                  setNftReferralThreshold.isPending ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     "Save"

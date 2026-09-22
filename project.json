@@ -1,18 +1,17 @@
 {
-  "overview": "ICP Mint Studio with per-NFT claim-count visibility in the admin Health tab and public Library cards.",
+  "overview": "ICP Mint Studio is an NFT minting and collection platform where users mint, own, and track NFTs with stats and analytics.",
   "features": [
-    "Per-NFT claim-count breakdown in admin Health tab",
-    "Public claim-count indicator on Library NFT cards",
-    "Public read-only claim-count backend query",
-    "Admin batch claim-count backend query"
+    "Mint NFTs with a defensive additive-only path",
+    "Browse your NFT library with clear empty states",
+    "Track minting stats and analytics",
+    "Distinguish a recycled draft canister from a real data bug"
   ],
   "category": "productivity",
   "tags": [
     "nft",
-    "claims",
-    "admin",
-    "library",
-    "icp"
+    "minting",
+    "collection",
+    "analytics"
   ],
-  "last_updated": "2026-07-26T03:21:54.161Z"
+  "last_updated": "2026-08-26T01:23:10.630Z"
 }

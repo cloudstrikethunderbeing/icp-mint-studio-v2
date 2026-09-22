@@ -51,6 +51,13 @@ module {
       maxSlots = getMaxSlotsForTier(#free);
       createdAt = timestamp;
       stripeProductId = null;
+      // Referral-rewards defaults for a brand-new profile: no code yet (the
+      // caller generates one on demand via getOrCreateMyReferralCode), zero
+      // referrals counted, and no awarded tiers. NO EXPIRY — codes never
+      // expire once generated.
+      referralCode = null;
+      referralsCount = 0;
+      awardedTiers = [];
     };
     store.add(principalId, profile);
     profile

@@ -7,7 +7,7 @@ import { getBackendCanisterId } from "@/config/env";
 import { useAuth } from "@/contexts/AuthContext";
 import { addNotification } from "@/hooks/useNotifications";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import {
   AlertCircle,
   CheckCircle2,
@@ -69,6 +69,17 @@ export default function ClaimPage() {
   const { claimToken } = useParams({ strict: false }) as {
     claimToken: string;
   };
+  // Read the optional ?ref=<code> query param from the URL. The backend's
+  // claimNft signature is now (token, ?ref) — the referrer's referral code is
+  // passed through so the backend can attribute the claim to the referrer and
+  // increment their referralsCount. Anonymous/organic claims pass null.
+  // useSearch({ strict: false }) returns the parsed search params; we cast to
+  // a string | undefined and normalize to string | null for the backend call.
+  const search = useSearch({ strict: false }) as Record<string, unknown>;
+  const refParam =
+    typeof search?.ref === "string" && search.ref.trim().length > 0
+      ? search.ref.trim()
+      : null;
   const { isAuthenticated, login, principal, actor, isFetching } = useAuth();
   devLog("[RENDER] ClaimPage render:", {
     isAuthenticated,
@@ -162,7 +173,10 @@ export default function ClaimPage() {
     setIsClaiming(true);
     setClaimError(null);
     try {
-      const result = await actor.claimNft(claimToken);
+      // claimNft signature is (token, ?ref). Pass the referrer's referral
+      // code from the ?ref= query param so the backend attributes the claim
+      // to the referrer. Null for organic/anonymous claims.
+      const result = await actor.claimNft(claimToken, refParam);
       if (result.__kind__ === "ok") {
         const nftUniqueId = result.ok.nftUniqueId;
         // Store minimal snapshot for navigation guard only

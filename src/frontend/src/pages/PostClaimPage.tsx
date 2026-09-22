@@ -1,10 +1,13 @@
+import { RewardType } from "@/backend";
 import { NftDetailModal } from "@/components/NftDetailModal";
+import { ReferralBanner } from "@/components/ReferralBanner";
+import { ShareOnXButton } from "@/components/ShareOnXButton";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { useNftDetailQuery } from "@/hooks/useQueries";
+import { useMyReferralStatus, useNftDetailQuery } from "@/hooks/useQueries";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { CheckCircle2, Sparkles, Wallet } from "lucide-react";
+import { CheckCircle2, Share2, Sparkles, Wallet } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 export default function PostClaimPage() {
@@ -51,6 +54,16 @@ export default function PostClaimPage() {
   // Fetch fresh canonical NFT data from backend using the nftUniqueId
   const { data: freshNftResult } = useNftDetailQuery(claimedNft?.nftUniqueId);
 
+  // Pull the caller's referral code from the already-wired referral status
+  // query. We use the query (not the getOrCreate mutation) so the success
+  // page does not perform an unrequested write on load. If the caller has no
+  // referral code yet, the ShareOnXButton is simply not rendered — you cannot
+  // share a code you do not have. The ReferralBanner below also consumes
+  // useReferralStatus internally to surface eligible-pending / newly-awarded
+  // state on the success page.
+  const { data: referralStatus } = useMyReferralStatus();
+  const referralCode = referralStatus?.referralCode ?? null;
+
   // Build a minimal Nft object from the snapshot for the modal prop shape.
   // Prefer fresh verifyResult data when available; fall back to snapshot only
   // for fields the backend hasn't returned yet.
@@ -81,6 +94,8 @@ export default function PostClaimPage() {
       collectionId: build?.collectionId ?? undefined,
       claimedAt: build?.claimedAt ?? undefined,
       supplyLimit: build?.supplyLimit ?? 1n,
+      referralThreshold: build?.referralThreshold ?? 0n,
+      rewardType: build?.rewardType ?? RewardType.none,
     };
   }, [claimedNft, freshNftResult]);
 
@@ -133,6 +148,53 @@ export default function PostClaimPage() {
             </p>
           </div>
         </div>
+
+        {/* Referral banner — surfaces eligible-pending / newly-awarded state
+            on the success page so a referrer sees their bonus progress
+            immediately after a claim. Renders nothing when state is "none". */}
+        <div className="w-full max-w-xs mb-6">
+          <ReferralBanner />
+        </div>
+
+        {/* Share-on-X section — only rendered when the caller has a referral
+            code. The intent tweet links back to the app with ?ref=<code> and
+            mentions @JackBearSupply, opened with noopener,noreferrer. */}
+        {referralCode && (
+          <div
+            className="w-full max-w-xs mb-6 rounded-xl border border-border bg-card p-4 space-y-3"
+            data-ocid="post_claim.share_section"
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Share2 className="w-4 h-4 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-foreground text-sm">
+                  Share your referral link
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Refer collectors to earn a bonus NFT. Your code never expires.
+                </p>
+              </div>
+            </div>
+            <ShareOnXButton
+              referralCode={referralCode}
+              label="Share on X"
+              className="w-full"
+            />
+            <div className="flex items-center gap-2 rounded-md bg-muted/40 px-2.5 py-1.5">
+              <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70 shrink-0">
+                Code
+              </span>
+              <code
+                className="text-xs font-mono text-foreground truncate min-w-0"
+                data-ocid="post_claim.referral_code"
+              >
+                {referralCode}
+              </code>
+            </div>
+          </div>
+        )}
 
         {/* Action cards — rendered immediately after the success header so
             they are visible without scrolling on the success state. */}

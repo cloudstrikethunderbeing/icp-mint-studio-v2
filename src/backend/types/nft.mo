@@ -1,6 +1,7 @@
 import Storage "mo:caffeineai-object-storage/Storage";
 import Common "common";
 import Result "mo:core/Result";
+import ReferralTypes "referral-rewards";
 
 module {
   public type NftStatus = {
@@ -31,6 +32,15 @@ module {
     nftUniqueId : Text;
     tags : [Text];
     supplyLimit : Nat;
+    // Referral-rewards fields (net-new). rewardType marks an NFT as the bonus
+    // asset awarded when a referrer crosses referralThreshold (#none is the
+    // default for all non-referral NFTs). referralThreshold is only meaningful
+    // when rewardType = #referralBonus. Both initialized by the migration
+    // chain (20260726_050000.mo) for existing NFTs and by NftLib.createNft for
+    // new NFTs. Admin-tunable via adminSetNftRewardType /
+    // adminSetNftReferralThreshold (draft-only).
+    rewardType : ReferralTypes.RewardType;
+    referralThreshold : Nat;
   };
 
   public type Collection = {

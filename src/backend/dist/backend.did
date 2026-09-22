@@ -44,6 +44,7 @@ type Value =
 type UserProfile = 
  record {
    activeSlots: nat;
+   awardedTiers: vec nat;
    createdAt: Timestamp;
    creatorId: CreatorId;
    creditsResetAt: Timestamp;
@@ -55,6 +56,8 @@ type UserProfile =
    maxSlots: nat;
    oisyWalletAddress: opt text;
    principalId: principal;
+   referralCode: opt text;
+   referralsCount: nat;
    stripeProductId: opt text;
    subscriptionTier: SubscriptionTier;
  };
@@ -81,6 +84,11 @@ type SubscriptionTier =
    org;
    pro;
  };
+type RewardType = 
+ variant {
+   none;
+   referralBonus;
+ };
 type RewardTier = 
  variant {
    bronze;
@@ -94,27 +102,22 @@ type Result__1 =
    hasMore: bool;
    rows: vec vec Cell;
  };
-type Result_8 = 
- variant {
-   err: text;
-   ok: Nft;
- };
-type Result_7 = 
+type Result_9 = 
  variant {
    err: text;
    ok: nat;
  };
-type Result_6 = 
+type Result_8 = 
  variant {
    err: text;
    ok: ClaimPreview;
  };
-type Result_5 = 
+type Result_7 = 
  variant {
    err: text;
    ok: ClaimStatus;
  };
-type Result_4 = 
+type Result_6 = 
  variant {
    err: record {message: text;};
    ok: record {
@@ -123,6 +126,16 @@ type Result_4 =
          nftUniqueId: text;
          tokenId: nat;
        };
+ };
+type Result_5 = 
+ variant {
+   err: text;
+   ok: RecordReferralResult;
+ };
+type Result_4 = 
+ variant {
+   err: text;
+   ok: BatchAwardResult;
  };
 type Result_3 = 
  variant {
@@ -133,6 +146,11 @@ type Result_2 =
  variant {
    err: text;
    ok;
+ };
+type Result_10 = 
+ variant {
+   err: text;
+   ok: Nft;
  };
 type Result_1 = 
  variant {
@@ -148,6 +166,28 @@ type RenameCollectionRequest =
  record {
    collectionId: CollectionId;
    newName: text;
+ };
+type ReferralHealthMetrics = 
+ record {
+   bonusNftsAutoAwarded: nat;
+   eligiblePendingCount: nat;
+   eligiblePendingQueueLengthPerTier: vec nat;
+   remainingBonusSupply: nat;
+   totalReferralCodes: nat;
+   totalReferralsCounted: nat;
+ };
+type ReferralCodeMapping = 
+ record {
+   code: text;
+   createdAt: Timestamp;
+   referrerPrincipal: principal;
+ };
+type RecordReferralResult = 
+ record {
+   newReferralsCount: nat;
+   newlyEligiblePending: bool;
+   referrerPrincipal: principal;
+   thresholdTier: opt nat;
  };
 type PaymentProofStatus = 
  variant {
@@ -204,12 +244,20 @@ type Nft =
    mintDate: Timestamp;
    nftUniqueId: text;
    ownerId: principal;
+   referralThreshold: nat;
    rewardTier: RewardTier;
+   rewardType: RewardType;
    status: NftStatus;
    supplyLimit: nat;
    tags: vec text;
    title: text;
    website: opt text;
+ };
+type MyReferralStatus = 
+ record {
+   awardedTiers: vec nat;
+   referralCode: opt text;
+   referralsCount: nat;
  };
 type HealthMetrics = 
  record {
@@ -225,6 +273,12 @@ type HealthMetrics =
    totalNfts: nat;
  };
 type ExternalBlob = blob;
+type EligiblePendingEntry = 
+ record {
+   enqueuedAt: Timestamp;
+   referrerPrincipal: principal;
+   thresholdTier: nat;
+ };
 type CreatorId = text;
 type CollectionWithCount = 
  record {
@@ -288,6 +342,18 @@ type Cell =
    name: text;
    value: Value;
  };
+type BatchAwardResult = 
+ record {
+   awardedThisCycle: nat;
+   hitCycleCap: bool;
+   remainingPending: nat;
+ };
+type BatchAwardConfig = 
+ record {
+   batchSize: nat;
+   cappedPerCycle: nat;
+   delaySeconds: nat;
+ };
 type AuditEntry = 
  record {
    action: text;
@@ -305,6 +371,7 @@ type AlertType =
 service : {
   __adminPrincipals: () -> (reserved) query;
   __backendBuildTimestamp: () -> (reserved) query;
+  __batchAwardConfig: () -> (reserved) query;
   __claimTokenStore: (ko: opt text, count: opt nat) ->
    (vec record {
           text;
@@ -317,6 +384,11 @@ service : {
           Collection;
         }) query;
   __creatorIndex: () -> (reserved) query;
+  __eligiblePendingStore: (ko: opt principal, count: opt nat) ->
+   (vec record {
+          principal;
+          EligiblePendingEntry;
+        }) query;
   __globalAuditLog: (io: opt nat, count: opt nat) -> (vec AuditEntry) query;
   __lastMintTime: () -> (reserved) query;
   __mintCount: () -> (reserved) query;
@@ -337,6 +409,16 @@ service : {
           PaymentProof;
         }) query;
   __rateLimitStore: () -> (reserved) query;
+  __referralCodeStore: (ko: opt text, count: opt nat) ->
+   (vec record {
+          text;
+          ReferralCodeMapping;
+        }) query;
+  __referrerCodeIndex: (ko: opt principal, count: opt nat) ->
+   (vec record {
+          principal;
+          text;
+        }) query;
   __selfCanisterId: () -> (reserved) query;
   __stripeConfigStore: () -> (reserved) query;
   __userStore: (ko: opt principal, count: opt nat) ->
@@ -356,16 +438,21 @@ service : {
   _immutableObjectStorageUpdateGatewayPrincipals: () -> ();
   addAdmin: (p: principal) -> (bool);
   addNftToCollection: (nftId: nat, collectionId: nat) -> (Result_2);
+  adminPurgeEligiblePending: (referrerPrincipal: principal) -> (bool);
+  adminSetNftReferralThreshold: (nftId: nat, threshold: nat) -> (Result_2);
+  adminSetNftRewardType: (nftId: nat, rewardType: RewardType) -> (Result_2);
+  adminUpdateBatchAwardConfig: (config: BatchAwardConfig) ->
+   (BatchAwardConfig);
   approvePaymentProof: (proofId: text) -> (Result_3);
   burnNft: (id: nat) -> (Result_2);
-  claimNft: (token: text) -> (Result_8);
+  claimNft: (token: text, ref: opt text) -> (Result_10);
   createCheckoutSession: (_items: vec record {
                                         name: text;
                                         price: nat;
                                       }, _successUrl: text, _cancelUrl:
    text) -> (text);
-  createCollection: (name: text, description: text) -> (Result_7);
-  createSlot: () -> (Result_7);
+  createCollection: (name: text, description: text) -> (Result_9);
+  createSlot: () -> (Result_9);
   deleteCollection: (id: nat) -> ();
   deleteCollectionAndUnassignNfts: (collectionId: CollectionId) ->
    (CollectionSummary);
@@ -378,8 +465,14 @@ service : {
   getCallerProfile: () -> (UserProfile);
   getCanisterId: () -> (text) query;
   getCanisterIdSafe: () -> (text) query;
-  getClaimPreview: (token: text) -> (Result_6) query;
-  getClaimStatus: (nftId: nat) -> (Result_5) query;
+  getCatalogIntegrity: () ->
+   (record {
+      myActiveNftCount: nat;
+      myNftCount: nat;
+      totalNftCount: nat;
+    }) query;
+  getClaimPreview: (token: text) -> (Result_8) query;
+  getClaimStatus: (nftId: nat) -> (Result_7) query;
   getClaimedNfts: () -> (nat) query;
   getCollection: (id: nat) -> (opt Collection) query;
   getCollectionIdByName: (name: text) -> (opt CollectionId) query;
@@ -392,14 +485,24 @@ service : {
   getHealthMetrics: () -> (HealthMetrics) query;
   getMetricsCanisterId: () -> (text) query;
   getMyPaymentProofs: () -> (vec PaymentProof) query;
+  getMyReferralStatus: () -> (opt MyReferralStatus) query;
   getNft: (id: nat) -> (opt Nft) query;
   getNftClaimBreakdown: () -> (vec NftClaimBreakdownEntry) query;
   getNftClaimCounts: () -> (vec NftClaimCount) query;
+  getOrCreateMyReferralCode: () -> (Result_3);
+  getReferralHealthMetrics: () -> (ReferralHealthMetrics) query;
   getSlotsStatus: () -> (record {
                            remaining: nat;
                            total: nat;
                            used: nat;
                          }) query;
+  getStableStateIntegrity: () ->
+   (record {
+      claimTokenCount: nat;
+      collectionCount: nat;
+      nftCount: nat;
+      userCount: nat;
+    }) query;
   getStorageUsage: () -> (nat) query;
   getStripeSessionStatus: (_sessionId: text) -> (record {status: text;});
   getStripeStatus: () -> (record {
@@ -410,12 +513,14 @@ service : {
   getTotalCollections: () -> (nat) query;
   getTotalCreators: () -> (nat) query;
   getTotalMinted: () -> (nat) query;
+  getTotalNftCount: () -> (nat) query;
   getTotalNfts: () -> (nat) query;
   hasRealAdmin: () -> (bool) query;
   isAdmin: () -> (bool) query;
   isLiveCanister: () -> (bool) query;
   isStripeConfigured: () -> (bool) query;
   listAdmins: () -> (vec principal) query;
+  listAllNfts: () -> (vec Nft) query;
   listMyActiveNfts: () -> (vec Nft) query;
   listMyCollections: () -> (vec CollectionWithCount) query;
   listMyNfts: () -> (vec Nft) query;
@@ -423,11 +528,13 @@ service : {
   mintNft: (imageBlob: ExternalBlob, assetHash: text, title: text,
    description: text, collectionId: opt nat, businessName: opt text, website:
    opt text, discountCode: opt text, membershipId: opt text, supplyLimit:
-   nat) -> (Result_4);
+   nat) -> (Result_6);
+  recordReferral: (code: text) -> (Result_5);
   rejectPaymentProof: (proofId: text, reason: text) -> (Result_3);
   removeAdmin: (p: principal) -> (bool);
   removeNftFromCollection: (nftId: nat, collectionId: nat) -> (Result_2);
   renameCollection: (request: RenameCollectionRequest) -> (CollectionSummary);
+  runBatchAwardCycle: () -> (Result_4);
   saveCallerProfile: (profile: UserProfile) -> ();
   schema: () -> (text) query;
   searchNfts: (searchTerm: text) -> (vec Nft) query;

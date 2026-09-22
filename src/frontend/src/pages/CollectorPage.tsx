@@ -34,7 +34,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { Link } from "@tanstack/react-router";
 import {
+  AlertTriangle,
   CheckCircle2,
+  Database,
   Flame,
   Folder,
   FolderOpen,
@@ -44,6 +46,8 @@ import {
   MoreVertical,
   PenTool,
   Plus,
+  ServerCrash,
+  ShieldAlert,
   ShieldCheck,
   Trash2,
   Wallet,
@@ -52,6 +56,7 @@ import { useMemo, useState } from "react";
 import BrandedAuthGate from "../components/BrandedAuthGate";
 import {
   useAddNftToCollection,
+  useBackendHealth,
   useBurnNft,
   useCollections,
   useCreateCollection,
@@ -61,6 +66,7 @@ import {
   useMyNfts,
   useNftClaimCounts,
   useRemoveNftFromCollection,
+  useTotalNftCount,
 } from "../hooks/useQueries";
 import { devLog } from "../utils/devLog";
 
@@ -516,6 +522,14 @@ export default function CollectorPage() {
     authState,
     principal,
   });
+
+  // Backend health / canister identity guard (rotation defense). If the
+  // backend is wrong, unavailable, or empty, surface a loud error instead of
+  // silently rendering an empty catalog. Defense-in-depth on top of the
+  // global CanisterGuard in App.tsx.
+  const backendHealth = useBackendHealth();
+  devLog("[CANISTER] CollectorPage backend health:", backendHealth);
+
   const canCreateCollections = authState === "ready";
 
   const [activeTab, setActiveTab] = useState<TabKey>("all");
@@ -546,6 +560,23 @@ export default function CollectorPage() {
   const allTabNfts = allMyNfts;
   const { data: collections = [], isLoading: collectionsLoading } =
     useCollections();
+
+  // Store-wide catalog count (public diagnostic). Distinguishes "catalog is
+  // empty" (store-wide zero NFTs — e.g. a fresh store on draft resume) from
+  // "no NFTs for this account" (the store has NFTs but the signed-in principal
+  // owns none). Shares the 30-second cache window with the other metrics.
+  const { data: storeWideTotal = 0n, isLoading: storeWideLoading } =
+    useTotalNftCount();
+  devLog("[LIBRARY-EMPTY] store-wide catalog count:", {
+    storeWideTotal: storeWideTotal.toString(),
+    accountNfts: allMyNfts.length,
+  });
+  if (storeWideTotal === 0n) {
+    devLog(
+      "[RECYCLE-DIAG] store-wide catalog empty — consistent with recycled draft canister (fresh store), live canister untouched:",
+      { storeWideTotal: storeWideTotal.toString() },
+    );
+  }
 
   // Public claim counts for the Library card indicator. Public query — no
   // admin gate — so it works for anonymous viewers via the anonymous actor.
@@ -673,7 +704,7 @@ export default function CollectorPage() {
     setSelectedNft(null);
   }
 
-  const isLoading = nftsLoading;
+  const isLoading = nftsLoading || storeWideLoading;
 
   const tabCount = useMemo(() => {
     switch (activeTab) {
@@ -691,6 +722,94 @@ export default function CollectorPage() {
         return 0;
     }
   }, [activeTab, nfts, collections, principalText, claimedNfts, allTabNfts]);
+
+  // Backend health / canister identity guard (rotation defense). If the
+  // backend is wrong, unavailable, or empty, surface a loud error instead of
+  // silently rendering an empty catalog. Defense-in-depth on top of the
+  // global CanisterGuard in App.tsx. Placed AFTER all hooks to satisfy the
+  // Rules of Hooks (no conditional hook calls).
+  if (backendHealth.status !== "ok") {
+    return (
+      <div
+        className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-6 text-center"
+        data-ocid="collector.backend_health_state"
+      >
+        {backendHealth.status === "checking" ? (
+          <>
+            <Loader2 className="animate-spin h-8 w-8 text-primary" />
+            <p className="text-sm text-muted-foreground">
+              Verifying backend connection...
+            </p>
+          </>
+        ) : backendHealth.status === "wrong-canister" ? (
+          <>
+            <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center">
+              <ShieldAlert className="w-7 h-7 text-destructive" />
+            </div>
+            <h2 className="text-lg font-bold text-foreground">
+              Backend connection error
+            </h2>
+            <p className="text-sm text-muted-foreground max-w-md">
+              This app is pinned to a specific backend canister, but it resolved
+              to a different one. The library is intentionally not shown to
+              avoid displaying an empty or incorrect collection.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-2 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              data-ocid="collector.backend_retry_button"
+            >
+              Retry
+            </button>
+          </>
+        ) : backendHealth.status === "unavailable" ? (
+          <>
+            <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center">
+              <ServerCrash className="w-7 h-7 text-destructive" />
+            </div>
+            <h2 className="text-lg font-bold text-foreground">
+              Backend unavailable
+            </h2>
+            <p className="text-sm text-muted-foreground max-w-md">
+              The backend could not be reached. The library is intentionally not
+              shown to avoid displaying an empty or incorrect collection.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-2 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              data-ocid="collector.backend_retry_button"
+            >
+              Retry
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="w-14 h-14 rounded-full bg-amber-500/10 flex items-center justify-center">
+              <AlertTriangle className="w-7 h-7 text-amber-500" />
+            </div>
+            <h2 className="text-lg font-bold text-foreground">
+              Library temporarily unavailable
+            </h2>
+            <p className="text-sm text-muted-foreground max-w-md">
+              The backend is reachable but is reporting no NFTs, which is
+              unexpected. The library is intentionally not shown to avoid
+              displaying an empty collection. Please try again shortly.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-2 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              data-ocid="collector.backend_retry_button"
+            >
+              Retry
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return (
@@ -936,34 +1055,122 @@ export default function CollectorPage() {
       ) : isLoading ? (
         <CollectorSkeleton />
       ) : filteredNfts.length === 0 ? (
-        <div
-          className="flex flex-col items-center justify-center min-h-[40vh] gap-4 text-center"
-          data-ocid="collector.empty_state"
-        >
-          <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-            <Wallet className="w-7 h-7 text-muted-foreground" />
+        storeWideTotal === 0n ? (
+          // ── Catalog is empty (store-wide zero NFTs) ──────────────────────
+          // A fresh store on draft resume starts with zero NFTs. This is
+          // expected platform behavior, NOT a data bug — the live canister is
+          // untouched. Surface it clearly so the empty catalog is never silent.
+          <div
+            className="flex flex-col items-center justify-center min-h-[40vh] gap-4 text-center"
+            data-ocid="collector.catalog_empty_state"
+          >
+            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+              <Database className="w-7 h-7 text-muted-foreground" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-semibold text-foreground">
+                The catalog is empty
+              </h3>
+              <p className="text-sm text-muted-foreground max-w-sm">
+                There are no NFTs in the catalog yet. On a draft deployment this
+                is expected — the draft canister was recycled and starts with a
+                fresh store. Your live canister is untouched.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 items-center">
+              <Link to="/">
+                <Button
+                  type="button"
+                  size="sm"
+                  data-ocid="collector.catalog_empty_mint_button"
+                >
+                  Mint your first NFT
+                </Button>
+              </Link>
+            </div>
+            <div
+              className="mt-2 w-full max-w-sm rounded-lg border border-border bg-muted/30 p-3 text-left"
+              data-ocid="collector.recycle_diag_panel"
+            >
+              <p className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
+                <ServerCrash className="w-3.5 h-3.5 text-muted-foreground" />
+                Draft resume diagnostic
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Store-wide catalog: <span className="font-mono">0 NFTs</span>.
+                This is consistent with a recycled draft canister (fresh store),
+                not a mint-induced wipe. The live canister is unaffected.
+              </p>
+            </div>
           </div>
-          <div className="space-y-1">
-            <h3 className="text-base font-semibold text-foreground">
-              No NFTs yet
-            </h3>
-            <p className="text-sm text-muted-foreground max-w-xs">
-              Claim one using a claim link, or verify an existing NFT.
-            </p>
+        ) : (
+          // ── No NFTs for this account ─────────────────────────────────────
+          // The store has NFTs (storeWideTotal > 0) but the signed-in
+          // principal owns none. The catalog is intact — this account just
+          // hasn't minted or claimed anything yet.
+          <div
+            className="flex flex-col items-center justify-center min-h-[40vh] gap-4 text-center"
+            data-ocid="collector.account_empty_state"
+          >
+            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+              <Wallet className="w-7 h-7 text-muted-foreground" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-semibold text-foreground">
+                No NFTs for this account
+              </h3>
+              <p className="text-sm text-muted-foreground max-w-sm">
+                The catalog is intact — there are{" "}
+                <span className="font-mono text-foreground">
+                  {storeWideTotal.toString()}
+                </span>{" "}
+                NFT{storeWideTotal !== 1n ? "s" : ""} store-wide — but this
+                account owns none yet. Mint one to get started, or claim one
+                using a claim link.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 items-center">
+              <Link to="/">
+                <Button
+                  type="button"
+                  size="sm"
+                  data-ocid="collector.account_empty_mint_button"
+                >
+                  Mint an NFT
+                </Button>
+              </Link>
+              <Link to="/verify">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  data-ocid="collector.account_empty_verify_button"
+                >
+                  Verify an NFT
+                </Button>
+              </Link>
+            </div>
+            <div
+              className="mt-2 w-full max-w-sm rounded-lg border border-border bg-muted/30 p-3 text-left"
+              data-ocid="collector.catalog_intact_diag_panel"
+            >
+              <p className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                Catalog intact diagnostic
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Store-wide catalog:{" "}
+                <span className="font-mono">
+                  {storeWideTotal.toString()} NFT
+                  {storeWideTotal !== 1n ? "s" : ""}
+                </span>
+                . This account owns <span className="font-mono">0</span>. The
+                catalog is intact — this is an account-scoped empty state, not a
+                data bug.
+              </p>
+            </div>
           </div>
-          <div className="flex flex-col gap-2 items-center">
-            <Link to="/verify">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                data-ocid="collector.empty_verify_button"
-              >
-                Verify an NFT
-              </Button>
-            </Link>
-          </div>
-        </div>
+        )
       ) : (
         <>
           <div

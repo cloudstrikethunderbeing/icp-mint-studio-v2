@@ -21,5 +21,15 @@ module {
     maxSlots : Nat;
     createdAt : Common.Timestamp;
     stripeProductId : ?Text;
+    // Referral-rewards fields (net-new). referralCode is the caller's own
+    // shareable code (random + unguessable, NO EXPIRY). referralsCount is the
+    // number of successful referrals attributed to this user. awardedTiers is
+    // the stacking-ready list of threshold tiers (Nat) the user has already
+    // been awarded a referralBonus NFT for — dedup by tier. All three are
+    // initialized by the migration chain (20260726_050000.mo) for existing
+    // profiles and by UserLib.createProfile for new profiles.
+    referralCode : ?Text;
+    referralsCount : Nat;
+    awardedTiers : [Nat];
   };
 }

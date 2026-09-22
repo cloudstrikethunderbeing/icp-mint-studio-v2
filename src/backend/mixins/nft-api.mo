@@ -135,25 +135,17 @@ mixin (
       case (#ok) {};
     };
 
-    // [IMGVAL] Structural validators (additive, after validateTrailingBytes,
-    // before SHA-256 recompute). Each is a pure function on the image blob.
-    // JPEG marker allowlist walk — rejects COM/APP1-EXIF/JPGn/reserved and
-    // any non-allowlisted marker; validates marker segment lengths.
-    switch (NftLib.validateJpegMarkers(imageBlob)) {
-      case (#err(e)) { return #err({ message = e.message }) };
-      case (#ok) {};
-    };
-    // PNG chunk-type allowlist walk — rejects caBX/iCCP/sPLT/tEXt/iTXt/zTXt
-    // and any non-allowlisted chunk; pins fixed-length chunks; requires IHDR
-    // first and IEND last.
-    switch (NftLib.validatePngChunks(imageBlob)) {
-      case (#err(e)) { return #err({ message = e.message }) };
-      case (#ok) {};
-    };
-    // WebP FourCC allowlist walk — rejects EXIF/XMP/ICCP/PSAI and any
-    // non-allowlisted FourCC; validates chunk sizes against the RIFF declared
-    // size from validateTrailingBytes' WebP bounding step.
-    switch (NftLib.validateWebpChunks(imageBlob)) {
+    // [IMGVAL] Format-dispatched structural validation (additive, after
+    // validateTrailingBytes, before SHA-256 recompute). Detects the image
+    // format from magic bytes and runs ONLY the matching structural validator:
+    // JPEG -> validateJpegMarkers, PNG -> validatePngChunks,
+    // WebP -> validateWebpChunks. An unknown format returns #ok here —
+    // validateImageFormat above already rejected anything that is not
+    // JPEG/PNG/WebP, so this preserves the existing early-return behavior.
+    // Replaces the prior three unconditional switch blocks that ran every
+    // validator on every image (a clean JPG failed validatePngChunks' signature
+    // check with "Invalid PNG: bad signature").
+    switch (NftLib.validateStructure(imageBlob)) {
       case (#err(e)) { return #err({ message = e.message }) };
       case (#ok) {};
     };
@@ -260,6 +252,18 @@ mixin (
       nextNftId.value := id + 1;
       let creatorId = profile.creatorId;
 
+      // [NFT-INTEGRITY] Mint-path guard: a mint must be purely additive and
+      // must never overwrite/reset/rebuild existing NFT state. Refuse before
+      // persisting if the id would clobber an existing NFT.
+      switch (NftLib.guardMintAdditive(nftStore, id)) {
+        case (#err(msg)) { return #err({ message = msg }) };
+        case (#ok) {};
+      };
+
+      // [NFT-INTEGRITY] Snapshot the catalog BEFORE the mint so the post-mint
+      // integrity check can prove the mint was purely additive.
+      let integritySnapshot = NftLib.snapshotIntegrity(nftStore);
+
       let nft = NftLib.createNft(
         nftStore, id, caller, creatorId, imageBlob, assetHash,
         sanitizedTitle, description, edition, timestamp,
@@ -289,6 +293,19 @@ mixin (
           creatorIndex.add(creatorId, tokenList);
         };
       };
+
+      // [NFT-INTEGRITY] Post-mint integrity check: pre-mint count + 1 must
+      // equal post-mint count AND all pre-existing NFT ids must remain listed.
+      // If it fails, remove the freshly minted NFT (leaving the catalog
+      // unchanged) and surface a clear error.
+      switch (NftLib.verifyMintIntegrity(nftStore, integritySnapshot, id)) {
+        case (#err(msg)) {
+          NftLib.removeNft(nftStore, id);
+          return #err({ message = msg });
+        };
+        case (#ok) {};
+      };
+
       // Auto-generate claim link for admin and paid tiers
       let randomBytes = await Random.blob();
       let token = ClaimLib.buildToken(randomBytes);
@@ -317,6 +334,18 @@ mixin (
     let id = if (nextNftId.value == 0) { nextNftId.value := 1; 1 } else { nextNftId.value };
     nextNftId.value := id + 1;
     let creatorId = profile.creatorId;
+
+    // [NFT-INTEGRITY] Mint-path guard: a mint must be purely additive and must
+    // never overwrite/reset/rebuild existing NFT state. Refuse before
+    // persisting if the id would clobber an existing NFT.
+    switch (NftLib.guardMintAdditive(nftStore, id)) {
+      case (#err(msg)) { return #err({ message = msg }) };
+      case (#ok) {};
+    };
+
+    // [NFT-INTEGRITY] Snapshot the catalog BEFORE the mint so the post-mint
+    // integrity check can prove the mint was purely additive.
+    let integritySnapshot = NftLib.snapshotIntegrity(nftStore);
 
     // ATOMIC MINT: create and persist NFT first, then consume slot/credit
     // If anything after store.add fails, catch and rollback
@@ -366,6 +395,19 @@ mixin (
           creatorIndex.add(creatorId, tokenList);
         };
       };
+
+      // [NFT-INTEGRITY] Post-mint integrity check: pre-mint count + 1 must
+      // equal post-mint count AND all pre-existing NFT ids must remain listed.
+      // If it fails, remove the freshly minted NFT (leaving the catalog
+      // unchanged) and surface a clear error.
+      switch (NftLib.verifyMintIntegrity(nftStore, integritySnapshot, id)) {
+        case (#err(msg)) {
+          NftLib.removeNft(nftStore, id);
+          return #err({ message = msg });
+        };
+        case (#ok) {};
+      };
+
       // Auto-generate claim link for paid tiers (admin already handled above)
       if (tier != #free) {
         let randomBytes = await Random.blob();
@@ -433,21 +475,44 @@ mixin (
     if (caller.isAnonymous()) {
       Runtime.trap("Unauthorized: Anonymous caller");
     };
-    NftLib.getNft(nftStore, id)
+    // [NFT-INTEGRITY] Redact discountCode/membershipId for non-admin callers.
+    // These sensitive bearer-style fields must never be re-exposed to
+    // non-admin callers; they remain only in admin-gated surfaces.
+    let isAdmin = Auth.isAdmin(caller, admins.value);
+    switch (NftLib.getNft(nftStore, id)) {
+      case (null) { null };
+      case (?nft) {
+        if (isAdmin) { ?nft } else { ?NftLib.redactNft(nft) }
+      };
+    }
   };
 
   public query ({ caller }) func listMyNfts() : async [Types.Nft] {
     if (caller.isAnonymous()) {
       return [];
     };
-    NftLib.listNftsByOwner(nftStore, caller, selfCanisterId.value)
+    // [NFT-INTEGRITY] Redact discountCode/membershipId for non-admin callers.
+    let isAdmin = Auth.isAdmin(caller, admins.value);
+    let nfts = NftLib.listNftsByOwner(nftStore, caller, selfCanisterId.value);
+    if (isAdmin) {
+      nfts
+    } else {
+      nfts.map(func n = NftLib.redactNft(n))
+    }
   };
 
   public query ({ caller }) func listMyActiveNfts() : async [Types.Nft] {
     if (caller.isAnonymous()) {
       return [];
     };
-    NftLib.listActiveNftsByOwner(nftStore, caller, selfCanisterId.value)
+    // [NFT-INTEGRITY] Redact discountCode/membershipId for non-admin callers.
+    let isAdmin = Auth.isAdmin(caller, admins.value);
+    let nfts = NftLib.listActiveNftsByOwner(nftStore, caller, selfCanisterId.value);
+    if (isAdmin) {
+      nfts
+    } else {
+      nfts.map(func n = NftLib.redactNft(n))
+    }
   };
 
   func verifyNftPublicInternal(nftUniqueId : Text, realCid : Text) : Result.Result<Types.VerifyResult, Text> {
@@ -475,7 +540,7 @@ mixin (
         } else {
           switch (NftLib.verifyNft(nftStore, tokenId, realCid)) {
             case (null) { #err("NFT_NOT_FOUND_OR_INCOMPLETE") };
-            case (?result) { #ok(result) };
+            case (?result) { #ok(NftLib.redactVerifyResult(result)) };
           }
         }
       };
@@ -500,7 +565,7 @@ mixin (
                   case (null) {};
                   case (?result) {
                     if (result.canisterId != "" and result.nftUniqueId != "") {
-                      results.add(result);
+                      results.add(NftLib.redactVerifyResult(result));
                     };
                   };
                 };
@@ -799,6 +864,67 @@ mixin (
       Runtime.trap("Unauthorized: Admin only");
     };
     NftLib.searchNfts(nftStore, searchTerm, selfCanisterId.value)
+  };
+
+  // [NFT-INTEGRITY] Safe all-NFT listing. Returns EVERY NFT in the catalog
+  // with NO hardcoded result cap — a capped listing would silently truncate
+  // the catalog at scale, making NFTs appear to "disappear". Read-only O(N)
+  // scan (never destructive). Admin-gated: this is NOT a public catalog
+  // explorer (out of scope) — only admins may list the full catalog.
+  public query ({ caller }) func listAllNfts() : async [Types.Nft] {
+    if (not Auth.isAdmin(caller, admins.value)) {
+      Runtime.trap("Unauthorized: Admin only");
+    };
+    NftLib.listAllNfts(nftStore, selfCanisterId.value)
+  };
+
+  // [NFT-INTEGRITY] Public health-check query. Returns the total NFT count so
+  // the frontend health check can correctly detect an empty backend. This is a
+  // simple count (NOT a public catalog explorer — out of scope) and does not
+  // expose any NFT details. Read-only O(1) store size lookup.
+  public query func getTotalNftCount() : async Nat {
+    NftLib.countNfts(nftStore)
+  };
+
+  // [NFT-INTEGRITY] Stable-storage integrity check. Reports the current sizes
+  // of the four stable stores (NFT, collection, user, claim-token) so an
+  // operator can MANUALLY confirm the catalog survived an upgrade/reinstall
+  // intact (no Init-style wipe reset the stores to empty). This is a manual
+  // diagnostic query — it does NOT perform automated alerting (out of scope).
+  public query ({ caller }) func getStableStateIntegrity() : async {
+    nftCount : Nat;
+    collectionCount : Nat;
+    userCount : Nat;
+    claimTokenCount : Nat;
+  } {
+    if (not Auth.isAdmin(caller, admins.value)) {
+      Runtime.trap("Unauthorized: Admin only");
+    };
+    {
+      nftCount = NftLib.countNfts(nftStore);
+      collectionCount = collectionStore.size();
+      userCount = userStore.size();
+      claimTokenCount = claimTokenStore.size();
+    }
+  };
+
+  // [NFT-INTEGRITY] Public diagnostic that exposes store-wide catalog state
+  // (total NFT count) and account-scoped state (count for the caller). Lets
+  // the frontend distinguish 'catalog is empty' (store-wide zero) from 'no
+  // NFTs for this account' (store has NFTs but none owned by the caller).
+  // Read-only O(N) scan; never destructive. Exposes ONLY counts — no NFT
+  // details, so it is safe as a public (non-admin) query. This is a MANUAL
+  // diagnostic — it does NOT perform automated alerting (out of scope).
+  public query ({ caller }) func getCatalogIntegrity() : async {
+    totalNftCount : Nat;
+    myNftCount : Nat;
+    myActiveNftCount : Nat;
+  } {
+    {
+      totalNftCount = NftLib.countNfts(nftStore);
+      myNftCount = NftLib.countNftsByOwner(nftStore, caller);
+      myActiveNftCount = NftLib.countActiveNftsByOwner(nftStore, caller);
+    }
   };
 
 }

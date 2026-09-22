@@ -1,5 +1,5 @@
 import { ExternalBlob } from "@/backend";
-import type { CollectionWithCount, Nft } from "@/backend";
+import { type CollectionWithCount, type Nft, RewardType } from "@/backend";
 import { NftDetailModal } from "@/components/NftDetailModal";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -30,12 +30,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/hooks/useNotifications";
 import {
+  useAdminSetNftReferralThreshold,
+  useAdminSetNftRewardType,
+  useBackendHealth,
   useCreateSlot,
   useGenerateClaimLink,
   useSearchNfts,
 } from "@/hooks/useQueries";
 import { devLog } from "@/utils/devLog";
 import { fileWithVerifiedImageType } from "@/utils/imageMagic";
+import { sanitizePng } from "@/utils/sanitizePng";
 
 import { Principal } from "@icp-sdk/core/principal";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -51,7 +55,9 @@ import {
   Loader2,
   Plus,
   Search,
+  ServerCrash,
   Share2,
+  ShieldAlert,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -101,6 +107,8 @@ type MintParams = {
   discountCode?: string;
   membershipId?: string;
   supplyLimit?: bigint;
+  rewardType?: RewardType;
+  referralThreshold?: bigint;
 };
 
 function buildGrid(nfts: Nft[]): GridSlot[] {
@@ -229,6 +237,8 @@ function UploadCard({
   const [website, setWebsite] = useState("");
   const [discountCode, setDiscountCode] = useState("");
   const [membershipId, setMembershipId] = useState("");
+  const [rewardType, setRewardType] = useState<RewardType>(RewardType.none);
+  const [referralThreshold, setReferralThreshold] = useState<number>(3);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const dragCounterRef = useRef(0);
@@ -283,6 +293,8 @@ function UploadCard({
       setWebsite("");
       setDiscountCode("");
       setMembershipId("");
+      setRewardType(RewardType.none);
+      setReferralThreshold(3);
       setShowAdvanced(false);
       setMintError(null);
       setSupplyLimit(tierMax);
@@ -307,11 +319,19 @@ function UploadCard({
         toast.error("Only PNG, JPG, and WEBP files are accepted.");
         return;
       }
+      // Strip non-allowlisted PNG chunks BEFORE storing the file in state
+      // and generating the preview. For PNGs this drops zTXt/tEXt/iTXt/
+      // iCCP/sPLT/caBX and any unknown chunk so the backend validator
+      // (src/backend/lib/nft.mo validatePngChunks) does not reject the
+      // upload. For non-PNGs (JPEG/WebP) sanitizePng is a pass-through that
+      // returns the file unchanged. The sanitized bytes are what get
+      // stored in state, previewed, and ultimately sent to mintNft.
+      const sanitized = await sanitizePng(verified);
       // Revoke any previous preview blob URL before creating a new one so
       // the previous image bytes are released from memory (H6 fix).
       revokePreviewUrl();
-      setFile(verified);
-      const url = URL.createObjectURL(verified);
+      setFile(sanitized);
+      const url = URL.createObjectURL(sanitized);
       previewUrlRef.current = url;
       setPreview(url);
       setMintDialogOpen(true);
@@ -368,6 +388,9 @@ function UploadCard({
       discountCode: discountCode.trim() || undefined,
       membershipId: membershipId.trim() || undefined,
       supplyLimit: BigInt(supplyLimit),
+      rewardType,
+      referralThreshold:
+        rewardType === "referralBonus" ? BigInt(referralThreshold) : undefined,
     });
   }
 
@@ -382,6 +405,8 @@ function UploadCard({
     setWebsite("");
     setDiscountCode("");
     setMembershipId("");
+    setRewardType(RewardType.none);
+    setReferralThreshold(3);
     setShowAdvanced(false);
     // Revoke the preview blob URL so image bytes are released on reset.
     revokePreviewUrl();
@@ -449,6 +474,8 @@ function UploadCard({
             setWebsite("");
             setDiscountCode("");
             setMembershipId("");
+            setRewardType(RewardType.none);
+            setReferralThreshold(3);
             setShowAdvanced(false);
             setMintError(null);
             setSupplyLimit(tierMax);
@@ -623,6 +650,60 @@ function UploadCard({
                     data-ocid="home.mint_membership_input"
                   />
                 </div>
+                <div>
+                  <Label htmlFor="mint-reward-type">Reward Type</Label>
+                  <Select
+                    value={rewardType}
+                    onValueChange={(v) => setRewardType(v as RewardType)}
+                  >
+                    <SelectTrigger data-ocid="home.mint_reward_type_select">
+                      <SelectValue placeholder="Select reward type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="referralBonus">
+                        Referral Bonus
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {rewardType === "referralBonus"
+                      ? "This NFT is auto-awarded to referrers who reach the threshold."
+                      : "Standard NFT — no referral bonus behavior."}
+                  </p>
+                </div>
+                {rewardType === "referralBonus" && (
+                  <div>
+                    <Label htmlFor="mint-referral-threshold">
+                      Referral Threshold
+                    </Label>
+                    <Input
+                      id="mint-referral-threshold"
+                      type="number"
+                      min={1}
+                      max={1000}
+                      value={referralThreshold.toString()}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const val = Number(raw);
+                        if (
+                          !Number.isNaN(val) &&
+                          raw !== "" &&
+                          val >= 1 &&
+                          val <= 1000
+                        ) {
+                          setReferralThreshold(val);
+                        }
+                      }}
+                      placeholder="3"
+                      data-ocid="home.mint_referral_threshold_input"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Number of successful referrals required before this bonus
+                      NFT is auto-awarded. Default: 3. Codes never expire.
+                    </p>
+                  </div>
+                )}
               </CollapsibleContent>
             </Collapsible>
             {mintError && (
@@ -698,12 +779,24 @@ export default function HomePage() {
     | { stage: "error"; message: string }
   >({ stage: "idle" });
   const [mintedClaimUrl, setMintedClaimUrl] = useState<string | null>(null);
+  // Refs to expose the most recent mint params (rewardType/referralThreshold)
+  // to the mintMutation.onSuccess callback, which otherwise only receives the
+  // backend result. Used to apply referral metadata to the freshly minted NFT.
+  const lastMintRewardTypeRef = useRef<RewardType>(RewardType.none);
+  const lastMintReferralThresholdRef = useRef<bigint>(3n);
   devLog("[RENDER] HomePage render:", {
     authState,
     isAuthenticated,
     isAdmin,
     actor: !!actor,
   });
+
+  // Backend health / canister identity guard (rotation defense). If the
+  // backend is wrong, unavailable, or empty, surface a loud error instead of
+  // silently rendering an empty catalog. Defense-in-depth on top of the
+  // global CanisterGuard in App.tsx.
+  const backendHealth = useBackendHealth();
+  devLog("[CANISTER] HomePage backend health:", backendHealth);
 
   const [mintOverlayDismissVisible, setMintOverlayDismissVisible] =
     useState(false);
@@ -785,6 +878,12 @@ export default function HomePage() {
 
   const { addNotification } = useNotifications();
   const generateClaimLinkForAdmin = useGenerateClaimLink();
+  // Post-mint referral metadata setters (admin only). mintNft does NOT accept
+  // rewardType/referralThreshold params — these are applied to the freshly
+  // minted NFT ID after a successful mint, mirroring the auto-claim-link
+  // pattern below.
+  const setNftRewardType = useAdminSetNftRewardType(isAdmin);
+  const setNftReferralThreshold = useAdminSetNftReferralThreshold(isAdmin);
 
   const mintMutation = useMutation({
     mutationFn: async (params: MintParams) => {
@@ -830,7 +929,10 @@ export default function HomePage() {
       }
       return result;
     },
-    onMutate: () => {
+    onMutate: (params) => {
+      // Capture referral metadata so onSuccess can apply it to the new NFT ID.
+      lastMintRewardTypeRef.current = params.rewardType ?? RewardType.none;
+      lastMintReferralThresholdRef.current = params.referralThreshold ?? 3n;
       setMintError(null);
       setMintTransition({
         stage: "minting",
@@ -898,6 +1000,28 @@ export default function HomePage() {
       } else {
         // No claim link for this tier — auto-dismiss after 2.5s
         setTimeout(() => setMintTransition({ stage: "idle" }), 2500);
+      }
+      // Post-mint referral metadata (admin only). mintNft does NOT accept
+      // rewardType/referralThreshold params — apply them to the freshly minted
+      // NFT ID after a successful mint. Guarded by isAdmin + a non-"none"
+      // rewardType captured in onMutate. The threshold call only fires when
+      // rewardType === "referralBonus".
+      if (
+        isAdmin &&
+        ok?.id !== undefined &&
+        lastMintRewardTypeRef.current !== "none"
+      ) {
+        const newNftId = ok.id;
+        setNftRewardType.mutate({
+          nftId: newNftId,
+          rewardType: lastMintRewardTypeRef.current,
+        });
+        if (lastMintRewardTypeRef.current === "referralBonus") {
+          setNftReferralThreshold.mutate({
+            nftId: newNftId,
+            threshold: lastMintReferralThresholdRef.current,
+          });
+        }
       }
     },
     onError: (err: Error) => {

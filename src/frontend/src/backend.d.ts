@@ -34,11 +34,19 @@ export interface AuditEntry {
 }
 export type Result_5 = {
     __kind__: "ok";
-    ok: ClaimStatus;
+    ok: RecordReferralResult;
 } | {
     __kind__: "err";
     err: string;
 };
+export interface ReferralHealthMetrics {
+    totalReferralsCounted: bigint;
+    totalReferralCodes: bigint;
+    eligiblePendingQueueLengthPerTier: Array<bigint>;
+    eligiblePendingCount: bigint;
+    remainingBonusSupply: bigint;
+    bonusNftsAutoAwarded: bigint;
+}
 export type Result_1 = {
     __kind__: "ok";
     ok: Array<VerifyResult>;
@@ -60,18 +68,21 @@ export interface CollectionWithCount {
 }
 export type Result_4 = {
     __kind__: "ok";
-    ok: {
-        id: bigint;
-        tokenId: bigint;
-        collectionId?: bigint;
-        nftUniqueId: string;
-    };
+    ok: BatchAwardResult;
 } | {
     __kind__: "err";
-    err: {
-        message: string;
-    };
+    err: string;
 };
+export interface EligiblePendingEntry {
+    thresholdTier: bigint;
+    referrerPrincipal: Principal;
+    enqueuedAt: Timestamp;
+}
+export interface BatchAwardConfig {
+    delaySeconds: bigint;
+    cappedPerCycle: bigint;
+    batchSize: bigint;
+}
 export interface PaymentProof {
     id: string;
     status: PaymentProofStatus;
@@ -92,6 +103,7 @@ export interface Nft {
     imageBlob: ExternalBlob;
     edition: string;
     collectionId?: bigint;
+    referralThreshold: bigint;
     ownerId: Principal;
     discountCode?: string;
     tags: Array<string>;
@@ -103,6 +115,7 @@ export interface Nft {
     claimedAt?: bigint;
     auditHistory: Array<AuditEntry>;
     rewardTier: RewardTier;
+    rewardType: RewardType;
     assetHash: string;
     membershipId?: string;
     nftUniqueId: string;
@@ -133,7 +146,7 @@ export interface Cell {
 }
 export type Result_7 = {
     __kind__: "ok";
-    ok: bigint;
+    ok: ClaimStatus;
 } | {
     __kind__: "err";
     err: string;
@@ -162,11 +175,6 @@ export type Value = {
     text: string;
 };
 export type CollectionId = bigint;
-export interface ClaimPreview {
-    nft: Nft;
-    supplyLimit: bigint;
-    claimedCount: bigint;
-}
 export interface VerifyResult {
     status: NftStatus;
     supplyLimit: bigint;
@@ -187,12 +195,24 @@ export interface VerifyResult {
     nftUniqueId: string;
     canisterId: string;
 }
+export interface ClaimPreview {
+    nft: Nft;
+    supplyLimit: bigint;
+    claimedCount: bigint;
+}
 export type Result_6 = {
     __kind__: "ok";
-    ok: ClaimPreview;
+    ok: {
+        id: bigint;
+        tokenId: bigint;
+        collectionId?: bigint;
+        nftUniqueId: string;
+    };
 } | {
     __kind__: "err";
-    err: string;
+    err: {
+        message: string;
+    };
 };
 export interface CollectionSummary {
     id: CollectionId;
@@ -200,11 +220,28 @@ export interface CollectionSummary {
     name: string;
     nftCount: bigint;
 }
+export interface ReferralCodeMapping {
+    code: string;
+    createdAt: Timestamp;
+    referrerPrincipal: Principal;
+}
+export type Result_9 = {
+    __kind__: "ok";
+    ok: bigint;
+} | {
+    __kind__: "err";
+    err: string;
+};
 export interface NftClaimBreakdownEntry {
     supplyLimit: bigint;
     title: string;
     nftId: bigint;
     claimedCount: bigint;
+}
+export interface MyReferralStatus {
+    referralCode?: string;
+    referralsCount: bigint;
+    awardedTiers: Array<bigint>;
 }
 export interface HealthMetrics {
     claimedNfts: bigint;
@@ -218,6 +255,7 @@ export interface HealthMetrics {
     activeNfts: bigint;
     canisterId: string;
 }
+export type CreatorId = string;
 export interface ClaimToken {
     supplyLimit: bigint;
     token: string;
@@ -227,7 +265,6 @@ export interface ClaimToken {
     nftId: bigint;
     claimedCount: bigint;
 }
-export type CreatorId = string;
 export type Result = {
     __kind__: "ok";
     ok: VerifyResult;
@@ -238,6 +275,26 @@ export type Result = {
 export type Result_3 = {
     __kind__: "ok";
     ok: string;
+} | {
+    __kind__: "err";
+    err: string;
+};
+export type Result_10 = {
+    __kind__: "ok";
+    ok: Nft;
+} | {
+    __kind__: "err";
+    err: string;
+};
+export interface RecordReferralResult {
+    newlyEligiblePending: boolean;
+    thresholdTier?: bigint;
+    referrerPrincipal: Principal;
+    newReferralsCount: bigint;
+}
+export type Result_8 = {
+    __kind__: "ok";
+    ok: ClaimPreview;
 } | {
     __kind__: "err";
     err: string;
@@ -253,17 +310,16 @@ export interface Collection {
     description: string;
     maxSize: bigint;
 }
-export type Result_8 = {
-    __kind__: "ok";
-    ok: Nft;
-} | {
-    __kind__: "err";
-    err: string;
-};
+export interface BatchAwardResult {
+    hitCycleCap: boolean;
+    awardedThisCycle: bigint;
+    remainingPending: bigint;
+}
 export interface UserProfile {
     creditsTotal: bigint;
     oisyWalletAddress?: string;
     emailAlerts: Array<AlertType>;
+    referralCode?: string;
     emailVerified: boolean;
     maxSlots: bigint;
     createdAt: Timestamp;
@@ -272,9 +328,11 @@ export interface UserProfile {
     email?: string;
     stripeProductId?: string;
     activeSlots: bigint;
+    referralsCount: bigint;
     creditsUsed: bigint;
     principalId: Principal;
     creditsResetAt: Timestamp;
+    awardedTiers: Array<bigint>;
 }
 export enum AlertType {
     mint_confirmation = "mint_confirmation",
@@ -299,6 +357,10 @@ export enum RewardTier {
     platinum = "platinum",
     silver = "silver"
 }
+export enum RewardType {
+    none = "none",
+    referralBonus = "referralBonus"
+}
 export enum SubscriptionTier {
     org = "org",
     pro = "pro",
@@ -308,15 +370,19 @@ export enum SubscriptionTier {
 export interface backendInterface {
     addAdmin(p: Principal): Promise<boolean>;
     addNftToCollection(nftId: bigint, collectionId: bigint): Promise<Result_2>;
+    adminPurgeEligiblePending(referrerPrincipal: Principal): Promise<boolean>;
+    adminSetNftReferralThreshold(nftId: bigint, threshold: bigint): Promise<Result_2>;
+    adminSetNftRewardType(nftId: bigint, rewardType: RewardType): Promise<Result_2>;
+    adminUpdateBatchAwardConfig(config: BatchAwardConfig): Promise<BatchAwardConfig>;
     approvePaymentProof(proofId: string): Promise<Result_3>;
     burnNft(id: bigint): Promise<Result_2>;
-    claimNft(token: string): Promise<Result_8>;
+    claimNft(token: string, ref: string | null): Promise<Result_10>;
     createCheckoutSession(_items: Array<{
         name: string;
         price: bigint;
     }>, _successUrl: string, _cancelUrl: string): Promise<string>;
-    createCollection(name: string, description: string): Promise<Result_7>;
-    createSlot(): Promise<Result_7>;
+    createCollection(name: string, description: string): Promise<Result_9>;
+    createSlot(): Promise<Result_9>;
     deleteCollection(id: bigint): Promise<void>;
     deleteCollectionAndUnassignNfts(collectionId: CollectionId): Promise<CollectionSummary>;
     deleteNft(id: bigint): Promise<Result_2>;
@@ -328,8 +394,13 @@ export interface backendInterface {
     getCallerProfile(): Promise<UserProfile>;
     getCanisterId(): Promise<string>;
     getCanisterIdSafe(): Promise<string>;
-    getClaimPreview(token: string): Promise<Result_6>;
-    getClaimStatus(nftId: bigint): Promise<Result_5>;
+    getCatalogIntegrity(): Promise<{
+        myActiveNftCount: bigint;
+        totalNftCount: bigint;
+        myNftCount: bigint;
+    }>;
+    getClaimPreview(token: string): Promise<Result_8>;
+    getClaimStatus(nftId: bigint): Promise<Result_7>;
     getClaimedNfts(): Promise<bigint>;
     getCollection(id: bigint): Promise<Collection | null>;
     getCollectionIdByName(name: string): Promise<CollectionId | null>;
@@ -341,13 +412,22 @@ export interface backendInterface {
     getHealthMetrics(): Promise<HealthMetrics>;
     getMetricsCanisterId(): Promise<string>;
     getMyPaymentProofs(): Promise<Array<PaymentProof>>;
+    getMyReferralStatus(): Promise<MyReferralStatus | null>;
     getNft(id: bigint): Promise<Nft | null>;
     getNftClaimBreakdown(): Promise<Array<NftClaimBreakdownEntry>>;
     getNftClaimCounts(): Promise<Array<NftClaimCount>>;
+    getOrCreateMyReferralCode(): Promise<Result_3>;
+    getReferralHealthMetrics(): Promise<ReferralHealthMetrics>;
     getSlotsStatus(): Promise<{
         total: bigint;
         used: bigint;
         remaining: bigint;
+    }>;
+    getStableStateIntegrity(): Promise<{
+        collectionCount: bigint;
+        nftCount: bigint;
+        claimTokenCount: bigint;
+        userCount: bigint;
     }>;
     getStorageUsage(): Promise<bigint>;
     getStripeSessionStatus(_sessionId: string): Promise<{
@@ -361,21 +441,25 @@ export interface backendInterface {
     getTotalCollections(): Promise<bigint>;
     getTotalCreators(): Promise<bigint>;
     getTotalMinted(): Promise<bigint>;
+    getTotalNftCount(): Promise<bigint>;
     getTotalNfts(): Promise<bigint>;
     hasRealAdmin(): Promise<boolean>;
     isAdmin(): Promise<boolean>;
     isLiveCanister(): Promise<boolean>;
     isStripeConfigured(): Promise<boolean>;
     listAdmins(): Promise<Array<Principal>>;
+    listAllNfts(): Promise<Array<Nft>>;
     listMyActiveNfts(): Promise<Array<Nft>>;
     listMyCollections(): Promise<Array<CollectionWithCount>>;
     listMyNfts(): Promise<Array<Nft>>;
     listPaymentProofs(): Promise<Array<PaymentProof>>;
-    mintNft(imageBlob: ExternalBlob, assetHash: string, title: string, description: string, collectionId: bigint | null, businessName: string | null, website: string | null, discountCode: string | null, membershipId: string | null, supplyLimit: bigint): Promise<Result_4>;
+    mintNft(imageBlob: ExternalBlob, assetHash: string, title: string, description: string, collectionId: bigint | null, businessName: string | null, website: string | null, discountCode: string | null, membershipId: string | null, supplyLimit: bigint): Promise<Result_6>;
+    recordReferral(code: string): Promise<Result_5>;
     rejectPaymentProof(proofId: string, reason: string): Promise<Result_3>;
     removeAdmin(p: Principal): Promise<boolean>;
     removeNftFromCollection(nftId: bigint, collectionId: bigint): Promise<Result_2>;
     renameCollection(request: RenameCollectionRequest): Promise<CollectionSummary>;
+    runBatchAwardCycle(): Promise<Result_4>;
     saveCallerProfile(profile: UserProfile): Promise<void>;
     schema(): Promise<string>;
     searchNfts(searchTerm: string): Promise<Array<Nft>>;

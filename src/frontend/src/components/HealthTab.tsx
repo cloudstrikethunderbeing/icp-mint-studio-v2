@@ -1,14 +1,21 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   useActiveNfts,
+  useAdminPurgeEligiblePending,
+  useAdminUpdateBatchAwardConfig,
   useAvailableNfts,
   useBackendBuildTimestamp,
   useClaimedNfts,
   useHealthMetrics,
   useMetricsCanisterId,
   useNftClaimBreakdown,
+  useReferralHealthMetrics,
+  useRunBatchAwardCycle,
   useStorageUsage,
   useTotalClaims,
   useTotalCollections,
@@ -29,14 +36,17 @@ import {
   CheckCircle2,
   Clock,
   Database,
+  Gift,
   HardDrive,
   Layers,
   ListTree,
   RefreshCw,
   Shield,
+  Trash2,
   Users,
+  Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface MetricCardProps {
   icon: React.ReactNode;
@@ -360,6 +370,336 @@ function PerNftClaimBreakdown({
   );
 }
 
+function ReferralBonusSection() {
+  const { isAdmin } = useAuth();
+  const queryClient = useQueryClient();
+  const referralHealth = useReferralHealthMetrics(isAdmin);
+  const updateBatchConfig = useAdminUpdateBatchAwardConfig(isAdmin);
+  const runBatchAward = useRunBatchAwardCycle(isAdmin);
+  const purgeEligiblePending = useAdminPurgeEligiblePending(isAdmin);
+
+  // Local state seeded from defaults; ReferralHealthMetrics exposes no public
+  // getter for the current batch-award config (adminUpdateBatchAwardConfig is
+  // write-only), so the form is seeded with the documented defaults.
+  const [batchSize, setBatchSize] = useState<number>(25);
+  const [delaySeconds, setDelaySeconds] = useState<number>(1);
+  const [cappedPerCycle, setCappedPerCycle] = useState<bigint>(25n);
+  const [purgePrincipal, setPurgePrincipal] = useState("");
+  const [purgeError, setPurgeError] = useState<string | null>(null);
+
+  function handleRefresh() {
+    queryClient.invalidateQueries({ queryKey: ["referralHealthMetrics"] });
+  }
+
+  async function handleSaveConfig(e: React.FormEvent) {
+    e.preventDefault();
+    await updateBatchConfig.mutateAsync({
+      batchSize: BigInt(batchSize),
+      delaySeconds: BigInt(delaySeconds),
+      cappedPerCycle,
+    });
+  }
+
+  async function handleRunBatchAward() {
+    await runBatchAward.mutateAsync();
+  }
+
+  async function handlePurge(e: React.FormEvent) {
+    e.preventDefault();
+    setPurgeError(null);
+    const trimmed = purgePrincipal.trim();
+    if (!trimmed) {
+      setPurgeError("Enter a referrer principal to purge.");
+      return;
+    }
+    try {
+      await purgeEligiblePending.mutateAsync(trimmed);
+      setPurgePrincipal("");
+    } catch (err) {
+      setPurgeError(
+        err instanceof Error ? err.message : "Failed to purge entry.",
+      );
+    }
+  }
+
+  if (!isAdmin) return null;
+
+  const metrics = referralHealth.data;
+  const queueLengths = metrics?.eligiblePendingQueueLengthPerTier ?? [];
+  const isLoading = referralHealth.isLoading;
+
+  return (
+    <div
+      className="bg-card border border-border rounded-xl overflow-hidden"
+      data-ocid="health.referral.section"
+    >
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
+        <Gift className="w-4 h-4 text-primary" />
+        <h3 className="text-sm font-semibold text-foreground">
+          Referral Bonus Program
+        </h3>
+        <Badge
+          variant="outline"
+          className="text-[10px] ml-auto"
+          data-ocid="health.referral.status_badge"
+        >
+          Admin-tunable
+        </Badge>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2"
+          onClick={handleRefresh}
+          disabled={isLoading}
+          data-ocid="health.referral.refresh_button"
+        >
+          <RefreshCw
+            className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`}
+          />
+        </Button>
+      </div>
+
+      <div className="p-4 space-y-4">
+        {/* Metric cards */}
+        {isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <MetricSkeleton key="ref-skel-a" />
+            <MetricSkeleton key="ref-skel-b" />
+            <MetricSkeleton key="ref-skel-c" />
+            <MetricSkeleton key="ref-skel-d" />
+            <MetricSkeleton key="ref-skel-e" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <MetricCard
+              icon={<Gift className="w-4 h-4" />}
+              label="Bonus NFTs Awarded"
+              value={formatNumber(metrics?.bonusNftsAutoAwarded)}
+              subValue="Auto-awarded via batch cycles"
+              accent
+            />
+            <MetricCard
+              icon={<Box className="w-4 h-4" />}
+              label="Remaining Bonus Supply"
+              value={formatNumber(metrics?.remainingBonusSupply)}
+              subValue="Unclaimed bonus NFTs available"
+            />
+            <MetricCard
+              icon={<Clock className="w-4 h-4" />}
+              label="Eligible Pending"
+              value={formatNumber(metrics?.eligiblePendingCount)}
+              subValue="Referrers awaiting award"
+            />
+            <MetricCard
+              icon={<Users className="w-4 h-4" />}
+              label="Total Referral Codes"
+              value={formatNumber(metrics?.totalReferralCodes)}
+              subValue="Codes issued (never expire)"
+            />
+            <MetricCard
+              icon={<BarChart3 className="w-4 h-4" />}
+              label="Total Referrals Counted"
+              value={formatNumber(metrics?.totalReferralsCounted)}
+              subValue="All referral events recorded"
+            />
+          </div>
+        )}
+
+        {/* Per-tier queue lengths */}
+        <div
+          className="rounded-lg border border-border bg-muted/30 p-3"
+          data-ocid="health.referral.queue_panel"
+        >
+          <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
+            <ListTree className="w-3.5 h-3.5 text-primary" />
+            Eligible-Pending Queue Length per Tier
+          </p>
+          {queueLengths.length === 0 ? (
+            <p
+              className="text-xs text-muted-foreground"
+              data-ocid="health.referral.queue_empty_state"
+            >
+              No tier queues configured.
+            </p>
+          ) : (
+            <ul
+              className="grid grid-cols-2 sm:grid-cols-3 gap-2"
+              data-ocid="health.referral.queue_list"
+            >
+              {queueLengths.map((len, i) => (
+                <li
+                  key={`tier-${i + 1}`}
+                  className="flex items-center justify-between rounded-md border border-border bg-background px-2.5 py-1.5"
+                  data-ocid={`health.referral.queue.item.${i}`}
+                >
+                  <span className="text-[11px] text-muted-foreground">
+                    Tier {i + 1}
+                  </span>
+                  <span className="text-xs font-semibold text-foreground tabular-nums">
+                    {formatNumber(len)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Batch-award config controls */}
+        <form
+          onSubmit={handleSaveConfig}
+          className="rounded-lg border border-border bg-muted/30 p-3 space-y-3"
+          data-ocid="health.batch_award.config_form"
+        >
+          <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+            <Zap className="w-3.5 h-3.5 text-primary" />
+            Batch Award Configuration
+            <Badge
+              variant="outline"
+              className="text-[10px] ml-1"
+              data-ocid="health.batch_award.tunable_badge"
+            >
+              Admin-tunable
+            </Badge>
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label
+                htmlFor="batch-size"
+                className="text-xs text-muted-foreground"
+              >
+                Batch Size (per cycle)
+              </Label>
+              <Input
+                id="batch-size"
+                type="number"
+                min={1}
+                value={batchSize}
+                onChange={(e) => setBatchSize(Number(e.target.value))}
+                placeholder="25"
+                className="text-xs"
+                data-ocid="health.batch_award.batch_size_input"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label
+                htmlFor="delay-seconds"
+                className="text-xs text-muted-foreground"
+              >
+                Delay (seconds between awards)
+              </Label>
+              <Input
+                id="delay-seconds"
+                type="number"
+                min={0}
+                value={delaySeconds}
+                onChange={(e) => setDelaySeconds(Number(e.target.value))}
+                placeholder="1"
+                className="text-xs"
+                data-ocid="health.batch_award.delay_seconds_input"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label
+              htmlFor="capped-per-cycle"
+              className="text-xs text-muted-foreground"
+            >
+              Cap awards per cycle (throttled retroactive batch-award)
+            </Label>
+            <Input
+              id="capped-per-cycle"
+              type="number"
+              min={0}
+              value={cappedPerCycle.toString()}
+              onChange={(e) => setCappedPerCycle(BigInt(e.target.value || "0"))}
+              placeholder="25"
+              className="text-xs"
+              data-ocid="health.batch_award.capped_input"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="submit"
+              size="sm"
+              disabled={updateBatchConfig.isPending}
+              data-ocid="health.batch_award.save_button"
+            >
+              {updateBatchConfig.isPending ? "Saving..." : "Save Config"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={runBatchAward.isPending}
+              onClick={handleRunBatchAward}
+              data-ocid="health.batch_award.run_button"
+            >
+              {runBatchAward.isPending
+                ? "Running cycle..."
+                : "Run Batch Award Cycle"}
+            </Button>
+          </div>
+        </form>
+
+        {/* Purge eligible-pending */}
+        <form
+          onSubmit={handlePurge}
+          className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 space-y-2"
+          data-ocid="health.referral.purge_form"
+        >
+          <p className="text-xs font-semibold text-destructive flex items-center gap-1.5">
+            <Trash2 className="w-3.5 h-3.5" />
+            Purge Eligible-Pending Entry
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            Remove a referrer's pending eligibility without awarding. Use with
+            caution — deactivation preserves pending eligibility, so this is the
+            only way to clear a stuck entry.
+          </p>
+          <div className="space-y-1">
+            <Label
+              htmlFor="purge-principal"
+              className="text-xs text-muted-foreground"
+            >
+              Referrer Principal
+            </Label>
+            <Input
+              id="purge-principal"
+              type="text"
+              value={purgePrincipal}
+              onChange={(e) => {
+                setPurgePrincipal(e.target.value);
+                setPurgeError(null);
+              }}
+              placeholder="e.g. 2vxsx-fae..."
+              className="text-xs font-mono"
+              data-ocid="health.referral.purge_principal_input"
+            />
+          </div>
+          {purgeError && (
+            <p
+              className="text-xs text-destructive"
+              data-ocid="health.referral.purge_error_state"
+            >
+              {purgeError}
+            </p>
+          )}
+          <Button
+            type="submit"
+            variant="destructive"
+            size="sm"
+            disabled={purgeEligiblePending.isPending || !purgePrincipal.trim()}
+            data-ocid="health.referral.purge_button"
+          >
+            {purgeEligiblePending.isPending ? "Purging..." : "Purge Entry"}
+          </Button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function HealthTab() {
   const queryClient = useQueryClient();
 
@@ -567,6 +907,9 @@ export default function HealthTab() {
 
       {/* Per-NFT Claim Breakdown */}
       <PerNftClaimBreakdown breakdown={breakdown} />
+
+      {/* Referral Bonus Program — admin only */}
+      <ReferralBonusSection />
     </div>
   );
 }
