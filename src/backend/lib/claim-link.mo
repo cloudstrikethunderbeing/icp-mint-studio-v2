@@ -1,4 +1,5 @@
 import Map "mo:core/Map";
+import List "mo:core/List";
 import Result "mo:core/Result";
 import Principal "mo:core/Principal";
 import Set "mo:core/Set";
@@ -264,6 +265,11 @@ module {
     nextNftId : { var value : Nat },
     selfCanisterId : { var value : Text },
     claimRateLimitStore : Map.Map<Principal, { var lastClaimSec : Int }>,
+    // [SCALE] Owner secondary index. A claimed copy is owned by `claimer`, so
+    // the index must record it — otherwise owner-scoped listings (which read
+    // the index) would omit every claimed NFT. The claimed copy always has
+    // collectionId = null, so no collection counter update is needed here.
+    ownerIndex : Map.Map<Principal, List.List<Nat>>,
   ) : Result.Result<NftTypes.Nft, Text> {
     // Reject anonymous claimers — a real principal is required to own the
     // new NFT copy. (For auto-award/batch-award the referrer always has a
@@ -361,6 +367,10 @@ module {
       auditHistory = [newAuditEntry];
     };
     nftStore.add(newId, newNft);
+    // [SCALE] Record the claimed copy in the owner index so owner-scoped
+    // listings (which read the index) include it. Done AFTER the add so a
+    // failed add cannot leave a dangling index entry.
+    NftLib.addToOwnerIndex(ownerIndex, claimer, newId);
     // [NFT-INTEGRITY] Post-claim integrity check: pre-claim count + 1 must
     // equal post-claim count AND all pre-existing NFT ids must remain listed.
     // If it fails, remove the freshly claimed NFT (leaving the catalog

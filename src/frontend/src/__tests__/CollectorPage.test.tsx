@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -115,6 +116,20 @@ function mockMutation() {
   };
 }
 
+// CollectorPage now reads the page envelope's `total` through a direct
+// useQuery (["collectorPageTotals", ...]), so it must be rendered inside a
+// QueryClientProvider. A fresh client per render keeps tests isolated.
+function renderCollectorPage() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <CollectorPage />
+    </QueryClientProvider>,
+  );
+}
+
 function setAuthenticatedAuth() {
   authMock.useAuth.mockReturnValue({
     isAuthenticated: true,
@@ -156,7 +171,7 @@ describe("CollectorPage (Library) rendering states", () => {
 
   it("renders a loading skeleton while the active NFT feed is loading (never a blank list)", () => {
     queriesMock.useMyActiveNfts.mockReturnValue({ data: [], isLoading: true });
-    render(<CollectorPage />);
+    renderCollectorPage();
     // The header is present and the count badge is hidden while loading.
     expect(screen.getByText("My Library")).toBeInTheDocument();
     // Skeleton placeholders render instead of a blank list.
@@ -165,45 +180,48 @@ describe("CollectorPage (Library) rendering states", () => {
     );
   });
 
-  it("renders the account-scoped empty state (not a blank list) when the store has NFTs but this account owns none", () => {
-    // Store-wide catalog has NFTs (storeWideTotal > 0) but the signed-in
-    // principal owns none — the catalog is intact, this account is empty.
-    queriesMock.useTotalNftCount.mockReturnValue({
-      data: 3n,
-      isLoading: false,
-    });
-    render(<CollectorPage />);
+  it("renders a short, plain empty state (not a blank list) when the account owns no NFTs", () => {
+    // The signed-in principal owns no NFTs. The empty state is a short, plain
+    // message with a clear next step — no diagnostic or explainer paragraphs.
+    renderCollectorPage();
     expect(
       document.querySelector('[data-ocid="collector.account_empty_state"]'),
     ).not.toBeNull();
-    expect(screen.getByText("No NFTs for this account")).toBeInTheDocument();
+    expect(screen.getByText("No NFTs yet")).toBeInTheDocument();
     expect(
-      screen.getByText(/claim one using a claim link/),
+      screen.getByText(
+        "Mint one to get started, or claim one using a claim link.",
+      ),
     ).toBeInTheDocument();
-    // The intact-catalog diagnostic is visible, not a silent blank list.
+    // No diagnostic/explainer panels remain in the empty state.
     expect(
       document.querySelector(
         '[data-ocid="collector.catalog_intact_diag_panel"]',
       ),
-    ).not.toBeNull();
-  });
-
-  it("renders the catalog-empty state (not a blank list) when the store-wide catalog has zero NFTs", () => {
-    // Store-wide zero NFTs — e.g. a fresh store on draft resume. This is
-    // expected platform behavior, surfaced explicitly rather than a blank list.
-    queriesMock.useTotalNftCount.mockReturnValue({
-      data: 0n,
-      isLoading: false,
-    });
-    render(<CollectorPage />);
-    expect(
-      document.querySelector('[data-ocid="collector.catalog_empty_state"]'),
-    ).not.toBeNull();
-    expect(screen.getByText("The catalog is empty")).toBeInTheDocument();
-    // The draft-resume diagnostic distinguishes expected recycle from a bug.
+    ).toBeNull();
     expect(
       document.querySelector('[data-ocid="collector.recycle_diag_panel"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-ocid="collector.catalog_empty_state"]'),
+    ).toBeNull();
+  });
+
+  it("shows the same plain empty state regardless of the store-wide catalog count", () => {
+    // The store-wide count no longer drives a distinct diagnostic state; the
+    // account-scoped empty state is the single plain message.
+    queriesMock.useTotalNftCount.mockReturnValue({
+      data: 3n,
+      isLoading: false,
+    });
+    renderCollectorPage();
+    expect(
+      document.querySelector('[data-ocid="collector.account_empty_state"]'),
     ).not.toBeNull();
+    expect(screen.getByText("No NFTs yet")).toBeInTheDocument();
+    expect(
+      document.querySelector('[data-ocid="collector.catalog_empty_state"]'),
+    ).toBeNull();
   });
 
   it("renders NFT cards when the account owns NFTs", () => {
@@ -213,30 +231,40 @@ describe("CollectorPage (Library) rendering states", () => {
       isLoading: false,
     });
     queriesMock.useMyNfts.mockReturnValue({ data: [nft] });
-    render(<CollectorPage />);
+    renderCollectorPage();
     expect(screen.getByText("My First NFT")).toBeInTheDocument();
     expect(screen.getByText("My Library")).toBeInTheDocument();
   });
 
-  it("blocks the library behind the backend-health guard when the backend is unavailable", () => {
+  it("renders the library with an inline notice when the backend is unavailable", () => {
+    // The library now renders with an INLINE notice instead of blocking the
+    // whole surface: a degraded backend must not hide the user's own records.
     queriesMock.useBackendHealth.mockReturnValue({
       status: "unavailable",
       reason: "boom",
     });
-    render(<CollectorPage />);
+    renderCollectorPage();
+    expect(
+      document.querySelector('[data-ocid="collector.backend_health_notice"]'),
+    ).not.toBeNull();
     expect(screen.getByText("Backend unavailable")).toBeInTheDocument();
-    expect(screen.queryByText("My Library")).not.toBeInTheDocument();
+    // The library surface still renders.
+    expect(screen.getByText("My Library")).toBeInTheDocument();
   });
 
-  it("blocks the library behind the backend-health guard when the backend reports an empty catalog", () => {
+  it("renders the library with an inline notice when the backend reports an empty catalog", () => {
     queriesMock.useBackendHealth.mockReturnValue({
       status: "empty",
       canisterId: "x",
     });
-    render(<CollectorPage />);
+    renderCollectorPage();
+    expect(
+      document.querySelector('[data-ocid="collector.backend_health_notice"]'),
+    ).not.toBeNull();
     expect(
       screen.getByText("Library temporarily unavailable"),
     ).toBeInTheDocument();
-    expect(screen.queryByText("My Library")).not.toBeInTheDocument();
+    // The library surface still renders rather than being blocked.
+    expect(screen.getByText("My Library")).toBeInTheDocument();
   });
 });

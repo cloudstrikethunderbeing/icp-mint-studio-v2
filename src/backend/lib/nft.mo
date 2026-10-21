@@ -1,11 +1,11 @@
 import Map "mo:core/Map";
 import List "mo:core/List";
+import Set "mo:core/Set";
 import Principal "mo:core/Principal";
 import Text "mo:core/Text";
 import Nat "mo:core/Nat";
 import Nat8 "mo:core/Nat8";
 import Nat32 "mo:core/Nat32";
-import Runtime "mo:core/Runtime";
 import Storage "mo:caffeineai-object-storage/Storage";
 import Common "../types/common";
 import Types "../types/nft";
@@ -79,7 +79,7 @@ module {
     activeCount < maxSize
   };
 
-  public func createNft(store : NftStore, id : Nat, ownerId : Principal, creatorId : Common.CreatorId, imageBlob : Storage.ExternalBlob, assetHash : Text, title : Text, description : Text, edition : Text, timestamp : Common.Timestamp, collectionId : ?Nat, businessName : ?Text, website : ?Text, discountCode : ?Text, membershipId : ?Text, canisterId : Text, supplyLimit : Nat) : Types.Nft {
+  public func createNft(store : NftStore, id : Nat, ownerId : Principal, creatorId : Common.CreatorId, imageBlob : Storage.ExternalBlob, assetHash : Text, title : Text, description : Text, edition : Text, timestamp : Common.Timestamp, collectionId : ?Nat, businessName : ?Text, website : ?Text, discountCode : ?Text, membershipId : ?Text, canisterId : Text, supplyLimit : Nat, priceUsd : ?Nat) : Types.Nft {
     let sanitizedTitle = sanitizeText(title, 100);
     let sanitizedDesc = sanitizeText(description, 1000);
     let sanitizedBusinessName = switch (businessName) {
@@ -127,6 +127,7 @@ module {
       // an admin later flips rewardType to #referralBonus.
       rewardType = #none;
       referralThreshold = ReferralTypes.DEFAULT_REFERRAL_THRESHOLD;
+      priceUsd;
     };
     store.add(id, nft);
     nft
@@ -143,7 +144,12 @@ module {
           details = ?("Deleted NFT " # id.toText());
         };
         let updated = addAuditEntry(nft, entry);
-        let finalNft = { updated with status = #deleted };
+        // [UNLIST-ON-DELETE] Deleting from listings must also CLEAR the price
+        // so the NFT is no longer purchasable. Without this the stored price
+        // survived the delete and the NFT stayed "listed" in every price
+        // surface even though it had been removed from the listings. The
+        // record is retained (status #deleted) and still retrievable by id.
+        let finalNft = { updated with status = #deleted; priceUsd = null };
         store.add(id, finalNft);
         ?finalNft
       };
@@ -161,7 +167,9 @@ module {
           details = ?("Burned NFT " # id.toText());
         };
         let updated = addAuditEntry(nft, entry);
-        let finalNft = { updated with status = #burned };
+        // [UNLIST-ON-BURN] A burned NFT must not remain purchasable, so the
+        // price is cleared alongside the status transition.
+        let finalNft = { updated with status = #burned; priceUsd = null };
         store.add(id, finalNft);
         ?finalNft
       };
@@ -170,6 +178,171 @@ module {
 
   public func getNft(store : NftStore, id : Nat) : ?Types.Nft {
     store.get(id)
+  };
+
+  // [SCALE] Lightweight list projection. Drops imageBlob and every metadata
+  // field a list view does not need, so a list response does not decode every
+  // image. `thumbnail` carries the assetHash (the frontend resolves it to a
+  // gateway URL through the same single image-resolution path as full records).
+  public func toSummary(nft : Types.Nft, canisterId : Text) : Types.NftSummary {
+    {
+      id = nft.id;
+      ownerId = nft.ownerId;
+      creatorId = nft.creatorId;
+      title = nft.title;
+      thumbnail = nft.assetHash;
+      status = nft.status;
+      collectionId = nft.collectionId;
+      mintDate = nft.mintDate;
+      nftUniqueId = canisterId # ":0:" # nft.id.toText();
+      priceUsd = nft.priceUsd;
+    }
+  };
+
+  // [SCALE] Applies offset/limit to an already-materialized array of summaries
+  // and returns the page plus the pre-pagination total. `limit` is clamped to
+  // at least 1 so a caller passing 0 cannot silently receive an empty page.
+  public func paginateSummaries(items : [Types.NftSummary], offset : Nat, limit : Nat) : Types.NftSummaryPage {
+    let total = items.size();
+    let effectiveLimit = if (limit == 0) { 1 } else { limit };
+    if (offset >= total) {
+      return { items = []; total; offset; limit = effectiveLimit };
+    };
+    let remaining = Nat.sub(total, offset);
+    let take = if (effectiveLimit > remaining) { remaining } else { effectiveLimit };
+    let page = Array.tabulate(take, func(i) = items[offset + i]);
+    { items = page; total; offset; limit = effectiveLimit }
+  };
+
+  // [SCALE] Owner secondary index maintenance. Mirrors the existing
+  // creatorIndex pattern: ownerIndex maps an owner principal to the list of
+  // NFT ids they own, so owner-scoped listings are O(owned) instead of O(N).
+  // Idempotent per (owner, id) pair — a duplicate add is a no-op.
+  public func addToOwnerIndex(index : Map.Map<Principal, List.List<Nat>>, owner : Principal, id : Nat) {
+    switch (index.get(owner)) {
+      case (null) {
+        let ids = List.empty<Nat>();
+        ids.add(id);
+        index.add(owner, ids);
+      };
+      case (?ids) {
+        if (ids.find(func(x) = x == id) == null) {
+          ids.add(id);
+          index.add(owner, ids);
+        };
+      };
+    };
+  };
+
+  // [SCALE] Removes an id from an owner's index list. Removes the owner entry
+  // entirely when the list becomes empty so the index does not accumulate
+  // empty buckets.
+  public func removeFromOwnerIndex(index : Map.Map<Principal, List.List<Nat>>, owner : Principal, id : Nat) {
+    switch (index.get(owner)) {
+      case (null) {};
+      case (?ids) {
+        let kept = List.empty<Nat>();
+        for (x in ids.toArray().vals()) {
+          if (x != id) { kept.add(x) };
+        };
+        if (kept.size() == 0) {
+          index.remove(owner);
+        } else {
+          index.add(owner, kept);
+        };
+      };
+    };
+  };
+
+  // [SCALE] Moves an id from one owner's index bucket to another's. Used on
+  // transfer and on any ownership change so the owner index stays consistent.
+  public func moveOwnerIndex(index : Map.Map<Principal, List.List<Nat>>, from : Principal, to : Principal, id : Nat) {
+    if (Principal.equal(from, to)) { return };
+    removeFromOwnerIndex(index, from, id);
+    addToOwnerIndex(index, to, id);
+  };
+
+  // [SCALE] Resolves the ids owned by a principal from the owner index. Returns
+  // [] when the principal owns nothing. The returned ids are the index's own
+  // view; callers must tolerate ids whose record was hard-removed.
+  public func ownerIndexIds(index : Map.Map<Principal, List.List<Nat>>, owner : Principal) : [Nat] {
+    switch (index.get(owner)) {
+      case (null) { [] };
+      case (?ids) { ids.toArray() };
+    };
+  };
+
+  // [OWNERSHIP-CANONICAL] Owner-scoped listing. The owner index is a DERIVED
+  // cache that can drift from the canonical store (a mint/claim/transfer whose
+  // index write was lost, or an upgrade that did not backfill it), which made
+  // an owner's freshly minted NFT vanish from the Library/Studio after a
+  // reload or re-authentication. The canonical source of truth for ownership
+  // is `nftStore` + `ownerId`, so this listing is derived from the store and
+  // the index is used only as a fast-path hint: ids are collected from the
+  // index first, then the store is scanned for any owned NFT the index missed.
+  // A `seen` set deduplicates by id so an NFT appears EXACTLY ONCE even when
+  // both the index and the scan surface it. `activeOnly` applies the same
+  // predicate listActiveNftsByOwner uses (status == #active AND claimedAt ==
+  // null). Ids whose record is missing are skipped defensively. The
+  // nftUniqueId is recomputed from the live canisterId so the projection is
+  // consistent with the full-record listings.
+  public func listNftsByOwnerIndexed(store : NftStore, index : Map.Map<Principal, List.List<Nat>>, ownerId : Principal, canisterId : Text, activeOnly : Bool) : [Types.Nft] {
+    let results = List.empty<Types.Nft>();
+    let seen = Set.empty<Nat>();
+    // Fast path: ids recorded in the owner index.
+    for (id in ownerIndexIds(index, ownerId).values()) {
+      if (not seen.contains(id)) {
+        seen.add(id);
+        switch (store.get(id)) {
+          case (null) {};
+          case (?nft) {
+            if (Principal.equal(nft.ownerId, ownerId)) {
+              if (not activeOnly or (nft.status == #active and nft.claimedAt == null)) {
+                let nftUniqueId = canisterId # ":0:" # nft.id.toText();
+                results.add({ nft with nftUniqueId });
+              };
+            };
+          };
+        };
+      };
+    };
+    // Canonical reconciliation: scan the store for any owned NFT the index
+    // missed, so canonical ownership is always reflected.
+    for ((id, nft) in store.entries()) {
+      if (not seen.contains(id) and Principal.equal(nft.ownerId, ownerId)) {
+        seen.add(id);
+        if (not activeOnly or (nft.status == #active and nft.claimedAt == null)) {
+          let nftUniqueId = canisterId # ":0:" # nft.id.toText();
+          results.add({ nft with nftUniqueId });
+        };
+      };
+    };
+    results.toArray()
+  };
+
+  // [SCALE] Per-collection NFT counter maintenance. Keeps a running count of
+  // active NFTs per collection so listMyCollections is O(collections) instead
+  // of O(collections x N). Increments on assignment, decrements on removal.
+  public func incrementCollectionCount(counts : Map.Map<Nat, Nat>, collectionId : Nat) {
+    let current = switch (counts.get(collectionId)) { case (?n) n; case (null) 0 };
+    counts.add(collectionId, current + 1);
+  };
+
+  public func decrementCollectionCount(counts : Map.Map<Nat, Nat>, collectionId : Nat) {
+    switch (counts.get(collectionId)) {
+      case (null) {};
+      case (?n) {
+        if (n <= 1) {
+          counts.remove(collectionId);
+        } else {
+          counts.add(collectionId, Nat.sub(n, 1));
+        };
+      };
+    };
+  };
+
+  public func getCollectionCount(counts : Map.Map<Nat, Nat>, collectionId : Nat) : Nat {
+    switch (counts.get(collectionId)) { case (?n) n; case (null) 0 }
   };
 
   public func listNftsByOwner(store : NftStore, ownerId : Principal, canisterId : Text) : [Types.Nft] {
@@ -279,6 +452,31 @@ module {
   // burnNft (status transitions) to preserve audit history.
   public func removeNft(store : NftStore, id : Nat) {
     store.remove(id);
+  };
+
+  // [MINT-ATOMICITY] Post-mint retrievability check. A mint must not report
+  // success unless the freshly minted NFT is actually retrievable as active —
+  // i.e. it exists in the store, its status is #active, and it satisfies the
+  // SAME predicate listActiveNftsByOwner uses (status == #active AND
+  // claimedAt == null). Without this, a mint could resolve successfully while
+  // the active-library grid (driven by listActiveNftsByOwner) stays empty.
+  // Read-only; the caller rolls back the just-added record via removeNft on
+  // #err. Returns #ok only when the record is present and active.
+  public func verifyMintRetrievable(store : NftStore, id : Nat) : Result.Result<(), Text> {
+    switch (store.get(id)) {
+      case (null) {
+        return #err("Mint verification failed: minted NFT " # id.toText() # " is not retrievable after mint");
+      };
+      case (?nft) {
+        if (nft.status != #active) {
+          return #err("Mint verification failed: minted NFT " # id.toText() # " is not active after mint");
+        };
+        if (nft.claimedAt != null) {
+          return #err("Mint verification failed: minted NFT " # id.toText() # " is already claimed after mint");
+        };
+      };
+    };
+    #ok()
   };
 
   // [NFT-INTEGRITY] Stable-storage integrity guard. Verifies the NFT store is
@@ -473,10 +671,13 @@ module {
     #ok()
   };
 
-  /// Trailing-byte rejection: reject non-zero bytes after the format's EOF marker.
-  /// Find the LAST occurrence of the marker (JPEG FF D9 and PNG IEND can appear
-  /// inside compressed data, so a first-occurrence scan would reject valid images).
-  /// - JPEG: scan for the last FF D9; reject non-zero bytes after it.
+  /// Trailing-byte validation. Find the LAST occurrence of the format's EOF
+  /// marker (JPEG FF D9 and PNG IEND can appear inside compressed data, so a
+  /// first-occurrence scan would reject valid images).
+  /// - JPEG: scan for the last FF D9. Bytes after EOI are TOLERATED (accepted):
+  ///   real-world JPEGs commonly carry trailing padding, appended metadata, or
+  ///   a second concatenated image, and rejecting them blocked legitimate
+  ///   uploads. A JPEG with NO FF D9 at all is still malformed and rejected.
   /// - PNG: scan for the last IEND chunk trailer (49 45 4E 44 AE 42 60 82);
   ///   reject non-zero bytes after the 8-byte trailer.
   /// - WebP: RIFF size bounding. Parse the u32 LE declared size at offset 4-7
@@ -507,24 +708,20 @@ module {
       and imageBlob[10] == 0x42
       and imageBlob[11] == 0x50;
     if (isJpeg) {
-      var lastEoi : Nat = 0;
       var foundEoi : Bool = false;
       var i = 0;
       while (i + 1 < blobSize) {
         if (imageBlob[i] == 0xFF and imageBlob[i + 1] == 0xD9) {
-          lastEoi := i;
           foundEoi := true;
         };
         i += 1;
       };
       if (foundEoi) {
-        var j = lastEoi + 2;
-        while (j < blobSize) {
-          if (imageBlob[j] != 0x00) {
-            return #err({ message = "Invalid JPEG: trailing bytes after EOI marker" });
-          };
-          j += 1;
-        };
+        // Trailing bytes after EOI are accepted: real-world JPEGs frequently
+        // carry padding, appended metadata, or a concatenated second image.
+        // The presence of a valid EOI is what matters; nothing after it is
+        // treated as malformed.
+        return #ok();
       } else {
         // A JPEG without any FF D9 marker is malformed.
         return #err({ message = "Invalid JPEG: missing EOI marker" });
@@ -637,15 +834,18 @@ module {
 
   /// JPEG marker allowlist walk. After SOI (FF D8), walk markers and allow only:
   /// SOI (FFD8), SOF0 (FFC0), SOF2 (FFC2), DHT (FFC4), DQT (FFDB), SOS (FFDA),
-  /// EOI (FFD9), RSTn (FFD0-FFD7), APP0/JFIF (FFE0), APP2/ICC (FFE2). Reject
-  /// COM (FFFE), reserved JPG (FFC8), JPGn (FFF0-FFFD), APP1/EXIF (FFE1), and
-  /// any non-allowlisted marker. SOI and EOI have 0-length segments (no length
-  /// field); every other allowlisted marker is followed by a 2-byte big-endian
-  /// length that includes its own 2 bytes, and the segment must fit within the
-  /// blob. SOS is followed by entropy-coded data terminated by the next marker
-  /// (no length walk past SOS — scan for the next FF-prefixed marker, skipping
-  /// FF 00 stuffing). Pure function — unit-testable without canister/auth
-  /// context.
+  /// EOI (FFD9), RSTn (FFD0-FFD7), and the APPn metadata markers APP0-APP15
+  /// (FFE0-FFEF) — including APP1/EXIF (FFE1), APP13/IPTC (FFED), and
+  /// APP14/Adobe (FFEE) — plus COM (FFFE). Metadata markers are accepted
+  /// because real-world JPEGs routinely carry EXIF, IPTC, XMP, and Adobe
+  /// metadata, and rejecting them blocked legitimate uploads. Reject reserved
+  /// JPG (FFC8), JPGn (FFF0-FFFD), and any other non-allowlisted marker.
+  /// SOI and EOI have 0-length segments (no length field); every other
+  /// allowlisted marker is followed by a 2-byte big-endian length that includes
+  /// its own 2 bytes, and the segment must fit within the blob. SOS is followed
+  /// by entropy-coded data terminated by the next marker (no length walk past
+  /// SOS — scan for the next FF-prefixed marker, skipping FF 00 stuffing).
+  /// Pure function — unit-testable without canister/auth context.
   public func validateJpegMarkers(imageBlob : Storage.ExternalBlob) : Result.Result<(), ImageFormatError> {
     let blobSize = imageBlob.size();
     // Must start with SOI (FF D8).
@@ -695,8 +895,8 @@ module {
       // EOI: 0-length segment, no length field. Must be the last marker.
       if (tag == 0xD9) {
         sawEoi := true;
-        // EOI should be the final meaningful byte; any bytes after EOI are
-        // rejected by validateTrailingBytes. Here we just stop the walk.
+        // EOI is the final meaningful marker. Any bytes after it are tolerated
+        // by validateTrailingBytes, so the walk simply stops here.
         return #ok();
       };
       // RSTn (FFD0-FFD7): 0-length segment, no length field. Only valid
@@ -709,31 +909,25 @@ module {
         continue;
       };
       // Allowlisted markers with a 2-byte length field:
-      //   SOF0 (C0), SOF2 (C2), DHT (C4), DQT (DB), SOS (DA), APP0/JFIF (E0),
-      //   APP2/ICC (E2).
+      //   SOF0 (C0), SOF2 (C2), DHT (C4), DQT (DB), SOS (DA), and the APPn
+      //   metadata markers APP0-APP15 (E0-EF) — APP0/JFIF, APP1/EXIF,
+      //   APP2/ICC, APP13/IPTC, APP14/Adobe — plus COM (FE).
       let isAllowlisted = switch (tag) {
         case (0xC0) true; // SOF0
         case (0xC2) true; // SOF2
         case (0xC4) true; // DHT
         case (0xDB) true; // DQT
         case (0xDA) true; // SOS
-        case (0xE0) true; // APP0/JFIF
-        case (0xE2) true; // APP2/ICC color profile
-        case (_) false;
+        case (0xFE) true; // COM (comment / metadata)
+        case (_) { tag >= 0xE0 and tag <= 0xEF }; // APP0-APP15 metadata
       };
       if (not isAllowlisted) {
         // Explicitly rejected markers (fail-closed with a specific message):
-        if (tag == 0xFE) {
-          return #err({ message = "Invalid JPEG: COM marker not allowed (0xFFFE)" });
-        };
         if (tag == 0xC8) {
           return #err({ message = "Invalid JPEG: reserved JPG marker not allowed (0xFFC8)" });
         };
         if (tag >= 0xF0 and tag <= 0xFD) {
           return #err({ message = "Invalid JPEG: JPGn marker not allowed (0xFF" # nat8ToHex(tag) # ")" });
-        };
-        if (tag == 0xE1) {
-          return #err({ message = "Invalid JPEG: APP1/EXIF marker not allowed (0xFFE1)" });
         };
         return #err({ message = "Invalid JPEG: non-allowlisted marker 0xFF" # nat8ToHex(tag) });
       };
@@ -1171,6 +1365,74 @@ module {
         };
         let updated = addAuditEntry(nft, entry);
         let finalNft = { updated with ownerId = newOwnerId };
+        store.add(id, finalNft);
+        ?finalNft
+      };
+    }
+  };
+
+  // [ADMIN-REASSIGN] Admin-only ownership rewrite. Rewrites ONLY the ownerId
+  // field on the existing record, in place, exactly like transferNft's
+  // `{ updated with ownerId = ... }` — no audit entry, no timestamp, no
+  // metadata/creatorId/status/claim/edition/image changes. Unlike transferNft
+  // it does NOT require the caller to be the current owner and does NOT
+  // require status == #active: an admin may reassign any existing NFT
+  // (including deleted/burned ones) so the record's owner is corrected without
+  // touching any other field. Returns null when the id does not exist.
+  public func adminReassignOwner(store : NftStore, id : Nat, newOwnerId : Principal) : ?Types.Nft {
+    switch (store.get(id)) {
+      case (null) { null };
+      case (?nft) {
+        let finalNft = { nft with ownerId = newOwnerId };
+        store.add(id, finalNft);
+        ?finalNft
+      };
+    }
+  };
+
+  // [ADMIN-PRICING] Admin-only listing-price write. Sets, updates, or CLEARS an
+  // NFT's whole-value USD price. `?Nat` sets/updates the price; `null` clears it
+  // (unlists the NFT for sale). Clearing does NOT change ownership, status, or
+  // any metadata — the NFT stays owned by its current owner and remains visible
+  // to that owner (status stays #active). The stored priceUsd is the single
+  // authoritative source every purchase path reads. Returns the updated record,
+  // or null when the id does not exist.
+  public func setNftPrice(store : NftStore, id : Nat, priceUsd : ?Nat) : ?Types.Nft {
+    switch (store.get(id)) {
+      case (null) { null };
+      case (?nft) {
+        // Rewrite ONLY the priceUsd field. Ownership, status, metadata, images,
+        // edition, claim data, and audit history are untouched, so clearing the
+        // price unlists the NFT while it stays owned and visible to its owner.
+        let finalNft = { nft with priceUsd };
+        store.add(id, finalNft);
+        ?finalNft
+      };
+    }
+  };
+
+  // [PURCHASE] Completes a verified sale: transfers ownership from the seller
+  // to the buyer and clears the listing price so the NFT leaves every listing
+  // surface (a null priceUsd means "not listed for sale"). The caller is the
+  // seller (the NFT's current owner) — the purchase flow has already verified
+  // the on-chain payment, so this is the settlement step, not a user-initiated
+  // transfer. Returns the updated record, or null when the NFT is missing or
+  // no longer owned by the expected seller (a concurrent change).
+  public func markNftSold(store : NftStore, id : Nat, seller : Principal, buyer : Principal, timestamp : Common.Timestamp) : ?Types.Nft {
+    switch (store.get(id)) {
+      case (null) { null };
+      case (?nft) {
+        if (not Principal.equal(nft.ownerId, seller)) {
+          return null;
+        };
+        let entry : Common.AuditEntry = {
+          action = "SALE";
+          caller = buyer;
+          timestamp;
+          details = ?("Sold NFT " # id.toText() # " to " # buyer.toText());
+        };
+        let updated = addAuditEntry(nft, entry);
+        let finalNft = { updated with ownerId = buyer; priceUsd = null };
         store.add(id, finalNft);
         ?finalNft
       };

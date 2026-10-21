@@ -19,8 +19,8 @@ chain = "src/backend/migrations"
 check-limit = 1
 
 [toolchain]
-moc = "1.11.2"
-lintoko = "0.11.0"
+moc = "1.16.0"
+lintoko = "0.12.0"
 
 [lint]
 extends = true
@@ -29,13 +29,14 @@ extends = true
 args = [ "-E=M0254", "-W=M0235,M0223,M0236,M0237", "-A=M0241", "--default-persistent-actors", "--implicit-package=core", "-no-check-ir", "--generate-view-queries" ]
 
 [dependencies]
-core = "2.6.1"
+core = "2.6.2"
 caffeineai-data-viewer = "0.1.0"
 caffeineai-object-storage = "1.1.1"
 caffeineai-stripe = "./src/backend/vendor/caffeineai-stripe"
 caffeineai-oql = "0.4.0"
 sha2 = "0.2.5"
 ic = "4.2.0"
+caffeineai-http-outcalls = "0.1.4"
 
 [dev-dependencies]
 test = "2.1.2"

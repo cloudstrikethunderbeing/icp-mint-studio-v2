@@ -7,7 +7,8 @@
     "npm": "please use pnpm"
   },
   "scripts": {
-    "test": "pnpm --dir src/frontend test",
+    "test": "pnpm --dir src/frontend test && pnpm run test:backend",
+    "test:backend": "node test/pocketic/run-backend-lane.mjs",
     "build": "pnpm -r --if-present run build",
     "typecheck": "pnpm -r --if-present run typecheck",
     "check": "pnpm -r --if-present run check",

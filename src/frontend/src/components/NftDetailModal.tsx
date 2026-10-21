@@ -1,4 +1,5 @@
-import { type Nft, RewardType, type VerifyResult } from "@/backend";
+import { type Nft, NftStatus, RewardType, type VerifyResult } from "@/backend";
+import { PurchaseModal } from "@/components/PurchaseModal";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   useAddNftToCollection,
+  useAdminSetNftPrice,
   useAdminSetNftReferralThreshold,
   useAdminSetNftRewardType,
   useCollections,
@@ -49,8 +51,10 @@ import {
   Minus,
   Pencil,
   Trash2,
+  Wallet,
 } from "lucide-react";
 import { devLog } from "../utils/devLog";
+import { resolveNftImageUrl } from "../utils/nftNormalization";
 
 interface NftDetailModalProps {
   nft: Nft | null;
@@ -79,7 +83,7 @@ export function NftDetailModal({
   isBurning,
   callerPrincipal,
   canisterId: _canisterId,
-  nftUniqueId: _nftUniqueId,
+  nftUniqueId: nftUniqueIdProp,
   readOnly = false,
   imageUrl: imageUrlProp,
 }: NftDetailModalProps) {
@@ -101,8 +105,13 @@ export function NftDetailModal({
   );
   const [editReferralThreshold, setEditReferralThreshold] = useState<number>(3);
   const [editTags, setEditTags] = useState("");
+  const [editPriceUsd, setEditPriceUsd] = useState("");
+  const [editPriceError, setEditPriceError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSuccess, setEditSuccess] = useState(false);
+
+  // Purchase flow (buyer does not own the NFT and it is listed).
+  const [purchaseOpen, setPurchaseOpen] = useState(false);
 
   const [verifyLinkCopied, setVerifyLinkCopied] = useState(false);
 
@@ -136,6 +145,8 @@ export function NftDetailModal({
     setShowEdit(false);
     setEditError(null);
     setEditSuccess(false);
+    setEditPriceError(null);
+    setPurchaseOpen(false);
     setEditRewardType(RewardType.none);
     setEditReferralThreshold(3);
   }, [nftId]);
@@ -145,13 +156,25 @@ export function NftDetailModal({
 
   // Fetch canonical NFT record from backend using nft.nftUniqueId via useQuery
   const nftUniqueId = nft?.nftUniqueId;
-  const {
-    data: verifyResult,
-    isLoading: verifyLoading,
-    isError: verifyError,
-    isPending: verifyPending,
-    isFetching: verifyFetching,
-  } = useNftDetailQuery(nftUniqueId);
+  const { data: verifyResult } = useNftDetailQuery(nftUniqueId);
+
+  // [UNIQ-ID] Resolve the displayed unique ID from the prop first, then the
+  // fetched record. Verification metadata never blanks a non-empty id.
+  const resolvedUniqueId = useMemo(() => {
+    const fromProp = nftUniqueIdProp?.trim();
+    if (fromProp) return fromProp;
+    const fromNft = nft?.nftUniqueId?.trim();
+    if (fromNft) return fromNft;
+    const fromVerify = verifyResult?.nftUniqueId?.trim();
+    if (fromVerify) return fromVerify;
+    return "";
+  }, [nftUniqueIdProp, nft?.nftUniqueId, verifyResult?.nftUniqueId]);
+  devLog("[UNIQ-ID] resolved unique id:", {
+    hasProp: !!nftUniqueIdProp,
+    hasNft: !!nft?.nftUniqueId,
+    hasVerify: !!verifyResult?.nftUniqueId,
+    resolved: resolvedUniqueId,
+  });
 
   // NOTE: panel state reset is handled by the key prop on NftDetailModal in HomePage.tsx
   // which remounts the component when a different NFT is selected.
@@ -165,6 +188,11 @@ export function NftDetailModal({
   // dedicated admin endpoints (not part of the generic updateMetadata flow).
   const setNftRewardType = useAdminSetNftRewardType(isAdmin);
   const setNftReferralThreshold = useAdminSetNftReferralThreshold(isAdmin);
+  // [ADMIN-PRICE] Dedicated admin listing path. Unlike updateBusinessMetadata
+  // (which treats priceUsd=null as "unchanged"), adminSetNftPrice takes a
+  // nullable price where null CLEARS the listing. This is the only way an admin
+  // can unlist an NFT while it stays owned and visible.
+  const adminSetNftPrice = useAdminSetNftPrice();
   const [claimLinkError, setClaimLinkError] = useState<string | null>(null);
   // Fetch existing claim status for this NFT (admin only, only when modal is open)
   const { data: claimStatusData, isLoading: claimStatusLoading } =
@@ -176,13 +204,9 @@ export function NftDetailModal({
   const imgUrl = useMemo(() => {
     // Prefer direct imageUrl string prop (used for claimed NFTs where imageBlob is not available)
     if (imageUrlProp) return imageUrlProp;
-    if (!nft?.imageBlob || typeof nft.imageBlob.getDirectURL !== "function")
-      return "";
-    try {
-      return nft.imageBlob.getDirectURL();
-    } catch {
-      return "";
-    }
+    // [IMG-RESOLVE] `getDirectURL()` is async; read the resolved synchronous
+    // `directURL` field via the shared helper so this never returns a Promise.
+    return resolveNftImageUrl(nft?.imageBlob);
   }, [imageUrlProp, nft?.imageBlob]);
 
   const mintDate = useMemo(() => {
@@ -298,6 +322,8 @@ export function NftDetailModal({
       nft.referralThreshold !== undefined ? Number(nft.referralThreshold) : 3,
     );
     setEditTags((nft.tags ?? []).join(", "));
+    setEditPriceUsd(nft.priceUsd !== undefined ? nft.priceUsd.toString() : "");
+    setEditPriceError(null);
     setEditError(null);
     setEditSuccess(false);
     setShowEdit(true);
@@ -308,6 +334,27 @@ export function NftDetailModal({
     if (!nft) return;
     setEditError(null);
     setEditSuccess(false);
+    setEditPriceError(null);
+    // Whole-value USD price. A non-empty value must be a positive integer number
+    // of dollars. An empty value means different things by role:
+    //   - admin: CLEAR the listing (unlist) via the dedicated admin price hook;
+    //   - owner (non-admin): leave the current price unchanged.
+    let priceUsd: number | undefined;
+    if (editPriceUsd.trim() !== "") {
+      const priceValue = Number(editPriceUsd);
+      if (!Number.isInteger(priceValue) || priceValue <= 0) {
+        setEditPriceError("Enter a whole-dollar price greater than 0.");
+        return;
+      }
+      priceUsd = priceValue;
+    }
+    // [ADMIN-PRICE] Admins route the price through the dedicated admin hook so
+    // they can set, update AND clear it (empty = null = unlist). The generic
+    // metadata update never carries priceUsd for an admin, so a cleared price
+    // is not silently treated as "unchanged".
+    const adminPrice: number | null | undefined = isAdmin
+      ? (priceUsd ?? null)
+      : undefined;
     const updates: UpdateMetadataRequest = {
       businessName: editBusinessName || undefined,
       website: editWebsite || undefined,
@@ -318,9 +365,16 @@ export function NftDetailModal({
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean),
+      priceUsd: isAdmin ? undefined : priceUsd,
     };
     try {
       await updateMetadata.mutateAsync({ nftId: nft.id, updates });
+      if (isAdmin && adminPrice !== undefined) {
+        await adminSetNftPrice.mutateAsync({
+          nftId: nft.id,
+          priceUsd: adminPrice,
+        });
+      }
       // Admin-only referral metadata. Fire only when the value actually
       // changed from the current NFT record, to avoid no-op admin writes.
       if (isAdmin) {
@@ -397,29 +451,94 @@ export function NftDetailModal({
               </div>
             )}
           </div>
-
+          {/* Status — only surfaced for non-active records (deleted/burned),
+              which no listing shows but owners can still open by id. */}
+          {nft.status !== NftStatus.active && (
+            <div
+              className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2"
+              data-ocid="nft_detail.status_banner"
+            >
+              <span className="text-xs text-muted-foreground">Status</span>
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                  nft.status === NftStatus.burned
+                    ? "bg-orange-500/15 text-orange-600 border border-orange-500/20"
+                    : "bg-muted text-muted-foreground border border-border"
+                }`}
+                data-ocid="nft_detail.status_badge"
+              >
+                {nft.status === NftStatus.burned ? "Burned" : "Deleted"}
+              </span>
+            </div>
+          )}
+          {/* Price + purchase action */}
+          <div className="space-y-2">
+            <div className="price-strip rounded-lg border border-border">
+              <span className="price-strip-label">Price</span>
+              <span
+                className="price-strip-value"
+                data-state={nft.priceUsd === undefined ? "unlisted" : "listed"}
+                data-ocid="nft_detail.price"
+              >
+                {nft.priceUsd !== undefined
+                  ? `$${nft.priceUsd.toString()}`
+                  : "Not for sale"}
+              </span>
+            </div>
+            {/* [BUY] The buyer action is intentionally NOT gated on readOnly:
+                readOnly suppresses owner-only edit/delete/burn controls, but a
+                non-owner browsing the public gallery must still be able to buy
+                a listed NFT. Ownership alone gates it. */}
+            {!isOwner && nft.priceUsd !== undefined && (
+              <Button
+                type="button"
+                className="w-full gap-2"
+                onClick={() => setPurchaseOpen(true)}
+                data-ocid="nft_detail.buy_button"
+              >
+                <Wallet className="w-4 h-4" />
+                Buy for ${nft.priceUsd.toString()}
+              </Button>
+            )}
+            {/* Locked Sell / Trade — present but inert (no behavior). */}
+            {!readOnly && isOwner && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  className="action-locked flex-1 rounded-lg border px-3 py-2 text-xs font-medium"
+                  data-ocid="nft_detail.sell_locked_button"
+                >
+                  Sell
+                  <span className="action-locked-cue ml-1">(soon)</span>
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  className="action-locked flex-1 rounded-lg border px-3 py-2 text-xs font-medium"
+                  data-ocid="nft_detail.trade_locked_button"
+                >
+                  Trade
+                  <span className="action-locked-cue ml-1">(soon)</span>
+                </button>
+              </div>
+            )}
+          </div>
           {/* Metadata */}
           <dl className="space-y-2">
-            {/* Unique ID — backend-provided only, never computed */}
+            {/* Unique ID — prop-first, verification metadata is supplementary */}
             <MetaRow
               label="Unique ID"
-              value={
-                verifyLoading ||
-                verifyPending ||
-                verifyFetching ||
-                !verifyResult
-                  ? "Loading..."
-                  : verifyError || !verifyResult?.nftUniqueId
-                    ? "NFT NOT FOUND"
-                    : verifyResult.nftUniqueId
-              }
+              value={resolvedUniqueId || "Unavailable"}
               mono
             />
-            {verifyResult?.nftUniqueId && !verifyLoading && !verifyError && (
+            {resolvedUniqueId && (
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard.writeText(verifyResult.nftUniqueId);
+                  navigator.clipboard.writeText(resolvedUniqueId);
                   setVerifyLinkCopied(true);
                   setTimeout(() => setVerifyLinkCopied(false), 2000);
                 }}
@@ -664,7 +783,6 @@ export function NftDetailModal({
               <MetaRow label="Tags" value={nft.tags.join(", ")} />
             )}
           </dl>
-
           {/* ── Claim Link Section — admin or paid tiers only ───────────── */}
           {!readOnly && canGenerateClaimLink && (
             <div
@@ -779,7 +897,6 @@ export function NftDetailModal({
               )}
             </div>
           )}
-
           {/* Edit Metadata Button — hidden for read-only/collector view */}
           {!readOnly && canEditMetadata() && !showEdit && (
             <Button
@@ -793,7 +910,6 @@ export function NftDetailModal({
               Edit Business Metadata
             </Button>
           )}
-
           {/* Edit Metadata Form */}
           {!readOnly && showEdit && (
             <form
@@ -849,6 +965,39 @@ export function NftDetailModal({
                   className="text-xs"
                   data-ocid="nft_detail.edit_membership_id"
                 />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">
+                  Price (USD)
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  inputMode="numeric"
+                  value={editPriceUsd}
+                  onChange={(e) => {
+                    setEditPriceUsd(e.target.value);
+                    setEditPriceError(null);
+                  }}
+                  placeholder="e.g. 250"
+                  className="text-xs"
+                  data-ocid="nft_detail.edit_price_input"
+                />
+                {editPriceError ? (
+                  <p
+                    className="text-[10px] text-destructive"
+                    data-ocid="nft_detail.edit_price_error_state"
+                  >
+                    {editPriceError}
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-muted-foreground">
+                    {isAdmin
+                      ? "Whole dollars, no cents. Leave empty to unlist."
+                      : "Whole dollars, no cents."}
+                  </p>
+                )}
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">
@@ -939,13 +1088,15 @@ export function NftDetailModal({
                   disabled={
                     updateMetadata.isPending ||
                     setNftRewardType.isPending ||
-                    setNftReferralThreshold.isPending
+                    setNftReferralThreshold.isPending ||
+                    adminSetNftPrice.isPending
                   }
                   data-ocid="nft_detail.edit_save_button"
                 >
                   {updateMetadata.isPending ||
                   setNftRewardType.isPending ||
-                  setNftReferralThreshold.isPending ? (
+                  setNftReferralThreshold.isPending ||
+                  adminSetNftPrice.isPending ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     "Save"
@@ -970,7 +1121,6 @@ export function NftDetailModal({
               )}
             </form>
           )}
-
           {/* Delete Section — hidden for read-only/collector view */}
           {!readOnly && !showDeleteConfirm ? (
             <Button
@@ -981,7 +1131,7 @@ export function NftDetailModal({
               data-ocid="nft_detail.delete_button"
             >
               <Trash2 className="w-4 h-4 mr-2" />
-              Delete NFT
+              Delete from Listings
             </Button>
           ) : (
             !readOnly && (
@@ -994,7 +1144,8 @@ export function NftDetailModal({
                   id="delete-confirm-description"
                   className="text-sm text-destructive font-medium"
                 >
-                  Delete this NFT? The record is retained in audit logs.
+                  Delete removes this NFT from all listings. The record is
+                  retained in audit logs and can still be viewed by its owner.
                 </p>
                 <div className="flex gap-2">
                   <Button
@@ -1030,7 +1181,6 @@ export function NftDetailModal({
               </div>
             )
           )}
-
           {/* Burn Section — two-step confirmation; hidden for read-only/collector view */}
           {!readOnly && !showBurnStep1 && (
             <Button
@@ -1043,7 +1193,7 @@ export function NftDetailModal({
               <Flame className="w-4 h-4 mr-2" />
               Burn NFT (Permanent)
             </Button>
-          )}
+          )}{" "}
           {!readOnly && showBurnStep1 && (
             <div
               className="rounded-xl border border-red-600/50 bg-red-50 dark:bg-red-950/40 p-4 space-y-3"
@@ -1130,6 +1280,11 @@ export function NftDetailModal({
           )}
         </div>
       </DialogContent>
+      <PurchaseModal
+        nft={nft}
+        open={purchaseOpen}
+        onClose={() => setPurchaseOpen(false)}
+      />
     </Dialog>
   );
 }

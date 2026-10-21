@@ -1,7 +1,15 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { devLog } from "@/utils/devLog";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Activity, Diamond, HelpCircle, Moon, Sun } from "lucide-react";
+import {
+  Activity,
+  Diamond,
+  HelpCircle,
+  LayoutGrid,
+  LogOut,
+  Moon,
+  Sun,
+} from "lucide-react";
 import { useTheme } from "next-themes";
 import { NotificationBell } from "./NotificationBell";
 
@@ -17,16 +25,12 @@ export function Header({ hideNav = false }: HeaderProps) {
   const navigate = useNavigate();
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
+  const galleryActive = currentPath === "/";
   const howItWorksActive = currentPath.startsWith("/how-it-works");
   const healthActive = currentPath.startsWith("/health");
 
   const handleLogoClick = () => {
-    const path = routerState.location.pathname;
-    if (path.startsWith("/collector")) {
-      navigate({ to: "/collector" });
-    } else {
-      navigate({ to: "/" });
-    }
+    navigate({ to: "/" });
   };
 
   const toggleTheme = () => {
@@ -56,6 +60,18 @@ export function Header({ hideNav = false }: HeaderProps) {
         </button>
         {!hideNav && (
           <div className="flex items-center gap-3">
+            <Link
+              to="/"
+              className={`flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-medium transition-colors ${
+                galleryActive
+                  ? "text-accent bg-accent/10"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
+              }`}
+              data-ocid="header.gallery_link"
+            >
+              <LayoutGrid className="w-4 h-4" />
+              <span className="hidden sm:inline">Gallery</span>
+            </Link>
             <Link
               to="/how-it-works"
               className={`flex items-center gap-1.5 h-9 px-3 rounded-full text-sm font-medium transition-colors ${
@@ -96,6 +112,16 @@ export function Header({ hideNav = false }: HeaderProps) {
               )}
             </button>
             {isAuthenticated && <NotificationBell />}
+            {isAuthenticated && (
+              <Link
+                to="/disconnect"
+                aria-label="Disconnect"
+                className="w-9 h-9 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                data-ocid="header.disconnect_link"
+              >
+                <LogOut className="w-4 h-4" />
+              </Link>
+            )}
             <button
               type="button"
               onClick={() => {

@@ -83,6 +83,11 @@
     --accent-collector-fg: 0.97 0.006 200;
     --accent-minter: 0.62 0.18 25;
     --accent-minter-fg: 0.97 0.006 25;
+
+    --price-strip: 0.95 0.01 295;
+    --price-strip-foreground: 0.28 0.05 290;
+    --price-strip-muted: 0.55 0.03 290;
+    --locked: 0.62 0.03 290;
   }
 
   .dark {
@@ -143,6 +148,11 @@
     --accent-collector-fg: 0.11 0.04 200;
     --accent-minter: 0.7 0.17 25;
     --accent-minter-fg: 0.11 0.04 25;
+
+    --price-strip: 0.19 0.05 290;
+    --price-strip-foreground: 0.9 0.012 295;
+    --price-strip-muted: 0.58 0.04 290;
+    --locked: 0.42 0.03 290;
   }
 
   * {
@@ -436,4 +446,106 @@
   font-weight: 500;
   text-align: right;
   white-space: nowrap;
+}
+
+/* Price caption strip — single quiet line directly below each card image.
+   Deliberately NOT a badge: no fill pill, no uppercase, no border-radius.
+   A hairline top rule + flat surface reads as a caption, not a status chip. */
+.price-strip {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid oklch(var(--border));
+  background-color: oklch(var(--price-strip));
+  font-size: 0.8125rem;
+  line-height: 1.2;
+}
+
+.price-strip-label {
+  color: oklch(var(--price-strip-muted));
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.price-strip-value {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: oklch(var(--price-strip-foreground));
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Not-for-sale state — dimmer, no value emphasis, still one line. */
+.price-strip-value[data-state="unlisted"] {
+  font-family: var(--font-body);
+  font-weight: 500;
+  color: oklch(var(--price-strip-muted));
+}
+
+/* Purchase / confirmation flow window */
+.purchase-spinner {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 9999px;
+  border: 2.5px solid oklch(var(--border));
+  border-top-color: oklch(var(--primary));
+  animation: purchase-spin 0.9s linear infinite;
+}
+
+.purchase-status {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+  color: oklch(var(--muted-foreground));
+  text-align: center;
+}
+
+.purchase-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 9999px;
+  font-size: 1.375rem;
+  line-height: 1;
+}
+
+.purchase-state-icon-success {
+  color: oklch(var(--success));
+  background-color: oklch(var(--success) / 0.12);
+  box-shadow: 0 0 0 6px oklch(var(--success) / 0.08);
+}
+
+.purchase-state-icon-error {
+  color: oklch(var(--destructive));
+  background-color: oklch(var(--destructive) / 0.12);
+  box-shadow: 0 0 0 6px oklch(var(--destructive) / 0.08);
+}
+
+/* Locked / disabled treatment for future Sell and Trade actions.
+   Present but inert: desaturated, dimmed, non-interactive cursor. */
+.action-locked {
+  position: relative;
+  color: oklch(var(--locked));
+  border-color: oklch(var(--border));
+  background-color: transparent;
+  cursor: not-allowed;
+  opacity: 0.85;
+  filter: saturate(0.35);
+}
+
+.action-locked:hover,
+.action-locked:focus-visible {
+  transform: none;
+  box-shadow: none;
+  border-color: oklch(var(--border));
+  outline: none;
+}
+
+.action-locked .action-locked-cue {
+  font-size: 0.75rem;
+  opacity: 0.9;
 }

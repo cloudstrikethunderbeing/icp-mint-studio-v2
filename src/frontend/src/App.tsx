@@ -20,6 +20,7 @@ const ClaimPage = lazy(() => import("@/pages/ClaimPage"));
 const DiagnosticPage = lazy(() => import("@/pages/DiagnosticPage"));
 
 const CollectorPage = lazy(() => import("@/pages/CollectorPage"));
+const GalleryPage = lazy(() => import("@/pages/GalleryPage"));
 const HowItWorksPage = lazy(() => import("@/pages/HowItWorksPage"));
 const HomePage = lazy(() => import("@/pages/HomePage"));
 const PostClaimPage = lazy(() => import("@/pages/PostClaimPage"));
@@ -32,6 +33,12 @@ const rootRoute = createRootRoute({ component: Layout });
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
+  component: GalleryPage,
+});
+
+const studioRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/studio",
   component: HomePage,
 });
 
@@ -67,6 +74,12 @@ const healthRoute = createRoute({
   component: DiagnosticPage,
 });
 
+const disconnectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/disconnect",
+  component: DisconnectPage,
+});
+
 const verifyByIdRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/verify/$nftUniqueId",
@@ -87,6 +100,7 @@ const postClaimRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  studioRoute,
 
   collectorRoute,
   howItWorksRoute,
@@ -97,6 +111,7 @@ const routeTree = rootRoute.addChildren([
   profileRoute,
   settingsRoute,
   healthRoute,
+  disconnectRoute,
 ]);
 const router = createRouter({ routeTree });
 
@@ -204,30 +219,34 @@ function CanisterGuard({ children }: { children: ReactNode }) {
     if (window.location.pathname === "/health") {
       return <>{children}</>;
     }
+    // The empty catalog is now a HINT, not a hard stop: render the routed
+    // content and surface an inline amber notice above it instead of replacing
+    // the whole page. This keeps every route usable while still flagging the
+    // unexpected empty backend.
+    devLog("[GUARD-EMPTY] inline banner rendered:", {
+      path: window.location.pathname,
+    });
     return (
-      <div
-        className="flex flex-col items-center justify-center h-screen gap-4 px-6 bg-background text-center"
-        data-ocid="canister.empty_backend_state"
-      >
-        <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center">
-          <AlertTriangle className="w-8 h-8 text-amber-500" />
-        </div>
-        <h1 className="text-xl font-bold text-foreground">
-          Catalog temporarily unavailable
-        </h1>
-        <p className="text-sm text-muted-foreground max-w-md">
-          The backend is reachable but is reporting no NFTs, which is
-          unexpected. The catalog is intentionally not shown to avoid displaying
-          an empty collection. Please try again shortly.
-        </p>
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="mt-2 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          data-ocid="canister.retry_button"
+      <div className="flex flex-col min-h-screen bg-background">
+        <output
+          className="flex flex-wrap items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-700 dark:text-amber-400"
+          data-ocid="canister.empty_backend_state"
         >
-          Retry
-        </button>
+          <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <p className="min-w-0 flex-1 text-sm">
+            The backend is reachable but reports no NFTs. The catalog may be
+            temporarily unavailable.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            data-ocid="canister.retry_button"
+          >
+            Retry
+          </button>
+        </output>
+        <div className="flex-1">{children}</div>
       </div>
     );
   }

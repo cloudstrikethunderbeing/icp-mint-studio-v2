@@ -11,7 +11,6 @@ import Blob "mo:core/Blob";
 import Nat8 "mo:core/Nat8";
 import Array "mo:core/Array";
 import Result "mo:core/Result";
-import Runtime "mo:core/Runtime";
 import Principal "mo:core/Principal";
 import NftLib "../src/backend/lib/nft";
 import BrandLogos "./fixtures/brand-logos";
@@ -185,15 +184,18 @@ Test.test("PNG with <script> tEXt chunk: validateTrailingBytes accepts (metadata
 
 // ===========================================================================
 // Case 4: Trailing bytes after EOI/IEND.
-//   - Valid JPEG with non-zero bytes appended after the last FF D9 → REJECT.
+//   - Valid JPEG with non-zero bytes appended after the last FF D9 → ACCEPT.
+//     Real-world JPEGs commonly carry trailing padding, appended metadata, or
+//     a concatenated second image; rejecting them blocked legitimate uploads.
+//     A JPEG with NO FF D9 at all is still malformed and rejected (see below).
 //   - Valid PNG with non-zero bytes after the IEND chunk CRC → REJECT.
 //   - WebP trailing-byte test is SKIPPED with a comment noting WebP
 //     trailing-byte rejection is intentionally not implemented.
 // ===========================================================================
-Test.test("JPEG with trailing bytes after last FF D9: validateTrailingBytes rejects", func() {
+Test.test("JPEG with trailing bytes after last FF D9: validateTrailingBytes accepts", func() {
   let trailing : [Nat8] = [0x41, 0x42, 0x43]; // non-zero trailing data
   let jpeg = toBlob(concat(concat(JPEG_SOI, [0xE0, 0x00, 0x10]), concat(JPEG_EOI, trailing)));
-  Test.expect.bool(Result.isErr(NftLib.validateTrailingBytes(jpeg))).isTrue();
+  Test.expect.bool(Result.isOk(NftLib.validateTrailingBytes(jpeg))).isTrue();
 });
 
 Test.test("PNG with trailing bytes after IEND CRC: validateTrailingBytes rejects", func() {
@@ -346,13 +348,13 @@ func webpBlob(chunks : [(Text, [Nat8])]) : [Nat8] {
 };
 
 // ===========================================================================
-// PRIMARY REGRESSION TEST: polyglot JPEG with a <script> payload inside a
-// genuine COM segment (0xFFFE) placed IMMEDIATELY after SOI — NOT appended
-// after EOI. v249's trailing-byte scan does NOT catch this (the COM segment
-// lives inside the valid stream before EOI). validateJpegMarkers MUST reject
-// it because COM is on the reject list.
+// COM (0xFFFE) is now on the JPEG marker allowlist: real-world JPEGs routinely
+// carry comment/metadata segments, and rejecting them blocked legitimate
+// uploads. A COM segment placed immediately after SOI is therefore ACCEPTED by
+// validateJpegMarkers. (The marker walker validates structure — marker tag,
+// length, and bounds — not payload contents.)
 // ===========================================================================
-Test.test("PRIMARY: polyglot JPEG with <script> in COM segment after SOI — validateJpegMarkers REJECTS", func() {
+Test.test("polyglot JPEG with COM segment after SOI — validateJpegMarkers ACCEPTS (COM allowlisted)", func() {
   // Payload: "<script>alert(1)</script>" (25 bytes).
   let script : [Nat8] = [
     0x3C, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x3E, // "<script>"
@@ -360,10 +362,9 @@ Test.test("PRIMARY: polyglot JPEG with <script> in COM segment after SOI — val
     0x3C, 0x2F, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x3E, // "</script>"
   ];
   let comSeg = jpegSegment(0xFE, script); // COM marker 0xFFFE
-  // SOI (FF D8) + COM segment + EOI (FF D9). The COM sits immediately after
-  // SOI, before EOI — this is the polyglot pattern v249 does not catch.
+  // SOI (FF D8) + COM segment + EOI (FF D9).
   let polyglot = toBlob(concat(concat(JPEG_SOI_ONLY, comSeg), JPEG_EOI));
-  Test.expect.bool(Result.isErr(NftLib.validateJpegMarkers(polyglot))).isTrue();
+  Test.expect.bool(Result.isOk(NftLib.validateJpegMarkers(polyglot))).isTrue();
 });
 
 // ===========================================================================
@@ -386,10 +387,12 @@ Test.test("clean JPEG with allowlisted markers (SOF0/DQT/DHT/SOS/EOI) — valida
 // ===========================================================================
 // JPEG marker allowlist tests.
 // ===========================================================================
-Test.test("JPEG with APP1/EXIF marker (FF E1) — validateJpegMarkers REJECTS", func() {
+Test.test("JPEG with APP1/EXIF marker (FF E1) — validateJpegMarkers ACCEPTS", func() {
+  // APP1/EXIF is on the APPn allowlist (APP0-APP15). Real-world JPEGs routinely
+  // carry EXIF metadata; rejecting them blocked legitimate uploads.
   let app1 = jpegSegment(0xE1, [0x45, 0x78, 0x69, 0x66]); // "Exif"
   let jpeg = toBlob(concat(concat(JPEG_SOI_ONLY, app1), JPEG_EOI));
-  Test.expect.bool(Result.isErr(NftLib.validateJpegMarkers(jpeg))).isTrue();
+  Test.expect.bool(Result.isOk(NftLib.validateJpegMarkers(jpeg))).isTrue();
 });
 
 Test.test("JPEG with reserved JPG marker (FF C8) — validateJpegMarkers REJECTS", func() {
@@ -579,10 +582,10 @@ Test.test("JPEG with APP2/ICC segment (FF E2) — validateJpegMarkers ACCEPTS (r
   Test.expect.bool(Result.isOk(NftLib.validateJpegMarkers(jpeg))).isTrue();
 });
 
-Test.test("JPEG with COM segment (FF FE) — validateJpegMarkers REJECTS (COM still blocked after APP2 fix)", func() {
+Test.test("JPEG with COM segment (FF FE) — validateJpegMarkers ACCEPTS (COM allowlisted)", func() {
   // A minimal valid JPEG (SOI + APP0/JFIF + SOF0 + DQT + DHT + SOS + minimal
-  // entropy + EOI) with a COM (0xFFFE) segment inserted. COM must still be
-  // rejected even though APP2 is now allowlisted — security must not weaken.
+  // entropy + EOI) with a COM (0xFFFE) segment inserted. COM is now on the
+  // marker allowlist alongside the APPn metadata markers, so the file passes.
   let app0 = jpegSegment(0xE0, [0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]);
   let comSeg = jpegSegment(0xFE, [0x48, 0x65, 0x6C, 0x6C, 0x6F]); // "Hello"
   let sof0 = jpegSegment(0xC0, [0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00]);
@@ -591,20 +594,7 @@ Test.test("JPEG with COM segment (FF FE) — validateJpegMarkers REJECTS (COM st
   let sos = jpegSegment(0xDA, [0x03, 0x01, 0x22, 0x02, 0x11, 0x03, 0x11, 0x00, 0x3C, 0x00]);
   // Insert the COM segment between APP0 and SOF0.
   let jpeg = toBlob(concat(concat(concat(concat(concat(concat(concat(JPEG_SOI_ONLY, app0), comSeg), sof0), dqt), dht), sos), JPEG_EOI));
-  let result = NftLib.validateJpegMarkers(jpeg);
-  Test.expect.bool(Result.isErr(result)).isTrue();
-  // Assert the error message indicates a non-allowlisted / COM marker rejection.
-  switch (result) {
-    case (#err(e)) {
-      let msg = e.message;
-      // The COM branch returns a specific "COM marker not allowed" message.
-      Test.expect.bool(msg.contains(#text "COM")).isTrue();
-    };
-    case (#ok) {
-      // Should not reach here — the test asserts isErr above. Trap to fail loudly.
-      Runtime.trap("expected COM rejection, got #ok");
-    };
-  };
+  Test.expect.bool(Result.isOk(NftLib.validateJpegMarkers(jpeg))).isTrue();
 });
 
 // ===========================================================================

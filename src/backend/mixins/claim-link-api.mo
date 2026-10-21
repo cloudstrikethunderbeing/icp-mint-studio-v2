@@ -11,6 +11,7 @@ import Time "mo:core/Time";
 import UserLib "../lib/user";
 import Random "mo:core/Random";
 import Map "mo:core/Map";
+import List "mo:core/List";
 import Nat "mo:core/Nat";
 import Int "mo:core/Int";
 import Debug "mo:core/Debug";
@@ -50,6 +51,9 @@ mixin (
   // ReferralLib.recordReferral). Deactivation preserves pending eligibility.
   referralCodeStore : ReferralLib.ReferralCodeStore,
   eligiblePendingStore : ReferralLib.EligiblePendingStore,
+  // [SCALE] Owner secondary index, shared with the NFT mixin. claimNftInternal
+  // records each claimed copy here so owner-scoped listings include it.
+  ownerIndex : Map.Map<Principal, List.List<Nat>>,
 ) {
 
   /// Admin-only: generate a shareable claim URL for a specific NFT.
@@ -167,6 +171,7 @@ mixin (
       nextNftId,
       selfCanisterId,
       claimRateLimitStore,
+      ownerIndex,
     );
     switch (claimResult) {
       case (#err(msg)) {
@@ -324,6 +329,7 @@ mixin (
                               nextNftId,
                               selfCanisterId,
                               claimRateLimitStore,
+                              ownerIndex,
                             )) {
                               case (#err(msg)) {
                                 // Auto-award failed (sold out, rate-limited,

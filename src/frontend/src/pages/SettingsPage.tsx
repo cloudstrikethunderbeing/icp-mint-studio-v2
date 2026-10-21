@@ -8,15 +8,21 @@ import { getBackendCanisterId } from "@/config/canisters";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   useActiveNfts,
+  useAdminReassignAllOwned,
+  useAdminReassignOwner,
   useApprovePaymentProof,
   useAvailableNfts,
   useBackendBuildTimestamp,
   useClaimedNfts,
+  useClearRateOverride,
   useHealthMetrics,
   useListPaymentProofs,
   useMetricsCanisterId,
   useMyPaymentProofs,
+  usePaymentConfig,
   useRejectPaymentProof,
+  useSetPaymentAddress,
+  useSetRateOverride,
   useSetUserStripeProductId,
   useStorageUsage,
   useSubmitPaymentProof,
@@ -88,7 +94,7 @@ function truncateText(text: string, start = 10, end = 5): string {
   if (text.length <= start + end + 3) return text;
   return `${text.slice(0, start)}...${text.slice(-end)}`;
 }
-import type { UserProfile } from "@/backend";
+import type { AdminReassignResult, UserProfile } from "@/backend";
 import { addNotification } from "@/hooks/useNotifications";
 import type { PaymentProof } from "@/types";
 import BrandedAuthGate from "../components/BrandedAuthGate";
@@ -349,6 +355,19 @@ export default function SettingsPage() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
+  // ── Admin payment config state ──────────────────────────────────────────
+  const [paymentAddressInput, setPaymentAddressInput] = useState("");
+  const [rateOverrideInput, setRateOverrideInput] = useState("");
+  const [paymentConfigError, setPaymentConfigError] = useState("");
+
+  // ── [ADMIN-REASSIGN] Ownership reassignment state ───────────────────────
+  const [reassignNftId, setReassignNftId] = useState("");
+  const [reassignTarget, setReassignTarget] = useState("");
+  const [reassignError, setReassignError] = useState("");
+  const [reassignResults, setReassignResults] = useState<
+    AdminReassignResult[] | null
+  >(null);
+
   // ── Caller profile query (for live tier badge) ──────────────────────────
   const profileQuery = useQuery<UserProfile>({
     queryKey: ["callerProfile"],
@@ -415,8 +434,20 @@ export default function SettingsPage() {
   const approvePaymentProof = useApprovePaymentProof();
   const rejectPaymentProof = useRejectPaymentProof();
 
+  // ── Admin payment config (address + rate override) ──────────────────────
+  const paymentConfigQuery = usePaymentConfig(isAdmin);
+  const setPaymentAddress = useSetPaymentAddress();
+  const setRateOverride = useSetRateOverride();
+  const clearRateOverride = useClearRateOverride();
+  const paymentConfig = paymentConfigQuery.data;
+  const hasRateOverride = paymentConfig?.rateOverride !== undefined;
+
   // ── Tier assignment mutation ────────────────────────────────────────────
   const setUserStripeProductId = useSetUserStripeProductId();
+
+  // ── [ADMIN-REASSIGN] Ownership reassignment mutations ───────────────────
+  const adminReassignOwner = useAdminReassignOwner();
+  const adminReassignAllOwned = useAdminReassignAllOwned();
 
   // ── Stripe status query ─────────────────────────────────────────────────
   const stripeStatusQuery = useQuery<{ configured: boolean; mode: string }>({
@@ -1060,6 +1091,356 @@ export default function SettingsPage() {
         </div>
       ) : isAdmin && activeTab === "admin" ? (
         <div className="space-y-5" data-ocid="settings.admin_panel">
+          {/* ── Payment Configuration (admin only) ──────────────────────────── */}
+          <div
+            className="bg-card border border-border rounded-xl p-4 space-y-4"
+            data-ocid="settings.payment_config_card"
+          >
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <Wallet className="w-4 h-4 text-primary" />
+              Payment Configuration
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              The ICP address buyers send to, and an optional manual ICP/USD
+              rate override.
+            </p>
+
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">
+                Current Payment Address
+              </Label>
+              <div className="font-mono text-xs bg-muted/40 border border-border rounded-md px-3 py-2 text-foreground break-all">
+                {paymentConfigQuery.isLoading
+                  ? "Loading..."
+                  : paymentConfig?.paymentAddress || "Not set"}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">
+                Rate Override
+              </Label>
+              <div className="flex items-center gap-2">
+                <Badge
+                  className={`text-[10px] ${
+                    hasRateOverride
+                      ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                      : "bg-muted text-muted-foreground border-border"
+                  }`}
+                  data-ocid="settings.rate_override_badge"
+                >
+                  {hasRateOverride ? "Manual override active" : "Live rate"}
+                </Badge>
+                {hasRateOverride &&
+                  paymentConfig?.rateOverride !== undefined && (
+                    <span className="font-mono text-xs text-muted-foreground">
+                      {paymentConfig.rateOverride.toString()} e8s / USD
+                    </span>
+                  )}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">
+                Set Payment Address
+              </Label>
+              <Input
+                value={paymentAddressInput}
+                onChange={(e) => {
+                  setPaymentAddressInput(e.target.value);
+                  setPaymentConfigError("");
+                }}
+                placeholder="e.g. rdmx6-jaaaa-aaaah-qcaiq-cai"
+                className="font-mono text-xs"
+                autoComplete="off"
+                data-ocid="settings.payment_address_input"
+              />
+              <Button
+                type="button"
+                size="sm"
+                className="w-full"
+                disabled={
+                  setPaymentAddress.isPending || !paymentAddressInput.trim()
+                }
+                onClick={() => {
+                  setPaymentConfigError("");
+                  setPaymentAddress.mutate(paymentAddressInput.trim(), {
+                    onSuccess: () => setPaymentAddressInput(""),
+                    onError: (err: Error) =>
+                      setPaymentConfigError(
+                        err.message || "Failed to set payment address.",
+                      ),
+                  });
+                }}
+                data-ocid="settings.set_payment_address_button"
+              >
+                {setPaymentAddress.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Address"
+                )}
+              </Button>
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">
+                Set Rate Override (e8s per USD)
+              </Label>
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                value={rateOverrideInput}
+                onChange={(e) => {
+                  setRateOverrideInput(e.target.value);
+                  setPaymentConfigError("");
+                }}
+                placeholder="e.g. 100000000"
+                className="font-mono text-xs"
+                data-ocid="settings.rate_override_input"
+              />
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="flex-1"
+                  disabled={
+                    setRateOverride.isPending || !rateOverrideInput.trim()
+                  }
+                  onClick={() => {
+                    setPaymentConfigError("");
+                    const value = Number(rateOverrideInput);
+                    if (!Number.isInteger(value) || value <= 0) {
+                      setPaymentConfigError(
+                        "Enter a positive whole number of e8s per USD.",
+                      );
+                      return;
+                    }
+                    setRateOverride.mutate(BigInt(value), {
+                      onSuccess: () => setRateOverrideInput(""),
+                      onError: (err: Error) =>
+                        setPaymentConfigError(
+                          err.message || "Failed to set rate override.",
+                        ),
+                    });
+                  }}
+                  data-ocid="settings.set_rate_override_button"
+                >
+                  {setRateOverride.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    "Set Override"
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  disabled={clearRateOverride.isPending || !hasRateOverride}
+                  onClick={() => {
+                    setPaymentConfigError("");
+                    clearRateOverride.mutate(undefined, {
+                      onError: (err: Error) =>
+                        setPaymentConfigError(
+                          err.message || "Failed to clear rate override.",
+                        ),
+                    });
+                  }}
+                  data-ocid="settings.clear_rate_override_button"
+                >
+                  {clearRateOverride.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    "Clear Override"
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {paymentConfigError && (
+              <p
+                className="text-xs text-destructive"
+                data-ocid="settings.payment_config_error_state"
+              >
+                {paymentConfigError}
+              </p>
+            )}
+          </div>
+
+          {/* ── [ADMIN-REASSIGN] Ownership Reassignment (admin only) ─────────── */}
+          <div
+            className="bg-card border border-border rounded-xl p-4 space-y-4"
+            data-ocid="settings.reassign_owner_card"
+          >
+            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <UserCog className="w-4 h-4 text-primary" />
+              Reassign NFT Ownership
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Transfer existing NFTs to another principal. Single reassigns one
+              id; batch reassigns every original NFT in one call.
+            </p>
+
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">
+                Target Principal
+              </Label>
+              <Input
+                value={reassignTarget}
+                onChange={(e) => {
+                  setReassignTarget(e.target.value);
+                  setReassignError("");
+                }}
+                placeholder="e.g. rdmx6-jaaaa-aaaah-qcaiq-cai"
+                className="font-mono text-xs"
+                autoComplete="off"
+                data-ocid="settings.reassign_target_input"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">NFT ID</Label>
+              <Input
+                type="number"
+                min={0}
+                step={1}
+                inputMode="numeric"
+                value={reassignNftId}
+                onChange={(e) => {
+                  setReassignNftId(e.target.value);
+                  setReassignError("");
+                }}
+                placeholder="e.g. 1"
+                className="font-mono text-xs"
+                data-ocid="settings.reassign_nft_id_input"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="flex-1"
+                disabled={
+                  adminReassignOwner.isPending ||
+                  !reassignNftId.trim() ||
+                  !reassignTarget.trim()
+                }
+                onClick={() => {
+                  setReassignError("");
+                  setReassignResults(null);
+                  const id = Number(reassignNftId);
+                  if (!Number.isInteger(id) || id < 0) {
+                    setReassignError("Enter a valid whole NFT id.");
+                    return;
+                  }
+                  adminReassignOwner.mutate(
+                    { id: BigInt(id), newOwner: reassignTarget.trim() },
+                    {
+                      onSuccess: (result) => setReassignResults([result]),
+                      onError: (err: Error) =>
+                        setReassignError(
+                          err.message || "Failed to reassign NFT owner.",
+                        ),
+                    },
+                  );
+                }}
+                data-ocid="settings.reassign_single_button"
+              >
+                {adminReassignOwner.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Reassigning...
+                  </>
+                ) : (
+                  "Reassign NFT"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                disabled={
+                  adminReassignAllOwned.isPending || !reassignTarget.trim()
+                }
+                onClick={() => {
+                  setReassignError("");
+                  setReassignResults(null);
+                  adminReassignAllOwned.mutate(
+                    { newOwner: reassignTarget.trim() },
+                    {
+                      onSuccess: (results) => setReassignResults(results),
+                      onError: (err: Error) =>
+                        setReassignError(
+                          err.message || "Failed to reassign NFT owners.",
+                        ),
+                    },
+                  );
+                }}
+                data-ocid="settings.reassign_batch_button"
+              >
+                {adminReassignAllOwned.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Reassigning...
+                  </>
+                ) : (
+                  "Reassign All Originals"
+                )}
+              </Button>
+            </div>
+
+            {reassignError && (
+              <p
+                className="text-xs text-destructive"
+                data-ocid="settings.reassign_error_state"
+              >
+                {reassignError}
+              </p>
+            )}
+
+            {reassignResults && (
+              <div
+                className="space-y-2"
+                data-ocid="settings.reassign_results_state"
+              >
+                <p className="text-xs font-medium text-foreground">
+                  {reassignResults.filter((r) => r.ok).length} of{" "}
+                  {reassignResults.length} reassigned
+                </p>
+                <div className="space-y-1">
+                  {reassignResults.map((result, idx) => (
+                    <div
+                      key={result.id.toString()}
+                      className="flex items-center justify-between rounded-lg bg-muted/40 border border-border px-3 py-2"
+                      data-ocid={`settings.reassign_result_item.${idx + 1}`}
+                    >
+                      <span className="font-mono text-xs text-foreground">
+                        #{result.id.toString()}
+                      </span>
+                      {result.ok ? (
+                        <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-[10px]">
+                          <Check className="w-3 h-3 mr-1" /> Success
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-[10px]">
+                          <X className="w-3 h-3 mr-1" />
+                          {result.error || "Failed"}
+                        </Badge>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* ── Claim Link Manager (admin only — informational) ─────────────── */}
           <div
             className="bg-card border border-border rounded-xl p-4 space-y-3"

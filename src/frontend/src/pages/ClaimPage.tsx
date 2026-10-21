@@ -1,11 +1,14 @@
-import { ExternalBlob, createActor } from "@/backend";
+import { createActor } from "@/backend";
 import type { ClaimPreview } from "@/backend";
+import { resolveStorageWireBlob } from "@/backendSingleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getBackendCanisterId } from "@/config/env";
+import { getBackendCanisterId, getEnv } from "@/config/env";
 import { useAuth } from "@/contexts/AuthContext";
 import { addNotification } from "@/hooks/useNotifications";
+import { StorageClient } from "@caffeineai/object-storage";
+import { HttpAgent } from "@icp-sdk/core/agent";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import {
@@ -19,6 +22,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { devError, devLog } from "../utils/devLog";
+import { resolveNftImageUrl } from "../utils/nftNormalization";
 
 function ClaimSkeleton() {
   return (
@@ -105,6 +109,29 @@ export default function ClaimPage() {
       try {
         const canisterId = await getBackendCanisterId();
         if (cancelled) return;
+        // [IMG-WIRE] The anonymous preview actor must resolve stored image
+        // values through the SAME shared normalization the authenticated actor
+        // uses. The backend stores RAW image bytes in Nft.imageBlob, so the
+        // shared resolver returns ExternalBlob.fromBytes(bytes) (a live blob:
+        // URL) for raw data and a STABLE gateway URL for reference strings.
+        // Delegate to resolveStorageWireBlob — no second resolver.
+        const env = await getEnv();
+        const agent = new HttpAgent({ host: env.backend_host || undefined });
+        // Local replicas serve a self-signed root key, so the agent must fetch
+        // it before it can verify query/update certificates. Mirrors the
+        // platform's createActorWithConfig (localhost-only).
+        if (env.backend_host?.includes("localhost")) {
+          await agent.fetchRootKey().catch((err) => {
+            devError("[CLAIM] fetchRootKey failed:", err);
+          });
+        }
+        const storageClient = new StorageClient(
+          "default-bucket",
+          env.storage_gateway_url || "https://blob.caffeine.ai",
+          canisterId,
+          env.project_id || "0000000-0000-0000-0000-00000000000",
+          agent,
+        );
         const actor = createActor(
           canisterId,
           async (file) => {
@@ -112,8 +139,14 @@ export default function ClaimPage() {
             return bytes;
           },
           async (bytes) => {
-            return ExternalBlob.fromBytes(bytes as Uint8Array<ArrayBuffer>);
+            return resolveStorageWireBlob(
+              new Uint8Array(bytes),
+              storageClient,
+              env,
+              canisterId,
+            );
           },
+          { agent },
         );
         if (!cancelled) setAnonymousActor(actor);
       } catch (err) {
@@ -187,7 +220,7 @@ export default function ClaimPage() {
             title: result.ok.title,
             edition: result.ok.edition,
             nftUniqueId,
-            imageUrl: result.ok.imageBlob?.getDirectURL?.() ?? "",
+            imageUrl: resolveNftImageUrl(result.ok.imageBlob),
           }),
         );
         // Force fresh metadata fetch before showing success page
@@ -211,7 +244,7 @@ export default function ClaimPage() {
           exact: true,
         });
         const claimedImageUrl =
-          result.ok.imageBlob?.getDirectURL?.() ?? undefined;
+          resolveNftImageUrl(result.ok.imageBlob) || undefined;
         addNotification(
           {
             type: "info",
@@ -257,7 +290,7 @@ export default function ClaimPage() {
     }
   }
 
-  const imageUrl = nft?.imageBlob.getDirectURL() ?? "";
+  const imageUrl = resolveNftImageUrl(nft?.imageBlob);
 
   return (
     <div

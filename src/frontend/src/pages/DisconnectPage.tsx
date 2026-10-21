@@ -1,13 +1,13 @@
 import { useTheme } from "next-themes";
 
 /**
- * DisconnectPage — unified unauthenticated endpoint.
+ * DisconnectPage — branded unauthenticated endpoint at /disconnect.
  *
  * Rules:
- * - No shell wrappers (no Layout, no Header, no BottomNav)
+ * - Rendered inside the unified app shell (Header + BottomNav) like every
+ *   other non-claim route, so login/connect stays available on every page.
  * - No auth state reads (no role inference, no redirects, no login CTA)
  * - Pure branded screen with logo, title, and tagline only
- * - Rendered OUTSIDE the Layout tree in App.tsx
  */
 export default function DisconnectPage() {
   const { resolvedTheme } = useTheme();

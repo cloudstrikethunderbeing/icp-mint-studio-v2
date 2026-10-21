@@ -41,6 +41,40 @@ module {
     // adminSetNftReferralThreshold (draft-only).
     rewardType : ReferralTypes.RewardType;
     referralThreshold : Nat;
+    // Whole-value USD price (positive integer dollars, no cents). null means
+    // the NFT is not listed for sale. Set on mint and editable by the owner.
+    priceUsd : ?Nat;
+  };
+
+  // [SCALE] Lightweight list projection. Listing endpoints return this summary
+  // record (id, title, thumbnail reference, status) instead of the full Nft
+  // (which carries imageBlob and every metadata field), so a list response does
+  // not decode every image. Full records still come from getNft on demand.
+  // `thumbnail` is the assetHash — the frontend resolves it to a gateway URL
+  // through the same single image-resolution path used for full records.
+  public type NftSummary = {
+    id : Nat;
+    ownerId : Principal;
+    creatorId : Common.CreatorId;
+    title : Text;
+    thumbnail : Text;
+    status : NftStatus;
+    collectionId : ?Nat;
+    mintDate : Common.Timestamp;
+    nftUniqueId : Text;
+    // Whole-value USD price (positive integer dollars, no cents); null when
+    // the NFT is not listed for sale.
+    priceUsd : ?Nat;
+  };
+
+  // [SCALE] One page of listing results plus the total count so the frontend
+  // can page. `total` is the count of ALL matching records (before offset/limit
+  // are applied); `offset`/`limit` echo the applied window.
+  public type NftSummaryPage = {
+    items : [NftSummary];
+    total : Nat;
+    offset : Nat;
+    limit : Nat;
   };
 
   public type Collection = {

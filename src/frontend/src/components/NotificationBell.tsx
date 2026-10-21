@@ -47,6 +47,13 @@ function NotificationItem({
   onClick?: () => void;
 }) {
   const isClickable = !!notif.navigationTarget;
+  // [IMG-RESOLVE] A stored imageUrl can still fail to load (expired gateway
+  // URL, offline). Track that so the item falls back to its type icon instead
+  // of rendering a broken-image glyph. An empty/whitespace URL is treated as
+  // "no image" up front so we never mount an <img src="">.
+  const [imgError, setImgError] = useState(false);
+  const hasImage = !!notif.imageUrl && notif.imageUrl.trim() !== "";
+  const showImage = hasImage && !imgError;
   return (
     <div
       role={isClickable ? "button" : undefined}
@@ -64,12 +71,13 @@ function NotificationItem({
       } ${isClickable ? "cursor-pointer hover:brightness-110 transition-all" : ""}`}
     >
       <div className="flex items-start gap-2">
-        {notif.imageUrl ? (
+        {showImage ? (
           <img
             src={notif.imageUrl}
             alt=""
             aria-hidden="true"
             className="w-10 h-10 rounded-sm object-cover shrink-0 mt-0.5"
+            onError={() => setImgError(true)}
           />
         ) : (
           typeIcon(notif.type)

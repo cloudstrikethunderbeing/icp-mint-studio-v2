@@ -1,4 +1,4 @@
-import type { CollectionWithCount, Nft, NftClaimCount } from "@/backend";
+import { type CollectionWithCount, type Nft, NftStatus } from "@/backend";
 import { NftDetailModal } from "@/components/NftDetailModal";
 import {
   AlertDialog,
@@ -32,19 +32,21 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { resolveNftImageUrl } from "@/utils/nftNormalization";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
   AlertTriangle,
-  CheckCircle2,
-  Database,
+  ChevronLeft,
+  ChevronRight,
   Flame,
   Folder,
   FolderOpen,
+  ImageOff,
   Layers,
   Loader2,
   Minus,
   MoreVertical,
-  PenTool,
   Plus,
   ServerCrash,
   ShieldAlert,
@@ -52,7 +54,7 @@ import {
   Trash2,
   Wallet,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import BrandedAuthGate from "../components/BrandedAuthGate";
 import {
   useAddNftToCollection,
@@ -64,19 +66,48 @@ import {
   useDeleteNft,
   useMyActiveNfts,
   useMyNfts,
-  useNftClaimCounts,
   useRemoveNftFromCollection,
-  useTotalNftCount,
 } from "../hooks/useQueries";
 import { devLog } from "../utils/devLog";
 
-function resolveImageUrl(hashOrUrl: string | undefined): string {
-  if (!hashOrUrl) return "";
-  if (/^https?:\/\//i.test(hashOrUrl)) return hashOrUrl;
-  return `https://blob.caffeine.ai/${hashOrUrl}`;
+type TabKey = "all" | "collections" | "claimed" | "created" | "recent";
+
+// [CANONICAL] Collapse a listing feed to one entry per canonical NFT identity.
+//
+// The Library derives ownership from the backend owner index, which can carry
+// stale or repeated ids (e.g. a claim/purchase that rewrote the index without
+// removing the previous entry). Without a client-side collapse the same NFT
+// renders twice. Identity is the canonical `nftUniqueId` (format
+// `canisterId:0:tokenId`); fall back to the numeric `id` only when a record has
+// no unique id. When two records share an identity we keep the RICHER one so
+// media, name/description, creator/collection, attributes and provenance are
+// never lost to a thinner duplicate.
+function nftCompleteness(nft: Nft): number {
+  let score = 0;
+  if (resolveNftImageUrl(nft.imageBlob)) score += 4;
+  if (nft.claimedAt != null) score += 2;
+  if (nft.edition) score += 1;
+  if (nft.description) score += 1;
+  if (nft.collectionId != null) score += 1;
+  if (nft.priceUsd != null) score += 1;
+  return score;
 }
 
-type TabKey = "all" | "collections" | "claimed" | "created" | "recent";
+function dedupeNftsByCanonicalIdentity(nfts: Nft[]): Nft[] {
+  const byIdentity = new Map<string, Nft>();
+  for (const nft of nfts) {
+    if (!nft) continue;
+    const identity =
+      nft.nftUniqueId && nft.nftUniqueId.trim() !== ""
+        ? nft.nftUniqueId
+        : `id:${String(nft.id)}`;
+    const existing = byIdentity.get(identity);
+    if (!existing || nftCompleteness(nft) > nftCompleteness(existing)) {
+      byIdentity.set(identity, nft);
+    }
+  }
+  return Array.from(byIdentity.values());
+}
 
 interface NftCardProps {
   nft: Nft;
@@ -88,10 +119,6 @@ interface NftCardProps {
   onAddToCollection?: (nftId: bigint, collectionId: bigint) => Promise<void>;
   collections: CollectionWithCount[];
   callerPrincipal: string;
-  // Public claim-count entry for this NFT, looked up from useNftClaimCounts.
-  // Undefined when no claim token exists for this NFT — in that case no
-  // claim-count badge is rendered (no zero-state clutter).
-  claimCount?: NftClaimCount;
 }
 
 type CardConfirmState =
@@ -111,9 +138,11 @@ function NftCard({
   onAddToCollection,
   collections,
   callerPrincipal,
-  claimCount,
 }: NftCardProps) {
-  const imageUrl = nft.imageBlob?.getDirectURL() ?? "";
+  // [IMG-RESOLVE] Read the resolved synchronous `directURL` field via the
+  // shared helper — `getDirectURL()` is async and would yield a Promise here.
+  const imageUrl = resolveNftImageUrl(nft.imageBlob);
+  const [imgError, setImgError] = useState(false);
   const [confirm, setConfirm] = useState<CardConfirmState>({ kind: "none" });
   const [burnInput, setBurnInput] = useState("");
   const [selectedCollectionId, setSelectedCollectionId] =
@@ -121,8 +150,13 @@ function NftCard({
   const [collectionActionError, setCollectionActionError] = useState<
     string | null
   >(null);
+  // [DISSOLVE] Dissolve-out transition state, mirroring Studio's
+  // deletingTokenIds/burningTokenIds. The card fades/scales out while the
+  // delete or burn mutation is in flight, then the optimistic cache removal
+  // unmounts it — no manual refresh needed.
+  const [dissolving, setDissolving] = useState<"delete" | "burn" | null>(null);
 
-  // Determine ownership and action eligibility
+  // Determine ownership and action eligibility.
   const isMintOwner = callerPrincipal === nft.creatorId;
   const isCurrentOwner = callerPrincipal === nft.ownerId.toText();
   const hasCollection =
@@ -264,8 +298,11 @@ function NftCard({
                 disabled={burnInput !== "BURN"}
                 onClick={(e) => {
                   e.stopPropagation();
+                  // [DISSOLVE] Start the dissolve-out before the mutation so
+                  // the card animates out while the burn is in flight.
+                  setDissolving("burn");
                   if (onBurn) {
-                    onBurn(nft.id);
+                    onBurn(nft.id).catch(() => setDissolving(null));
                   }
                   setConfirm({ kind: "none" });
                   setBurnInput("");
@@ -315,6 +352,9 @@ function NftCard({
                 if (isRemove && onRemoveFromCollection) {
                   onRemoveFromCollection(nft.id, nft.collectionId!);
                 } else if (!isRemove && onDelete) {
+                  // [DISSOLVE] Start the dissolve-out before the mutation so
+                  // the card animates out while the delete is in flight.
+                  setDissolving("delete");
                   onDelete(nft.id);
                 }
                 setConfirm({ kind: "none" });
@@ -336,8 +376,16 @@ function NftCard({
 
   return (
     <Card
-      className="overflow-hidden group cursor-pointer hover:shadow-md transition-shadow duration-200 min-w-0 relative"
+      className={cn(
+        "overflow-hidden group cursor-pointer hover:shadow-md transition-all duration-300 ease-out min-w-0 relative",
+        // [DISSOLVE] Dissolve-out while deleting/burning: fade + scale down,
+        // mirroring Studio's deletingTokenIds/burningTokenIds treatment.
+        dissolving !== null
+          ? "opacity-0 scale-95 pointer-events-none"
+          : "opacity-100 scale-100",
+      )}
       data-ocid={`collector.nft.item.${index + 1}`}
+      data-dissolving={dissolving ?? undefined}
       onClick={confirm.kind === "none" ? onClick : undefined}
     >
       <ConfirmPanel />
@@ -419,68 +467,32 @@ function NftCard({
       </div>
 
       <div className="aspect-square bg-muted relative overflow-hidden">
-        {imageUrl ? (
+        {imageUrl && !imgError ? (
           <img
             src={imageUrl}
             alt={nft.title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = "none";
-            }}
+            onError={() => setImgError(true)}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">
-            No image
+          <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-muted-foreground text-xs">
+            <ImageOff className="text-muted-foreground text-xl" />
+            <span>No image</span>
           </div>
         )}
-        <Badge
-          variant="secondary"
-          className="absolute top-2 right-2 text-[10px] font-mono"
+      </div>
+      <div className="price-strip">
+        <span className="price-strip-label">Price</span>
+        <span
+          className="price-strip-value"
+          data-state={nft.priceUsd === undefined ? "unlisted" : "listed"}
+          data-ocid={`collector.nft.price.${index + 1}`}
         >
-          {nft.edition}
-        </Badge>
-        {/* Public claim-count indicator — only when a claim token exists for
-            this NFT. Sits just below the edition badge (top-right). Visible to
-            all visitors (anonymous actor serves the public query). Shows only
-            the public count fields (claimedCount / supplyLimit). */}
-        {claimCount && (
-          <Badge
-            variant="secondary"
-            className="absolute top-9 right-2 text-[10px] font-mono"
-            data-ocid={`collector.nft.claim_count_badge.${index + 1}`}
-          >
-            {claimCount.claimedCount.toString()} /{" "}
-            {claimCount.supplyLimit.toString()} claimed
-          </Badge>
-        )}
-        {/* Claimed / Created icon badge */}
-        <div className="absolute top-2 left-2">
-          {nft.claimedAt !== undefined && nft.claimedAt !== null ? (
-            <Badge
-              className="text-[9px] gap-0.5 px-1.5 py-0.5 bg-blue-500/90 text-white"
-              data-ocid={`collector.nft.claimed_badge.${index + 1}`}
-            >
-              <CheckCircle2 className="w-2.5 h-2.5" />
-              Claimed
-            </Badge>
-          ) : (
-            <Badge
-              className="text-[9px] gap-0.5 px-1.5 py-0.5 bg-green-500/90 text-white"
-              data-ocid={`collector.nft.created_badge.${index + 1}`}
-            >
-              <PenTool className="w-2.5 h-2.5" />
-              Created
-            </Badge>
-          )}
-        </div>
-        {/* Verified badge overlay */}
-        <div className="absolute bottom-2 left-2">
-          <Badge className="text-[9px] gap-0.5 px-1.5 py-0.5 bg-primary/90 text-primary-foreground">
-            <ShieldCheck className="w-2.5 h-2.5" />
-            Verified
-          </Badge>
-        </div>
+          {nft.priceUsd !== undefined
+            ? `$${nft.priceUsd.toString()}`
+            : "Not for sale"}
+        </span>
       </div>
       <CardContent className="p-3 min-w-0">
         <p
@@ -516,7 +528,7 @@ function CollectorSkeleton() {
 }
 
 export default function CollectorPage() {
-  const { isAuthenticated, principal, authState } = useAuth();
+  const { isAuthenticated, principal, authState, actor } = useAuth();
   devLog("[RENDER] CollectorPage render:", {
     isAuthenticated,
     authState,
@@ -546,52 +558,91 @@ export default function CollectorPage() {
   const [pendingDeleteCollection, setPendingDeleteCollection] =
     useState<CollectionWithCount | null>(null);
 
-  const { data: nfts = [], isLoading: nftsLoading } =
-    useMyActiveNfts(principal);
+  // [FIND-ID] Direct detail lookup for NFTs that no list surface shows
+  // (deleted/burned records are filtered out of every listing but remain
+  // retrievable by id). Owners paste an NFT Unique ID to open its status view.
+  const [lookupId, setLookupId] = useState("");
+  const [lookupError, setLookupError] = useState<string | null>(null);
+  const [lookupLoading, setLookupLoading] = useState(false);
+
+  // [PAGE] Paginated listing. The backend listing endpoints now take
+  // (offset, limit) and return an NftSummaryPage { items, total, offset, limit }
+  // with a lightweight summary projection (id, title, thumbnail, status). The
+  // shared listing hooks accept the pagination window and map each summary into
+  // an Nft (thumbnail -> imageBlob.directURL) so every existing card feature
+  // keeps working through the single resolveNftImageUrl path.
+  const PAGE_SIZE = 12;
+  const [pageIndex, setPageIndex] = useState(0);
+  const offset = BigInt(pageIndex * PAGE_SIZE);
+  const pageLimit = BigInt(PAGE_SIZE);
+
+  const { data: activeNftsRaw = [], isLoading: nftsLoading } = useMyActiveNfts(
+    principal,
+    offset,
+    pageLimit,
+  );
   // Full feed (listMyNfts) includes claimed NFTs (claimedAt != null) that the
   // active feed (listMyActiveNfts) excludes on the backend. The 'All' tab
   // sources from this full feed so it shows every NFT the user owns (minted +
   // claimed). The 'Created' and 'Recent' tabs stay on the active feed because
   // claimed NFTs were not user-created and Recent reflects self-minting.
-  const { data: allMyNfts = [] } = useMyNfts();
+  const { data: allMyNftsRaw = [] } = useMyNfts(principal, offset, pageLimit);
+  // [CANONICAL] Collapse each feed to one entry per canonical identity so a
+  // claimed or purchased NFT appears exactly once even when the backend owner
+  // index carries a stale or repeated id. Every tab, count, filter and the
+  // detail modal read from these deduped sources.
+  const nfts = useMemo(
+    () => dedupeNftsByCanonicalIdentity(activeNftsRaw),
+    [activeNftsRaw],
+  );
   // 'All' tab source: the full feed (useMyNfts) so it shows every owned NFT
   // (minted + claimed). Kept as a named memo so the 'All' tab, its count, and
   // its collection-filtered variants all read from the same full-feed source.
-  const allTabNfts = allMyNfts;
+  const allTabNfts = useMemo(
+    () => dedupeNftsByCanonicalIdentity(allMyNftsRaw),
+    [allMyNftsRaw],
+  );
+
+  // [PAGE] Page totals for the pagination controls. The listing hooks return
+  // only the page's items, so read the page envelope's `total` directly from
+  // the actor for the active tab's feed. Keyed by the same window so it stays
+  // in lockstep with the hooks above.
+  const { data: pageTotals } = useQuery<{
+    activeTotal: number;
+    allTotal: number;
+  }>({
+    queryKey: ["collectorPageTotals", principal ?? "anonymous", pageIndex],
+    queryFn: async () => {
+      if (!actor) return { activeTotal: 0, allTotal: 0 };
+      const [activePage, allPage] = await Promise.all([
+        actor.listMyActiveNfts(offset, pageLimit),
+        actor.listMyNfts(offset, pageLimit),
+      ]);
+      return {
+        activeTotal: Number(activePage.total),
+        allTotal: Number(allPage.total),
+      };
+    },
+    enabled: !!actor,
+    staleTime: 30_000,
+  });
   const { data: collections = [], isLoading: collectionsLoading } =
     useCollections();
 
-  // Store-wide catalog count (public diagnostic). Distinguishes "catalog is
-  // empty" (store-wide zero NFTs — e.g. a fresh store on draft resume) from
-  // "no NFTs for this account" (the store has NFTs but the signed-in principal
-  // owns none). Shares the 30-second cache window with the other metrics.
-  const { data: storeWideTotal = 0n, isLoading: storeWideLoading } =
-    useTotalNftCount();
-  devLog("[LIBRARY-EMPTY] store-wide catalog count:", {
-    storeWideTotal: storeWideTotal.toString(),
-    accountNfts: allMyNfts.length,
+  // [CREATOR-ID] The caller's canonical creator id. `Nft.creatorId` is a
+  // derived hex id (NOT the principal), so the "Created" tab must compare
+  // against this value. Without it the Created tab always reported 0 even when
+  // the caller had minted NFTs.
+  const { data: callerCreatorId = "" } = useQuery<string>({
+    queryKey: ["callerCreatorId", principal ?? "anonymous"],
+    queryFn: async () => {
+      if (!actor) return "";
+      const profile = await actor.getCallerProfile();
+      return profile.creatorId ?? "";
+    },
+    enabled: !!actor && isAuthenticated,
+    staleTime: 60_000,
   });
-  if (storeWideTotal === 0n) {
-    devLog(
-      "[RECYCLE-DIAG] store-wide catalog empty — consistent with recycled draft canister (fresh store), live canister untouched:",
-      { storeWideTotal: storeWideTotal.toString() },
-    );
-  }
-
-  // Public claim counts for the Library card indicator. Public query — no
-  // admin gate — so it works for anonymous viewers via the anonymous actor.
-  // Shares the 30-second cache window with other metrics; manual refresh of
-  // the Library re-fetches via the shared ['nft-claim-counts'] query key.
-  const { data: claimCounts = [] } = useNftClaimCounts();
-  // O(1) lookup from nftId (as string) -> NftClaimCount. Built once per
-  // claim-counts fetch so each NftCard can find its count without scanning.
-  const claimCountByNftId = useMemo(() => {
-    const map = new Map<string, NftClaimCount>();
-    for (const entry of claimCounts) {
-      map.set(String(entry.nftId), entry);
-    }
-    return map;
-  }, [claimCounts]);
 
   // Mutations for quick actions on NFT cards
   const deleteNft = useDeleteNft();
@@ -625,8 +676,8 @@ export default function CollectorPage() {
   // that powers the 'All' tab — and filtered to claimedAt != null. The 'All'
   // tab shows the unfiltered full feed; this tab shows its claimed subset.
   const claimedNfts = useMemo(
-    () => allMyNfts.filter((nft) => nft.claimedAt != null),
-    [allMyNfts],
+    () => allTabNfts.filter((nft) => nft.claimedAt != null),
+    [allTabNfts],
   );
 
   function getTabCount(key: TabKey): number {
@@ -638,7 +689,7 @@ export default function CollectorPage() {
       case "claimed":
         return claimedNfts.length;
       case "created":
-        return nfts.filter((nft) => nft.creatorId === principalText).length;
+        return nfts.filter((nft) => nft.creatorId === callerCreatorId).length;
       case "recent":
         return nfts.length;
       default:
@@ -675,7 +726,7 @@ export default function CollectorPage() {
       case "created":
         // 'Created' stays on the ACTIVE feed (useMyActiveNfts). Claimed NFTs
         // were not created by the user, so they must not appear here.
-        return nfts.filter((nft) => nft.creatorId === principalText);
+        return nfts.filter((nft) => nft.creatorId === callerCreatorId);
       case "recent":
         // 'Recent' stays on the ACTIVE feed (useMyActiveNfts), sorted by
         // mintDate desc. Recent reflects self-minting activity, not claims.
@@ -691,8 +742,28 @@ export default function CollectorPage() {
     claimedNfts,
     nfts,
     selectedCollectionId,
-    principalText,
+    callerCreatorId,
   ]);
+
+  // [PAGE] Server-side total for the active tab's feed. 'all'/'claimed' read
+  // the full feed (listMyNfts); 'created'/'recent' read the active feed.
+  const pageTotal = useMemo(() => {
+    if (!pageTotals) return 0;
+    return activeTab === "all" || activeTab === "claimed"
+      ? pageTotals.allTotal
+      : pageTotals.activeTotal;
+  }, [activeTab, pageTotals]);
+
+  const pageCount = Math.max(1, Math.ceil(pageTotal / PAGE_SIZE));
+  const canPrevPage = pageIndex > 0;
+  const canNextPage = pageIndex + 1 < pageCount;
+
+  // [PAGE] Reset to the first page whenever the tab or collection filter
+  // changes so the user never lands on an out-of-range page.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset is keyed on the filter identity only
+  useEffect(() => {
+    setPageIndex(0);
+  }, [activeTab, selectedCollectionId]);
 
   function openNftDetail(nft: Nft) {
     setSelectedNft(nft);
@@ -704,7 +775,43 @@ export default function CollectorPage() {
     setSelectedNft(null);
   }
 
-  const isLoading = nftsLoading || storeWideLoading;
+  // [FIND-ID] Resolve an NFT by its Unique ID (format canisterId:0:tokenId) and
+  // open the detail modal. getNft returns deleted/burned records by id, so this
+  // is the one entry point that can surface their status.
+  async function handleFindById(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = lookupId.trim();
+    if (!trimmed) return;
+    setLookupError(null);
+    const tokenIdText = trimmed.split(":").pop() ?? "";
+    let tokenId: bigint;
+    try {
+      tokenId = BigInt(tokenIdText);
+    } catch {
+      setLookupError("Enter a valid NFT Unique ID.");
+      return;
+    }
+    if (!actor) {
+      setLookupError("Sign in to look up an NFT.");
+      return;
+    }
+    setLookupLoading(true);
+    try {
+      const found = await actor.getNft(tokenId);
+      if (!found) {
+        setLookupError("No NFT found for that ID.");
+        return;
+      }
+      setLookupId("");
+      openNftDetail(found);
+    } catch {
+      setLookupError("Lookup failed. Check the ID and try again.");
+    } finally {
+      setLookupLoading(false);
+    }
+  }
+
+  const isLoading = nftsLoading;
 
   const tabCount = useMemo(() => {
     switch (activeTab) {
@@ -713,7 +820,7 @@ export default function CollectorPage() {
       case "claimed":
         return claimedNfts.length;
       case "created":
-        return nfts.filter((nft) => nft.creatorId === principalText).length;
+        return nfts.filter((nft) => nft.creatorId === callerCreatorId).length;
       case "recent":
         return nfts.length;
       case "collections":
@@ -721,95 +828,50 @@ export default function CollectorPage() {
       default:
         return 0;
     }
-  }, [activeTab, nfts, collections, principalText, claimedNfts, allTabNfts]);
+  }, [activeTab, nfts, collections, callerCreatorId, claimedNfts, allTabNfts]);
 
-  // Backend health / canister identity guard (rotation defense). If the
-  // backend is wrong, unavailable, or empty, surface a loud error instead of
-  // silently rendering an empty catalog. Defense-in-depth on top of the
-  // global CanisterGuard in App.tsx. Placed AFTER all hooks to satisfy the
-  // Rules of Hooks (no conditional hook calls).
-  if (backendHealth.status !== "ok") {
-    return (
-      <div
-        className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-6 text-center"
-        data-ocid="collector.backend_health_state"
-      >
-        {backendHealth.status === "checking" ? (
-          <>
-            <Loader2 className="animate-spin h-8 w-8 text-primary" />
-            <p className="text-sm text-muted-foreground">
-              Verifying backend connection...
-            </p>
-          </>
-        ) : backendHealth.status === "wrong-canister" ? (
-          <>
-            <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center">
-              <ShieldAlert className="w-7 h-7 text-destructive" />
-            </div>
-            <h2 className="text-lg font-bold text-foreground">
-              Backend connection error
-            </h2>
-            <p className="text-sm text-muted-foreground max-w-md">
-              This app is pinned to a specific backend canister, but it resolved
-              to a different one. The library is intentionally not shown to
-              avoid displaying an empty or incorrect collection.
-            </p>
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="mt-2 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              data-ocid="collector.backend_retry_button"
-            >
-              Retry
-            </button>
-          </>
-        ) : backendHealth.status === "unavailable" ? (
-          <>
-            <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center">
-              <ServerCrash className="w-7 h-7 text-destructive" />
-            </div>
-            <h2 className="text-lg font-bold text-foreground">
-              Backend unavailable
-            </h2>
-            <p className="text-sm text-muted-foreground max-w-md">
-              The backend could not be reached. The library is intentionally not
-              shown to avoid displaying an empty or incorrect collection.
-            </p>
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="mt-2 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              data-ocid="collector.backend_retry_button"
-            >
-              Retry
-            </button>
-          </>
-        ) : (
-          <>
-            <div className="w-14 h-14 rounded-full bg-amber-500/10 flex items-center justify-center">
-              <AlertTriangle className="w-7 h-7 text-amber-500" />
-            </div>
-            <h2 className="text-lg font-bold text-foreground">
-              Library temporarily unavailable
-            </h2>
-            <p className="text-sm text-muted-foreground max-w-md">
-              The backend is reachable but is reporting no NFTs, which is
-              unexpected. The library is intentionally not shown to avoid
-              displaying an empty collection. Please try again shortly.
-            </p>
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="mt-2 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              data-ocid="collector.backend_retry_button"
-            >
-              Retry
-            </button>
-          </>
-        )}
-      </div>
-    );
-  }
+  // Backend health / canister identity guard (rotation defense). The library
+  // now renders with an INLINE notice instead of blocking the whole surface:
+  // a degraded backend must not hide the user's own records. The notice is
+  // non-blocking and keeps the retry affordance. Placed AFTER all hooks to
+  // satisfy the Rules of Hooks (no conditional hook calls).
+  const healthNotice = useMemo(() => {
+    switch (backendHealth.status) {
+      case "checking":
+        return {
+          tone: "info" as const,
+          icon: <Loader2 className="w-4 h-4 animate-spin text-primary" />,
+          title: "Verifying backend connection…",
+          detail: "The library will refresh once the backend responds.",
+        };
+      case "wrong-canister":
+        return {
+          tone: "error" as const,
+          icon: <ShieldAlert className="w-4 h-4 text-destructive" />,
+          title: "Backend connection error",
+          detail:
+            "This app resolved to a different backend canister. Records shown may be incomplete.",
+        };
+      case "unavailable":
+        return {
+          tone: "error" as const,
+          icon: <ServerCrash className="w-4 h-4 text-destructive" />,
+          title: "Backend unavailable",
+          detail:
+            "The backend could not be reached. Records shown may be incomplete.",
+        };
+      case "empty":
+        return {
+          tone: "warning" as const,
+          icon: <AlertTriangle className="w-4 h-4 text-amber-500" />,
+          title: "Library temporarily unavailable",
+          detail:
+            "The backend reports no NFTs, which is unexpected. Please try again shortly.",
+        };
+      default:
+        return null;
+    }
+  }, [backendHealth.status]);
 
   if (!isAuthenticated) {
     return (
@@ -821,6 +883,38 @@ export default function CollectorPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6" data-ocid="collector.page">
+      {/* Inline backend-health notice — non-blocking. The library always
+          renders; a degraded backend only adds this banner. */}
+      {healthNotice && (
+        <div
+          className={cn(
+            "flex items-start gap-2.5 mb-4 px-3 py-2.5 rounded-lg border text-sm",
+            healthNotice.tone === "error"
+              ? "bg-destructive/5 border-destructive/30"
+              : healthNotice.tone === "warning"
+                ? "bg-amber-500/5 border-amber-500/30"
+                : "bg-muted/40 border-border",
+          )}
+          data-ocid="collector.backend_health_notice"
+        >
+          <span className="mt-0.5 shrink-0">{healthNotice.icon}</span>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-foreground">{healthNotice.title}</p>
+            <p className="text-xs text-muted-foreground">
+              {healthNotice.detail}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="shrink-0 text-xs font-medium text-primary hover:underline"
+            data-ocid="collector.backend_retry_button"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div
         className="flex items-center justify-between mb-4"
@@ -869,6 +963,50 @@ export default function CollectorPage() {
         <span>·</span>
         <span>{claimedNfts.length} Claimed</span>
       </div>
+
+      {/* [FIND-ID] Direct detail lookup — surfaces deleted/burned records that
+          no listing shows. Kept to one compact row. */}
+      <form
+        onSubmit={handleFindById}
+        className="flex items-center gap-2 mb-4"
+        data-ocid="collector.find_by_id_form"
+      >
+        <Input
+          value={lookupId}
+          onChange={(e) => {
+            setLookupId(e.target.value);
+            setLookupError(null);
+          }}
+          placeholder="Find by NFT Unique ID"
+          className="h-8 text-xs font-mono"
+          autoComplete="off"
+          spellCheck={false}
+          aria-label="NFT Unique ID"
+          data-ocid="collector.find_by_id_input"
+        />
+        <Button
+          type="submit"
+          variant="outline"
+          size="sm"
+          className="h-8 shrink-0 text-xs"
+          disabled={!lookupId.trim() || lookupLoading}
+          data-ocid="collector.find_by_id_button"
+        >
+          {lookupLoading ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            "Open"
+          )}
+        </Button>
+      </form>
+      {lookupError && (
+        <p
+          className="text-xs text-destructive -mt-3 mb-3"
+          data-ocid="collector.find_by_id_error_state"
+        >
+          {lookupError}
+        </p>
+      )}
 
       {/* Tabs */}
       <div
@@ -961,7 +1099,16 @@ export default function CollectorPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
               {collections.map((collection) => {
                 const _hasNfts = Number(collection.nftCount) > 0;
-                const previewUrl = resolveImageUrl(collection.previewImage);
+                // [IMG-RESOLVE] Collection previews are stored as plain URL
+                // strings (not ExternalBlobs), so pass an absolute https:// URL
+                // through unchanged and render the placeholder otherwise. The
+                // old local helper hardcoded a blob.caffeine.ai fallback that
+                // bypassed the shared storage-backed resolution path.
+                const previewUrl =
+                  collection.previewImage &&
+                  /^https?:\/\//i.test(collection.previewImage)
+                    ? collection.previewImage
+                    : "";
                 return (
                   <div
                     key={String(collection.id)}
@@ -1055,122 +1202,46 @@ export default function CollectorPage() {
       ) : isLoading ? (
         <CollectorSkeleton />
       ) : filteredNfts.length === 0 ? (
-        storeWideTotal === 0n ? (
-          // ── Catalog is empty (store-wide zero NFTs) ──────────────────────
-          // A fresh store on draft resume starts with zero NFTs. This is
-          // expected platform behavior, NOT a data bug — the live canister is
-          // untouched. Surface it clearly so the empty catalog is never silent.
-          <div
-            className="flex flex-col items-center justify-center min-h-[40vh] gap-4 text-center"
-            data-ocid="collector.catalog_empty_state"
-          >
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-              <Database className="w-7 h-7 text-muted-foreground" />
-            </div>
-            <div className="space-y-1">
-              <h3 className="text-base font-semibold text-foreground">
-                The catalog is empty
-              </h3>
-              <p className="text-sm text-muted-foreground max-w-sm">
-                There are no NFTs in the catalog yet. On a draft deployment this
-                is expected — the draft canister was recycled and starts with a
-                fresh store. Your live canister is untouched.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 items-center">
-              <Link to="/">
-                <Button
-                  type="button"
-                  size="sm"
-                  data-ocid="collector.catalog_empty_mint_button"
-                >
-                  Mint your first NFT
-                </Button>
-              </Link>
-            </div>
-            <div
-              className="mt-2 w-full max-w-sm rounded-lg border border-border bg-muted/30 p-3 text-left"
-              data-ocid="collector.recycle_diag_panel"
-            >
-              <p className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
-                <ServerCrash className="w-3.5 h-3.5 text-muted-foreground" />
-                Draft resume diagnostic
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Store-wide catalog: <span className="font-mono">0 NFTs</span>.
-                This is consistent with a recycled draft canister (fresh store),
-                not a mint-induced wipe. The live canister is unaffected.
-              </p>
-            </div>
+        // ── Empty library ────────────────────────────────────────────────
+        // A short, plain message with a clear next step. No diagnostic or
+        // explainer paragraphs.
+        <div
+          className="flex flex-col items-center justify-center min-h-[40vh] gap-4 text-center"
+          data-ocid="collector.account_empty_state"
+        >
+          <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+            <Wallet className="w-7 h-7 text-muted-foreground" />
           </div>
-        ) : (
-          // ── No NFTs for this account ─────────────────────────────────────
-          // The store has NFTs (storeWideTotal > 0) but the signed-in
-          // principal owns none. The catalog is intact — this account just
-          // hasn't minted or claimed anything yet.
-          <div
-            className="flex flex-col items-center justify-center min-h-[40vh] gap-4 text-center"
-            data-ocid="collector.account_empty_state"
-          >
-            <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-              <Wallet className="w-7 h-7 text-muted-foreground" />
-            </div>
-            <div className="space-y-1">
-              <h3 className="text-base font-semibold text-foreground">
-                No NFTs for this account
-              </h3>
-              <p className="text-sm text-muted-foreground max-w-sm">
-                The catalog is intact — there are{" "}
-                <span className="font-mono text-foreground">
-                  {storeWideTotal.toString()}
-                </span>{" "}
-                NFT{storeWideTotal !== 1n ? "s" : ""} store-wide — but this
-                account owns none yet. Mint one to get started, or claim one
-                using a claim link.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 items-center">
-              <Link to="/">
-                <Button
-                  type="button"
-                  size="sm"
-                  data-ocid="collector.account_empty_mint_button"
-                >
-                  Mint an NFT
-                </Button>
-              </Link>
-              <Link to="/verify">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  data-ocid="collector.account_empty_verify_button"
-                >
-                  Verify an NFT
-                </Button>
-              </Link>
-            </div>
-            <div
-              className="mt-2 w-full max-w-sm rounded-lg border border-border bg-muted/30 p-3 text-left"
-              data-ocid="collector.catalog_intact_diag_panel"
-            >
-              <p className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-                Catalog intact diagnostic
-              </p>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Store-wide catalog:{" "}
-                <span className="font-mono">
-                  {storeWideTotal.toString()} NFT
-                  {storeWideTotal !== 1n ? "s" : ""}
-                </span>
-                . This account owns <span className="font-mono">0</span>. The
-                catalog is intact — this is an account-scoped empty state, not a
-                data bug.
-              </p>
-            </div>
+          <div className="space-y-1">
+            <h3 className="text-base font-semibold text-foreground">
+              No NFTs yet
+            </h3>
+            <p className="text-sm text-muted-foreground max-w-sm">
+              Mint one to get started, or claim one using a claim link.
+            </p>
           </div>
-        )
+          <div className="flex flex-col gap-2 items-center">
+            <Link to="/studio">
+              <Button
+                type="button"
+                size="sm"
+                data-ocid="collector.account_empty_mint_button"
+              >
+                Mint an NFT
+              </Button>
+            </Link>
+            <Link to="/verify">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-ocid="collector.account_empty_verify_button"
+              >
+                Verify an NFT
+              </Button>
+            </Link>
+          </div>
+        </div>
       ) : (
         <>
           <div
@@ -1193,10 +1264,50 @@ export default function CollectorPage() {
                 }
                 collections={collections}
                 callerPrincipal={principalText}
-                claimCount={claimCountByNftId.get(String(nft.id))}
               />
             ))}
           </div>
+          {/* [PAGE] Server-side pagination controls. Only rendered when the
+              active feed spans more than one page. */}
+          {pageCount > 1 && (
+            <div
+              className="flex items-center justify-center gap-3 mt-4"
+              data-ocid="collector.pagination"
+            >
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1 text-xs"
+                disabled={!canPrevPage}
+                onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
+                data-ocid="collector.pagination_prev"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                Prev
+              </Button>
+              <span
+                className="text-xs text-muted-foreground font-mono"
+                data-ocid="collector.pagination_status"
+              >
+                Page {pageIndex + 1} of {pageCount}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1 text-xs"
+                disabled={!canNextPage}
+                onClick={() =>
+                  setPageIndex((p) => Math.min(pageCount - 1, p + 1))
+                }
+                data-ocid="collector.pagination_next"
+              >
+                Next
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          )}
         </>
       )}
 
@@ -1320,7 +1431,7 @@ export default function CollectorPage() {
           callerPrincipal={principal ?? ""}
           canisterId=""
           nftUniqueId={selectedNft.nftUniqueId}
-          readOnly={false}
+          readOnly={selectedNft.status !== NftStatus.active}
         />
       )}
     </div>

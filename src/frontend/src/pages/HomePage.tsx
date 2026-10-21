@@ -39,6 +39,7 @@ import {
 } from "@/hooks/useQueries";
 import { devLog } from "@/utils/devLog";
 import { fileWithVerifiedImageType } from "@/utils/imageMagic";
+import { resolveNftImageUrl } from "@/utils/nftNormalization";
 import { sanitizePng } from "@/utils/sanitizePng";
 
 import { Principal } from "@icp-sdk/core/principal";
@@ -65,18 +66,27 @@ import { toast } from "sonner";
 import BrandedAuthGate from "../components/BrandedAuthGate";
 import { useMyActiveNfts } from "../hooks/useQueries";
 
-const MAX_NFTS = 8;
-const UPLOAD_SLOT_IDX = 4; // center of 3x3 grid (0-indexed)
+// [PAGE] Non-admin Studio grid page size. The grid renders this many NFT
+// slots plus one upload slot on the first page (a 3x3 grid), and pages through
+// the active feed via the paginated listing hook.
+const STUDIO_PAGE_SIZE = 8;
+const STUDIO_SLOT_COUNT = STUDIO_PAGE_SIZE + 1; // +1 upload slot on page 1
 
-function buildAdminGrid(nfts: Nft[]): GridSlot[] {
+// [ADMIN-PAGE] Build the admin grid for one page of NFTs. The upload/mint slot
+// is rendered only when `includeUpload` is true (the first page), so it is not
+// repeated on later pages. The grid is no longer capped at 8 NFT slots: the
+// page window is driven by the shared Studio pagination state, so the admin
+// feed pages through every active NFT.
+function buildAdminGrid(nfts: Nft[], includeUpload: boolean): GridSlot[] {
   if (!Array.isArray(nfts)) {
     return [];
   }
   const safeNfts = nfts.filter((item): item is Nft => item != null);
   const slots: GridSlot[] = [];
   let nftIdx = 0;
-  for (let i = 0; i < safeNfts.length + 1; i++) {
-    if (i === 0) {
+  const slotCount = safeNfts.length + (includeUpload ? 1 : 0);
+  for (let i = 0; i < slotCount; i++) {
+    if (includeUpload && i === 0) {
       slots.push({ kind: "upload" });
     } else if (nftIdx < safeNfts.length) {
       slots.push({ kind: "nft", nft: safeNfts[nftIdx++] });
@@ -109,15 +119,26 @@ type MintParams = {
   supplyLimit?: bigint;
   rewardType?: RewardType;
   referralThreshold?: bigint;
+  priceUsd?: bigint;
 };
 
-function buildGrid(nfts: Nft[]): GridSlot[] {
+// [PAGE] Build the non-admin grid for one page of NFTs. The slot count is
+// derived from the page size instead of a hardcoded 9, so the grid grows with
+// the pagination window. The upload slot sits at the center of the FIRST page
+// only; later pages are pure NFT/empty slots so the mint affordance is not
+// repeated on every page.
+function buildGrid(
+  nfts: Nft[],
+  slotCount: number,
+  includeUpload: boolean,
+): GridSlot[] {
   // Defensive filter: skip any null/undefined items that slipped through
   const safeNfts = nfts.filter((item): item is Nft => item != null);
   const slots: GridSlot[] = [];
   let nftIdx = 0;
-  for (let i = 0; i < 9; i++) {
-    if (i === UPLOAD_SLOT_IDX) {
+  const uploadIdx = includeUpload ? Math.floor(slotCount / 2) : -1;
+  for (let i = 0; i < slotCount; i++) {
+    if (i === uploadIdx) {
       slots.push({ kind: "upload" });
     } else if (nftIdx < safeNfts.length) {
       slots.push({ kind: "nft", nft: safeNfts[nftIdx++] });
@@ -153,46 +174,65 @@ function NftGridCard({
   isNewlyMinted?: boolean;
 }) {
   const [imgError, setImgError] = useState(false);
-  const imgUrl = nft.imageBlob?.getDirectURL() ?? "";
+  // [IMG-RESOLVE] Read the resolved synchronous `directURL` field via the
+  // shared helper — `getDirectURL()` is async and would yield a Promise here.
+  const imgUrl = resolveNftImageUrl(nft.imageBlob);
   const handleClick = useCallback(() => onSelect(nft), [onSelect, nft]);
 
   const deleting = isDeleting ?? false;
   const burning = isBurning ?? false;
+  // [IMG-RESOLVE] Treat an empty resolved URL as a failed image so the card
+  // renders its placeholder immediately instead of mounting an <img src="">
+  // that only falls back after a load error.
+  const showPlaceholder = imgError || imgUrl === "";
 
   return (
-    <button
-      type="button"
-      className={`aspect-square rounded-xl overflow-hidden bg-muted relative cursor-pointer group focus:outline-none focus-visible:ring-2 focus-visible:ring-primary transition-all duration-300 ease-out ${
+    <div
+      className={`rounded-xl overflow-hidden bg-card border border-border group transition-all duration-300 ease-out ${
         deleting || burning
           ? "opacity-0 scale-95"
           : isNewlyMinted
             ? "animate-nft-enter"
             : ""
       } ${burning ? "ring-2 ring-red-500" : ""}`}
-      onClick={handleClick}
-      aria-label={`View NFT: ${nft.title}`}
       data-ocid={`home.nft_card.item.${slotNumber}`}
     >
-      {burning && (
-        <div className="absolute inset-0 bg-red-500/30 z-10 pointer-events-none transition-opacity duration-300" />
-      )}
-      {imgError ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-muted">
-          <ImageOff className="text-muted-foreground text-xl" />
-          <span className="text-xs text-muted-foreground">No image</span>
-        </div>
-      ) : (
-        <img
-          src={imgUrl}
-          alt={nft.title}
-          className="absolute inset-0 w-full h-full object-contain transition-transform duration-200 group-hover:scale-105"
-          onError={() => setImgError(true)}
-        />
-      )}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-        <p className="text-xs font-medium text-white truncate">{nft.title}</p>
+      <button
+        type="button"
+        className="relative block w-full aspect-square bg-muted cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        onClick={handleClick}
+        aria-label={`View NFT: ${nft.title}`}
+      >
+        {burning && (
+          <div className="absolute inset-0 bg-red-500/30 z-10 pointer-events-none transition-opacity duration-300" />
+        )}
+        {showPlaceholder ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-muted">
+            <ImageOff className="text-muted-foreground text-xl" />
+            <span className="text-xs text-muted-foreground">No image</span>
+          </div>
+        ) : (
+          <img
+            src={imgUrl}
+            alt={nft.title}
+            className="absolute inset-0 w-full h-full object-contain transition-transform duration-200 group-hover:scale-105"
+            onError={() => setImgError(true)}
+          />
+        )}
+      </button>
+      <div className="price-strip">
+        <span className="price-strip-label">Price</span>
+        <span
+          className="price-strip-value"
+          data-state={nft.priceUsd === undefined ? "unlisted" : "listed"}
+          data-ocid={`home.nft_price.${slotNumber}`}
+        >
+          {nft.priceUsd !== undefined
+            ? `$${nft.priceUsd.toString()}`
+            : "Not for sale"}
+        </span>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -239,6 +279,8 @@ function UploadCard({
   const [membershipId, setMembershipId] = useState("");
   const [rewardType, setRewardType] = useState<RewardType>(RewardType.none);
   const [referralThreshold, setReferralThreshold] = useState<number>(3);
+  const [priceUsd, setPriceUsd] = useState("");
+  const [priceError, setPriceError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const dragCounterRef = useRef(0);
@@ -295,6 +337,8 @@ function UploadCard({
       setMembershipId("");
       setRewardType(RewardType.none);
       setReferralThreshold(3);
+      setPriceUsd("");
+      setPriceError(null);
       setShowAdvanced(false);
       setMintError(null);
       setSupplyLimit(tierMax);
@@ -378,6 +422,17 @@ function UploadCard({
       toast.error("Connect your wallet to mint NFTs.");
       return;
     }
+    // Whole-value USD price is required: a positive integer number of dollars.
+    const priceValue = Number(priceUsd);
+    if (
+      priceUsd.trim() === "" ||
+      !Number.isInteger(priceValue) ||
+      priceValue <= 0
+    ) {
+      setPriceError("Enter a whole-dollar price greater than 0.");
+      return;
+    }
+    setPriceError(null);
     onMint({
       file,
       title,
@@ -391,6 +446,7 @@ function UploadCard({
       rewardType,
       referralThreshold:
         rewardType === "referralBonus" ? BigInt(referralThreshold) : undefined,
+      priceUsd: BigInt(priceValue),
     });
   }
 
@@ -407,6 +463,8 @@ function UploadCard({
     setMembershipId("");
     setRewardType(RewardType.none);
     setReferralThreshold(3);
+    setPriceUsd("");
+    setPriceError(null);
     setShowAdvanced(false);
     // Revoke the preview blob URL so image bytes are released on reset.
     revokePreviewUrl();
@@ -476,6 +534,8 @@ function UploadCard({
             setMembershipId("");
             setRewardType(RewardType.none);
             setReferralThreshold(3);
+            setPriceUsd("");
+            setPriceError(null);
             setShowAdvanced(false);
             setMintError(null);
             setSupplyLimit(tierMax);
@@ -529,6 +589,37 @@ function UploadCard({
                 maxLength={1000}
                 data-ocid="home.mint_desc_input"
               />
+            </div>
+            <div>
+              <Label htmlFor="mint-price">
+                Price (USD) <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="mint-price"
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                value={priceUsd}
+                onChange={(e) => {
+                  setPriceUsd(e.target.value);
+                  setPriceError(null);
+                }}
+                placeholder="e.g. 250"
+                data-ocid="home.mint_price_input"
+              />
+              {priceError ? (
+                <p
+                  className="text-xs text-destructive mt-1"
+                  data-ocid="home.mint_price_error_state"
+                >
+                  {priceError}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Whole dollars, no cents.
+                </p>
+              )}
             </div>
             {collections.length > 0 && (
               <div>
@@ -784,6 +875,56 @@ export default function HomePage() {
   // backend result. Used to apply referral metadata to the freshly minted NFT.
   const lastMintRewardTypeRef = useRef<RewardType>(RewardType.none);
   const lastMintReferralThresholdRef = useRef<bigint>(3n);
+  // [MINT-NOTIF] The mint result carries only ids, not the title, so capture
+  // the submitted name in onMutate and read it back in onSuccess to name the
+  // minted NFT in the notification.
+  const lastMintTitleRef = useRef<string>("");
+  // [IMG-FIX] Bounded post-mint refetch timers. The invalidated list queries can
+  // refetch from a stale replica and still return the old list, so schedule a
+  // couple of delayed passes to let the grids converge without a manual reload.
+  const postMintRefetchTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // [IMG-FIX] Guard so the delayed refetch passes never fire after unmount.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      for (const t of postMintRefetchTimersRef.current) clearTimeout(t);
+      postMintRefetchTimersRef.current = [];
+    };
+  }, []);
+  // [DEL-SYNC]/[BURN-SYNC] Bounded delayed invalidate passes shared by the
+  // delete and burn mutations, mirroring the mint flow's post-mint passes. A
+  // single invalidate can refetch from a stale replica and still return the
+  // removed card, so re-invalidate the same key set at ~1.5s and ~4s. Guarded
+  // by isMountedRef so the timers never fire after unmount.
+  const schedulePostMutationRefetch = useCallback(
+    (label: string) => {
+      const keys: string[][] = [
+        ["myActiveNfts"],
+        ["myNfts"],
+        ["slotsStatus"],
+        ["collections"],
+        ["nftRegistry"],
+      ];
+      const schedule = (delayMs: number, pass: number) => {
+        const timer = setTimeout(() => {
+          if (!isMountedRef.current) return;
+          console.log(
+            `[${label.toUpperCase()}-SYNC] post-${label} refetch pass ${pass}`,
+          );
+          for (const key of keys) {
+            queryClient.invalidateQueries({ queryKey: key });
+          }
+        }, delayMs);
+        postMintRefetchTimersRef.current.push(timer);
+      };
+      schedule(1500, 1);
+      schedule(4000, 2);
+    },
+    [queryClient],
+  );
+
   devLog("[RENDER] HomePage render:", {
     authState,
     isAuthenticated,
@@ -836,7 +977,29 @@ export default function HomePage() {
     setMintOverlayDismissVisible(false);
   }, [mintTransition.stage]);
 
-  const { data: nfts = [], isLoading } = useMyActiveNfts(principal);
+  // [PAGE] Paginated Studio feed. The listing hook takes (offset, limit) and
+  // returns the page's Nft[]; the page envelope's total is read separately for
+  // the pagination controls. Admin search stays a separate unpaginated feed.
+  const [studioPageIndex, setStudioPageIndex] = useState(0);
+  const studioOffset = BigInt(studioPageIndex * STUDIO_PAGE_SIZE);
+  const studioLimit = BigInt(STUDIO_PAGE_SIZE);
+
+  const { data: nfts = [], isLoading } = useMyActiveNfts(
+    principal,
+    studioOffset,
+    studioLimit,
+  );
+
+  const { data: studioTotal } = useQuery<number>({
+    queryKey: ["studioPageTotal", principal ?? "anonymous", studioPageIndex],
+    queryFn: async () => {
+      if (!actor) return 0;
+      const page = await actor.listMyActiveNfts(studioOffset, studioLimit);
+      return Number(page.total);
+    },
+    enabled: !!actor,
+    staleTime: 30_000,
+  });
 
   const { data: searchResults = [], isLoading: isSearchLoading } =
     useSearchNfts(debouncedSearch.trim(), isAdmin && isSearchActive);
@@ -893,6 +1056,12 @@ export default function HomePage() {
       const blob = ExternalBlob.fromBytes(bytes).withUploadProgress((pct) =>
         setUploadProgress(pct),
       );
+      // [IMG-FIX] Do NOT resolve the notification image from this locally
+      // uploaded ExternalBlob. ExternalBlob.fromBytes sets directURL to a
+      // document-scoped blob: URL (URL.createObjectURL) that is revoked on GC
+      // and invalid after reload, and the notification imageUrl is persisted to
+      // localStorage. The stable gateway URL is only available from the
+      // post-mint getNft read-back (see onSuccess).
       const mintPromise = actor.mintNft(
         blob,
         assetHash,
@@ -904,6 +1073,7 @@ export default function HomePage() {
         params.discountCode ?? null,
         params.membershipId ?? null,
         params.supplyLimit ?? 1n,
+        params.priceUsd ?? null,
       );
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(
@@ -933,13 +1103,14 @@ export default function HomePage() {
       // Capture referral metadata so onSuccess can apply it to the new NFT ID.
       lastMintRewardTypeRef.current = params.rewardType ?? RewardType.none;
       lastMintReferralThresholdRef.current = params.referralThreshold ?? 3n;
+      lastMintTitleRef.current = params.title.trim();
       setMintError(null);
       setMintTransition({
         stage: "minting",
         message: "Minting your NFT on-chain...",
       });
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       const ok = (
         result as
           | {
@@ -964,21 +1135,98 @@ export default function HomePage() {
           ? `Token ID: ${tokenIdStr} minted successfully!`
           : "NFT minted successfully!",
       });
+      // [IMG-FIX] Resolve the notification image from the STABLE source: the
+      // post-mint getNft read-back, whose imageBlob is decoded by the actor's
+      // downloadFile callback into a renderable URL (a live blob: URL for the
+      // backend's raw image bytes, or a durable gateway URL for a reference
+      // string). The locally-uploaded ExternalBlob is deliberately NOT used —
+      // its directURL is a document-scoped blob: URL that is revoked on GC and
+      // invalid after reload, and the notification imageUrl is persisted to
+      // localStorage. getNft is a QUERY call that can hit a stale replica
+      // immediately after a mint, so retry a bounded number of times and use
+      // the first non-empty resolved URL. If every attempt yields an empty URL,
+      // record the notification WITHOUT an imageUrl so the bell falls back to
+      // its type icon rather than storing a blob: URL. Guarded: a failed
+      // read-back never throws and never blocks the mint flow.
+      let mintedImageUrl: string | undefined;
+      if (actor && ok?.id !== undefined) {
+        const readBackDelaysMs = [0, 800, 2000];
+        for (let attempt = 0; attempt < readBackDelaysMs.length; attempt++) {
+          const delayMs = readBackDelaysMs[attempt];
+          if (delayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+          try {
+            const mintedNft = await actor.getNft(ok.id);
+            const resolved = resolveNftImageUrl(mintedNft?.imageBlob).trim();
+            console.log(
+              `[IMG-FIX] getNft read-back attempt ${attempt + 1}/${readBackDelaysMs.length}:`,
+              resolved === "" ? "(empty)" : resolved,
+            );
+            if (resolved !== "") {
+              mintedImageUrl = resolved;
+              break;
+            }
+          } catch (err) {
+            console.log(
+              `[IMG-FIX] getNft read-back attempt ${attempt + 1}/${readBackDelaysMs.length} failed:`,
+              err,
+            );
+          }
+        }
+        console.log(
+          "[IMG-FIX] notification image resolved:",
+          mintedImageUrl ?? "(none)",
+        );
+      }
+      // [MINT-NOTIF] Name the minted NFT in the notification. The mint result
+      // carries only ids, so the title captured in onMutate is read back here.
+      // Fall back to a generic label when the title is unavailable.
+      const mintedTitle = lastMintTitleRef.current;
       addNotification({
         type: "info",
-        title: "NFT Minted",
+        title: mintedTitle ? `NFT Minted: ${mintedTitle}` : "NFT Minted",
         message: tokenIdStr
           ? `Token ID: ${tokenIdStr} created successfully${nftUniqueId ? ` (Unique ID: ${nftUniqueId})` : ""}`
           : "NFT created successfully",
+        imageUrl: mintedImageUrl,
       });
       setUploadProgress(0);
       setMintError(null);
       setMintSuccessSignal((n) => n + 1);
       queryClient.invalidateQueries({ queryKey: ["myActiveNfts"] });
       queryClient.invalidateQueries({ queryKey: ["slotsStatus"] });
-      queryClient.invalidateQueries({ queryKey: ["allMyNfts"] });
+      // [MINT-SYNC] The Library's "All" tab sources from useMyNfts, whose
+      // query key is ["myNfts"] — NOT ["allMyNfts"]. Invalidating the stale
+      // key left the Library feed unrefreshed after a mint, so the new NFT
+      // only appeared after a manual reload. Invalidate the real key.
+      queryClient.invalidateQueries({ queryKey: ["myNfts"] });
       queryClient.invalidateQueries({ queryKey: ["collections"] });
       queryClient.invalidateQueries({ queryKey: ["nftRegistry"] });
+      // [IMG-FIX] The invalidated list queries can refetch from a stale replica
+      // and still return the old list, leaving the grids showing "No image"
+      // until a manual reload. Schedule bounded delayed passes that invalidate
+      // the SAME keys again so the grids converge on fresh data. Guarded so the
+      // timers never fire after unmount.
+      const postMintKeys: string[][] = [
+        ["myActiveNfts"],
+        ["myNfts"],
+        ["slotsStatus"],
+        ["collections"],
+        ["nftRegistry"],
+      ];
+      const schedulePostMintRefetch = (delayMs: number, pass: number) => {
+        const timer = setTimeout(() => {
+          if (!isMountedRef.current) return;
+          console.log(`[IMG-FIX] post-mint refetch pass ${pass}`);
+          for (const key of postMintKeys) {
+            queryClient.invalidateQueries({ queryKey: key });
+          }
+        }, delayMs);
+        postMintRefetchTimersRef.current.push(timer);
+      };
+      schedulePostMintRefetch(1500, 1);
+      schedulePostMintRefetch(4000, 2);
       // Trigger mint enter animation + slot flash
       if (tokenIdNum !== null) {
         setNewlyMintedTokenId(tokenIdNum);
@@ -1062,6 +1310,10 @@ export default function HomePage() {
         return old.filter((nft) => nft.id !== id);
       });
       // delete does NOT free slots — do NOT invalidate slotsStatus
+      // [DEL-SYNC] A single invalidate can refetch from a stale replica and
+      // still return the deleted card. Schedule the same bounded delayed passes
+      // used by mint so the Studio/Library grids converge without a reload.
+      schedulePostMutationRefetch("delete");
       const tokenIdNum = Number(id);
       setTimeout(() => {
         setDeletingTokenIds((prev) => {
@@ -1109,6 +1361,9 @@ export default function HomePage() {
       });
       queryClient.invalidateQueries({ queryKey: ["myActiveNfts"] });
       queryClient.invalidateQueries({ queryKey: ["slotsStatus"] });
+      // [BURN-SYNC] Same bounded delayed passes as mint/delete so the grids
+      // converge on fresh data after a burn without a manual reload.
+      schedulePostMutationRefetch("burn");
       const tokenIdNum = Number(id);
       setSlotFlash("burn");
       setTimeout(() => {
@@ -1150,10 +1405,42 @@ export default function HomePage() {
   const stableNfts = useMemo(() => unclaimedNfts, [unclaimedNfts]);
   const gridSlots = useMemo(() => {
     if (isAdmin) {
-      return buildAdminGrid(stableNfts);
+      // [ADMIN-PAGE] Admin uses the same paginated active feed as the
+      // non-admin grid; the upload slot is included on the first page only.
+      return buildAdminGrid(stableNfts, studioPageIndex === 0);
     }
-    return buildGrid(stableNfts.slice(0, MAX_NFTS));
-  }, [stableNfts, isAdmin]);
+    // [PAGE] The upload slot is only on the first page; later pages render
+    // pure NFT/empty slots. The page already contains at most STUDIO_PAGE_SIZE
+    // NFTs, so no client-side slice is needed.
+    return buildGrid(stableNfts, STUDIO_SLOT_COUNT, studioPageIndex === 0);
+  }, [stableNfts, isAdmin, studioPageIndex]);
+
+  // [PAGE] Pagination controls for the Studio grid. Admin search results are
+  // unpaginated, so the controls are hidden while searching.
+  const studioPageCount = Math.max(
+    1,
+    Math.ceil((studioTotal ?? 0) / STUDIO_PAGE_SIZE),
+  );
+  // [ADMIN-PAGE] Pagination is shown for both the admin and non-admin grids
+  // when the active feed exceeds one page. Admin search results are
+  // unpaginated, so the controls stay hidden while searching.
+  const showStudioPagination = !isSearchActive && studioPageCount > 1;
+
+  devLog("[ADMIN-PAGE] studio grid", {
+    isAdmin,
+    isSearchActive,
+    studioPageIndex,
+    studioPageCount,
+    showStudioPagination,
+    slotCount: gridSlots.length,
+  });
+
+  // [PAGE] Reset to the first page when the search filter toggles so the user
+  // never lands on an out-of-range page.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset is keyed on the search identity only
+  useEffect(() => {
+    setStudioPageIndex(0);
+  }, [isSearchActive]);
 
   // 3-tier auth gating for Mint UI
 
@@ -1301,7 +1588,10 @@ export default function HomePage() {
           data-ocid="home.grid"
         >
           {gridSlots.map((slot, i) => {
-            const nftSlotNumber = isAdmin ? i : i < UPLOAD_SLOT_IDX ? i + 1 : i;
+            // [PAGE] Slot numbering: admin keeps the raw index; the non-admin
+            // grid numbers NFT slots 1..N, skipping the upload slot so the
+            // visible numbering stays contiguous across pages.
+            const nftSlotNumber = isAdmin ? i : i + 1;
             if (slot.kind === "upload") {
               return (
                 <UploadCard
@@ -1338,6 +1628,44 @@ export default function HomePage() {
             // biome-ignore lint/suspicious/noArrayIndexKey: grid slots are positionally stable
             return <EmptySlot key={`grid-empty-${i}`} idx={i + 1} />;
           })}
+        </div>
+      )}
+
+      {/* [PAGE] Studio grid pagination controls. Hidden for admin search
+          results (unpaginated) and when there is only one page. */}
+      {showStudioPagination && (
+        <div
+          className="flex items-center justify-between gap-2"
+          data-ocid="home.pagination"
+        >
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={studioPageIndex === 0}
+            onClick={() => setStudioPageIndex((p) => Math.max(0, p - 1))}
+            data-ocid="home.pagination_prev"
+          >
+            Prev
+          </Button>
+          <span
+            className="text-xs text-muted-foreground"
+            data-ocid="home.pagination_status"
+          >
+            Page {studioPageIndex + 1} of {studioPageCount}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={studioPageIndex >= studioPageCount - 1}
+            onClick={() =>
+              setStudioPageIndex((p) => Math.min(studioPageCount - 1, p + 1))
+            }
+            data-ocid="home.pagination_next"
+          >
+            Next
+          </Button>
         </div>
       )}
 

@@ -1,17 +1,22 @@
 {
-  "overview": "ICP Mint Studio is an NFT minting and collection platform where users mint, own, and track NFTs with stats and analytics.",
+  "overview": "An NFT minting studio where creators mint, price, claim and sell NFTs with verified ICP payments.",
   "features": [
-    "Mint NFTs with a defensive additive-only path",
-    "Browse your NFT library with clear empty states",
-    "Track minting stats and analytics",
-    "Distinguish a recycled draft canister from a real data bug"
+    "Mint NFTs with media, name, description, creator and collection details",
+    "Set, update and clear a whole-value USD price to list or unlist an NFT",
+    "Generate free claim links with per-drop supply limits and duplicate-claim prevention",
+    "Buy NFTs with ICP, verified against the ledger before ownership transfers",
+    "Replay-protected, idempotent purchase settlement that prevents double sales",
+    "Recover a pending purchase without paying twice",
+    "One consistent purchase flow from the marketplace, public NFT pages and landing page",
+    "A Library that reflects true ownership with no duplicates"
   ],
-  "category": "productivity",
+  "category": "nft-marketplace",
   "tags": [
     "nft",
-    "minting",
-    "collection",
-    "analytics"
+    "marketplace",
+    "icp",
+    "web3",
+    "digital-collectibles"
   ],
-  "last_updated": "2026-08-26T01:23:10.630Z"
+  "last_updated": "2026-10-19T01:53:26.098Z"
 }

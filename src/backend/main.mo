@@ -50,6 +50,10 @@ import Debug "mo:core/Debug";
 import ReferralRewardsLib "lib/referral-rewards";
 import ReferralRewardsMixin "mixins/referral-rewards-api";
 import ReferralTypes "types/referral-rewards";
+import ApiDocMixin "mixins/api-doc";
+import PurchaseLib "lib/purchase";
+import PurchaseTypes "types/purchase";
+import PurchaseMixin "mixins/purchase-api";
 
 actor Main {
   let nftStore : NftLib.NftStore;
@@ -85,6 +89,18 @@ actor Main {
   let paymentProofStore : PaymentProofLib.PaymentProofStore;
   let globalAuditLog : Queue.Queue<_Common.AuditEntry>;
   let creatorIndex : Map.Map<Text, List.List<Nat>>;
+  // [SCALE] Owner secondary index (owner principal -> owned NFT ids), mirroring
+  // creatorIndex. Maintained on mint, transfer, and claim so owner-scoped
+  // listings are O(owned) instead of O(N). Stable so it survives upgrades;
+  // initialized by the migration chain (20261001_000000.mo) on fresh installs
+  // and backfilled from nftStore on upgrade.
+  let ownerIndex : Map.Map<Principal, List.List<Nat>>;
+  // [SCALE] Per-collection active-NFT counter (collectionId -> count), so
+  // listMyCollections is O(collections) instead of O(collections x N).
+  // Maintained on mint-with-collection, addNftToCollection, and
+  // removeNftFromCollection. Stable; initialized by the migration chain and
+  // backfilled from nftStore on upgrade.
+  let collectionNftCount : Map.Map<Nat, Nat>;
   let claimTokenStore : ClaimLinkLib.ClaimTokenStore;
   // Per-principal dedup store for reusable claim links: token Text -> Set of
   // principals who have already claimed that token. STABLE actor field so the
@@ -155,6 +171,19 @@ actor Main {
   // hardcoded PIDs ONLY on the LIVE canister. On draft it stays empty until
   // setupAdmin() is called once.
   let adminPrincipals : { var value : [Principal] };
+
+  // [PURCHASE] Per-NFT purchase store (purchaseId -> Purchase). Stable so
+  // submitted/confirmed purchases survive upgrades. Initialized empty by the
+  // migration chain (20261002_000000.mo) on fresh installs.
+  let purchaseStore : PurchaseLib.PurchaseStore;
+  // [PURCHASE] Admin payment configuration: the principal buyers send ICP to
+  // and an optional manual ICP/USD rate override. Stable; initialized by the
+  // migration chain (empty address, no override).
+  let paymentConfig : PurchaseLib.PaymentConfig;
+  // [REPLAY-GUARD] Consumed-ledger-block registry (blockIndex -> purchaseId).
+  // Stable; initialized empty by the migration chain. Each ledger block index
+  // settles at most one purchase.
+  let consumedBlockIndexStore : PurchaseTypes.ConsumedBlockIndexStore;
 
   // Known LIVE backend canister id. Anything else is draft.
   transient let LIVE_CANISTER_ID : Text = "kd6s6-ziaaa-aaaam-ajfwa-cai";
@@ -250,7 +279,7 @@ actor Main {
     };
   };
 
-  include ClaimLinkMixin(nftStore, claimTokenStore, claimersStore, nftToClaimToken, globalAuditLog, userStore, nextNftId, selfCanisterId, adminPrincipals, claimRateLimitStore, referralCodeStore, eligiblePendingStore);
+  include ClaimLinkMixin(nftStore, claimTokenStore, claimersStore, nftToClaimToken, globalAuditLog, userStore, nextNftId, selfCanisterId, adminPrincipals, claimRateLimitStore, referralCodeStore, eligiblePendingStore, ownerIndex);
 
   // Referral-rewards API (getOrCreateMyReferralCode, recordReferral,
   // getMyReferralStatus, runBatchAwardCycle, getReferralHealthMetrics,
@@ -262,11 +291,15 @@ actor Main {
   // nextNftId) so runBatchAwardCycle can call claimNftInternal(referrer,
   // internalToken, null). Preserves [OQL-LOCKDOWN] — never exposes
   // discountCode, membershipId, secretKey, or stripe mode via any new field.
-  include ReferralRewardsMixin(nftStore, userStore, referralCodeStore, referrerCodeIndex, eligiblePendingStore, batchAwardThrottleStore, batchAwardConfig, globalAuditLog, selfCanisterId, adminPrincipals, claimTokenStore, claimersStore, nftToClaimToken, nextNftId, claimRateLimitStore);
+  include ReferralRewardsMixin(nftStore, userStore, referralCodeStore, referrerCodeIndex, eligiblePendingStore, batchAwardThrottleStore, batchAwardConfig, globalAuditLog, selfCanisterId, adminPrincipals, claimTokenStore, claimersStore, nftToClaimToken, nextNftId, claimRateLimitStore, ownerIndex);
 
   include MixinObjectStorage();
 
   include MixinViews();
+
+  // Behavioral API documentation (getApiDoc) — static Markdown describing the
+  // current public API. Reads no state; takes no parameters.
+  include ApiDocMixin();
 
   // OQL (Data Intelligence) — exposes schema() and execute(qJson) query
   // methods. One entity per persisted store; all use the default
@@ -306,6 +339,7 @@ actor Main {
           supplyLimit = 0;
           rewardType = #none;
           referralThreshold = 0;
+          priceUsd = null;
         } : NftTypes.Nft)))
         .payload("id", func((_, n)) = n.id)
         .payload("ownerId", func((_, n)) = n.ownerId)
@@ -342,6 +376,46 @@ actor Main {
         // redacted sensitive fields remain unexposed (see the comment above).
         .payload("rewardType", func((_, n)) : Text = switch (n.rewardType) { case (#none) "none"; case (#referralBonus) "referralBonus" })
         .payload("referralThreshold", func((_, n)) = n.referralThreshold)
+        .payload("priceUsd", func((_, n)) = switch (n.priceUsd) { case (?v) v; case null 0 })
+        .controllerOnly()
+        .build(),
+
+      // purchaseStore : Map<Text, Purchase> — admin-gated. One row per
+      // (nftId, buyer) purchase attempt. `status` is projected to its tag text
+      // and the optional `verifiedAt`/`failureReason` to sentinels (0 / "").
+      // Preserves [OQL-LOCKDOWN] — no sensitive fields on Purchase.
+      OQL.Entity.manual<(Text, PurchaseTypes.Purchase)>(
+        "purchase",
+        func() = purchaseStore.entries(),
+        "Purchase",
+        "id",
+      )
+        .sample(("", ({
+          id = "";
+          nftId = 0;
+          buyer = Principal.fromText("aaaaa-aa");
+          seller = Principal.fromText("aaaaa-aa");
+          priceUsd = 0;
+          expectedE8s = 0;
+          rateUsed = 0;
+          txRef = "";
+          status = #pending;
+          submittedAt = 0;
+          verifiedAt = null;
+          failureReason = null;
+        } : PurchaseTypes.Purchase)))
+        .payload("id", func((_, p)) = p.id)
+        .payload("nftId", func((_, p)) = p.nftId)
+        .payload("buyer", func((_, p)) = p.buyer)
+        .payload("seller", func((_, p)) = p.seller)
+        .payload("priceUsd", func((_, p)) = p.priceUsd)
+        .payload("expectedE8s", func((_, p)) = p.expectedE8s)
+        .payload("rateUsed", func((_, p)) = p.rateUsed)
+        .payload("txRef", func((_, p)) = p.txRef)
+        .payload("status", func((_, p)) : Text = switch (p.status) { case (#pending) "pending"; case (#confirmed) "confirmed"; case (#failed) "failed" })
+        .payload("submittedAt", func((_, p)) = p.submittedAt)
+        .payload("verifiedAt", func((_, p)) = switch (p.verifiedAt) { case (?v) v; case null 0 })
+        .payload("failureReason", func((_, p)) = switch (p.failureReason) { case (?v) v; case null "" })
         .controllerOnly()
         .build(),
 
@@ -382,6 +456,25 @@ actor Main {
         "UserProfile",
         "principalId",
       )
+        .sample((Principal.fromText("aaaaa-aa"), ({
+          principalId = Principal.fromText("aaaaa-aa");
+          creatorId = "";
+          oisyWalletAddress = null;
+          email = null;
+          emailVerified = false;
+          emailAlerts = [];
+          subscriptionTier = #free;
+          creditsUsed = 0;
+          creditsTotal = 0;
+          creditsResetAt = 0;
+          activeSlots = 0;
+          maxSlots = 0;
+          createdAt = 0;
+          stripeProductId = null;
+          referralCode = null;
+          referralsCount = 0;
+          awardedTiers = [];
+        } : _UserTypes.UserProfile)))
         .payload("principalId", func((p, _)) = p)
         .payload("creatorId", func((_, u)) = u.creatorId)
         .payload("oisyWalletAddress", func((_, u)) = switch (u.oisyWalletAddress) { case (?v) v; case null "" })
@@ -417,6 +510,18 @@ actor Main {
         "PaymentProof",
         "id",
       )
+        .sample(("", ({
+          id = "";
+          principal = Principal.fromText("aaaaa-aa");
+          txHash = "";
+          tierRequested = "";
+          networkType = "";
+          status = #pending;
+          submittedAt = 0;
+          reviewedAt = null;
+          reviewedBy = null;
+          rejectionReason = null;
+        } : _PaymentProofTypes.PaymentProof)))
         .payload("id", func((_, p)) = p.id)
         .payload("principal", func((_, p)) = p.principal)
         .payload("txHash", func((_, p)) = p.txHash)
@@ -437,6 +542,15 @@ actor Main {
         "ClaimToken",
         "token",
       )
+        .sample(("", ({
+          nftId = 0;
+          token = "";
+          createdAt = 0;
+          usedBy = null;
+          usedAt = null;
+          supplyLimit = 0;
+          claimedCount = 0;
+        } : _ClaimTypes.ClaimToken)))
         .payload("nftId", func((_, t)) = t.nftId)
         .payload("token", func((_, t)) = t.token)
         .payload("createdAt", func((_, t)) = t.createdAt)
@@ -462,6 +576,11 @@ actor Main {
         "ReferralCodeMapping",
         "code",
       )
+        .sample(("", ({
+          code = "";
+          referrerPrincipal = Principal.fromText("aaaaa-aa");
+          createdAt = 0;
+        } : ReferralTypes.ReferralCodeMapping)))
         .payload("code", func((_, m)) = m.code)
         .payload("referrerPrincipal", func((_, m)) = m.referrerPrincipal)
         .payload("createdAt", func((_, m)) = m.createdAt)
@@ -484,6 +603,11 @@ actor Main {
         "EligiblePendingEntry",
         "referrerPrincipal",
       )
+        .sample((Principal.fromText("aaaaa-aa"), ({
+          referrerPrincipal = Principal.fromText("aaaaa-aa");
+          thresholdTier = 0;
+          enqueuedAt = 0;
+        } : ReferralTypes.EligiblePendingEntry)))
         .payload("referrerPrincipal", func((p, _)) = p)
         .payload("thresholdTier", func((_, e)) = e.thresholdTier)
         .payload("enqueuedAt", func((_, e)) = e.enqueuedAt)
@@ -508,6 +632,25 @@ actor Main {
         "MyReferralStatus",
         "principalId",
       )
+        .sample((Principal.fromText("aaaaa-aa"), ({
+          principalId = Principal.fromText("aaaaa-aa");
+          creatorId = "";
+          oisyWalletAddress = null;
+          email = null;
+          emailVerified = false;
+          emailAlerts = [];
+          subscriptionTier = #free;
+          creditsUsed = 0;
+          creditsTotal = 0;
+          creditsResetAt = 0;
+          activeSlots = 0;
+          maxSlots = 0;
+          createdAt = 0;
+          stripeProductId = null;
+          referralCode = null;
+          referralsCount = 0;
+          awardedTiers = [];
+        } : _UserTypes.UserProfile)))
         .payload("principalId", func((p, _)) = p)
         .payload("referralCode", func((_, u)) = switch (u.referralCode) { case (?v) v; case null "" })
         .payload("referralsCount", func((_, u)) = u.referralsCount)
@@ -515,10 +658,173 @@ actor Main {
         .ownedBy("principalId")
         .controllerOrScoped()
         .build(),
+
+      // ── Auxiliary persisted stores ───────────────────────────────────────
+      // The entities below close the OQL coverage gap: every persisted
+      // (non-transient) actor field that holds queryable data is exposed as
+      // its own table with per-table authorization. All are controllerOnly
+      // (readable by the platform Data Intelligence agent, not by end users),
+      // matching the primary stores above. Transient rate-limit/throttle
+      // stores and scalar config/counters are intentionally NOT entities —
+      // they hold no queryable rows. Preserves [OQL-LOCKDOWN]: no
+      // discountCode, membershipId, Stripe secret, or Stripe mode is
+      // projected by any entity below.
+
+      // globalAuditLog : Queue<AuditEntry> — the bounded (500-entry) global
+      // audit log. Manual mode over the queue's values; `id` is a synthetic
+      // composite so the primary key is unique per entry.
+      OQL.Entity.manual<_Common.AuditEntry>(
+        "auditLog",
+        func() = globalAuditLog.values(),
+        "AuditEntry",
+        "id",
+      )
+        .sample(({
+          action = "";
+          caller = Principal.fromText("aaaaa-aa");
+          timestamp = 0;
+          details = null;
+        } : _Common.AuditEntry))
+        .payload("id", func(e) = e.caller.toText() # ":" # e.timestamp.toText() # ":" # e.action)
+        .payload("action", func(e) = e.action)
+        .payload("caller", func(e) = e.caller)
+        .payload("timestamp", func(e) = e.timestamp)
+        .payload("details", func(e) = switch (e.details) { case (?d) d; case null "" })
+        .controllerOnly()
+        .build(),
+
+      // claimersStore : Map<Text, Set<Principal>> — per-principal dedup for
+      // reusable claim links. Flattened to one row per (token, claimer).
+      OQL.Entity.manual<(Text, Principal)>(
+        "claimer",
+        func() {
+          let rows = List.empty<(Text, Principal)>();
+          for ((token, principals) in claimersStore.entries()) {
+            for (p in principals.values()) {
+              rows.add((token, p));
+            };
+          };
+          rows.values()
+        },
+        "Claimer",
+        "id",
+      )
+        .sample(("", Principal.fromText("aaaaa-aa")))
+        .payload("id", func((token, p)) = token # ":" # p.toText())
+        .payload("token", func((token, _)) = token)
+        .payload("claimer", func((_, p)) = p)
+        .edge("token", "claimToken")
+        .controllerOnly()
+        .build(),
+
+      // nftToClaimToken : Map<Nat, Text> — active claim token per NFT.
+      OQL.Entity.manual<(Nat, Text)>(
+        "nftClaimToken",
+        func() = nftToClaimToken.entries(),
+        "NftClaimToken",
+        "nftId",
+      )
+        .sample((0, ""))
+        .payload("nftId", func((nftId, _)) = nftId)
+        .payload("token", func((_, token)) = token)
+        .edge("nftId", "nft")
+        .controllerOnly()
+        .build(),
+
+      // referrerCodeIndex : Map<Principal, Text> — reverse lookup from a
+      // referrer principal to their referral code.
+      OQL.Entity.manual<(Principal, Text)>(
+        "referrerCodeIndex",
+        func() = referrerCodeIndex.entries(),
+        "ReferrerCodeIndexEntry",
+        "referrerPrincipal",
+      )
+        .sample((Principal.fromText("aaaaa-aa"), ""))
+        .payload("referrerPrincipal", func((p, _)) = p)
+        .payload("code", func((_, code)) = code)
+        .controllerOnly()
+        .build(),
+
+      // creatorIndex : Map<Text, List<Nat>> — creatorId -> owned NFT ids.
+      // Flattened to one row per (creatorId, nftId).
+      OQL.Entity.manual<(Text, Nat)>(
+        "creatorIndex",
+        func() {
+          let rows = List.empty<(Text, Nat)>();
+          for ((creatorId, ids) in creatorIndex.entries()) {
+            for (id in ids.values()) {
+              rows.add((creatorId, id));
+            };
+          };
+          rows.values()
+        },
+        "CreatorIndexEntry",
+        "id",
+      )
+        .sample(("", 0))
+        .payload("id", func((creatorId, id)) = creatorId # ":" # id.toText())
+        .payload("creatorId", func((creatorId, _)) = creatorId)
+        .payload("nftId", func((_, id)) = id)
+        .edge("nftId", "nft")
+        .controllerOnly()
+        .build(),
+
+      // ownerIndex : Map<Principal, List<Nat>> — owner -> owned NFT ids.
+      // Flattened to one row per (owner, nftId).
+      OQL.Entity.manual<(Principal, Nat)>(
+        "ownerIndex",
+        func() {
+          let rows = List.empty<(Principal, Nat)>();
+          for ((owner, ids) in ownerIndex.entries()) {
+            for (id in ids.values()) {
+              rows.add((owner, id));
+            };
+          };
+          rows.values()
+        },
+        "OwnerIndexEntry",
+        "id",
+      )
+        .sample((Principal.fromText("aaaaa-aa"), 0))
+        .payload("id", func((owner, id)) = owner.toText() # ":" # id.toText())
+        .payload("ownerId", func((owner, _)) = owner)
+        .payload("nftId", func((_, id)) = id)
+        .edge("nftId", "nft")
+        .controllerOnly()
+        .build(),
+
+      // collectionNftCount : Map<Nat, Nat> — per-collection active-NFT count.
+      OQL.Entity.manual<(Nat, Nat)>(
+        "collectionNftCount",
+        func() = collectionNftCount.entries(),
+        "CollectionNftCount",
+        "collectionId",
+      )
+        .sample((0, 0))
+        .payload("collectionId", func((cid, _)) = cid)
+        .payload("nftCount", func((_, count)) = count)
+        .edge("collectionId", "collection")
+        .controllerOnly()
+        .build(),
+
+      // verifiedEmails : { verifiedEmails : Set<Text> } — the set of
+      // actually-verified email addresses (source of truth for email
+      // verification). One row per email.
+      OQL.Entity.manual<Text>(
+        "verifiedEmail",
+        func() = verifiedEmails.verifiedEmails.values(),
+        "VerifiedEmail",
+        "email",
+      )
+        .sample("")
+        .payload("email", func(email) = email)
+        .controllerOnly()
+        .build(),
     ];
   });
 
-  include NftMixin(nftStore, collectionStore, nextNftId, nextCollectionId, rateLimitStore, userStore, selfCanisterId, creatorIndex, claimTokenStore, nftToClaimToken, adminPrincipals);
+  include NftMixin(nftStore, collectionStore, nextNftId, nextCollectionId, rateLimitStore, userStore, selfCanisterId, creatorIndex, claimTokenStore, nftToClaimToken, adminPrincipals, ownerIndex, collectionNftCount);
+  include PurchaseMixin(purchaseStore, paymentConfig, nftStore, adminPrincipals, ownerIndex, consumedBlockIndexStore);
   include UserMixin(userStore, nftStore, globalAuditLog, selfCanisterId, adminPrincipals);
   include PaymentProofMixin(paymentProofStore, userStore, globalAuditLog, adminPrincipals, paymentProofRateLimitStore);
   include StripeMixin(stripeConfigStore, globalAuditLog, adminPrincipals);

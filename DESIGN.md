@@ -104,3 +104,39 @@ Page hero: Space Grotesk `text-4xl md:text-5xl` "How It Works" + DM Sans subtitl
 ### Typography & Breakpoints
 
 Existing system: Space Grotesk display, DM Sans body. Breakpoints: mobile-first, `sm:` 640px (2-col), `lg:` 1024px (3-col). Card padding 20px, gap 20px, radius 12px. Bullets 14.4px muted-foreground.
+
+## Additions — Price Strip, Purchase Flow, Locked Actions
+
+Extends the existing dark language; no existing page restyled. New tokens live in `index.css` `:root`/`.dark`.
+
+### New Tokens
+
+| Token | Light OKLCH | Dark OKLCH | Role |
+|---|---|---|---|
+| price-strip | 0.95 0.01 295 | 0.19 0.05 290 | Flat caption surface below card image |
+| price-strip-foreground | 0.28 0.05 290 | 0.90 0.012 295 | Whole-dollar USD value |
+| price-strip-muted | 0.55 0.03 290 | 0.58 0.04 290 | "Price" label + "Not for sale" state |
+| locked | 0.62 0.03 290 | 0.42 0.03 290 | Future Sell / Trade disabled text |
+
+### Price Caption Strip
+
+`.price-strip` — one line, hairline `border-top`, flat `bg price-strip`, 13px, label left / value right. `.price-strip-value` is mono tabular; `[data-state="unlisted"]` drops to DM Sans + muted for "Not for sale". No pill, no fill badge, no radius — reads as a caption, not a chip. Pills are removed from the image face; the image stays unobstructed.
+
+### Purchase / Confirmation Flow Window
+
+One focused modal, three states, minimal text:
+
+- Processing: `.purchase-spinner` (thin gold ring, `purchase-spin` 0.9s linear) + `.purchase-status` mono line — "Verifying transaction on-chain..." → "Confirming block transfer...".
+- Success: `.purchase-state-icon-success` (gold-tinted check halo) + "Payment Verified & Purchase Complete!" + one action button.
+- Error / timeout: `.purchase-state-icon-error` (destructive halo) + polite line + Try Again / Check Status.
+- State transitions use `animate-purchase-fade` (0.25s ease-out).
+
+### Locked / Disabled Actions
+
+`.action-locked` — desaturated (`saturate(0.35)`), dimmed, `cursor: not-allowed`, hover/focus neutralized, optional `.action-locked-cue` (small lock glyph). Reserved for future Sell and Trade only; not built now.
+
+### Motion
+
+- `purchase-spin` — spinner rotation, 0.9s linear infinite (processing only).
+- `purchase-fade` — modal state swap, 0.25s ease-out.
+- No new decorative motion; existing `status-pulse` unchanged.

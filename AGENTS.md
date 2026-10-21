@@ -2,50 +2,64 @@
 
 ## User Preferences
 
-- Draft only — never touch live canisters (kd6s6-ziaaa-aaaam-ajfwa-cai, ke7uk-uqaaa-aaaam-ajfwq-cai)
-- Preserve all existing [RENDER]/[AUTH]/[COMMIT]/[DOM]/[LOGIN]/[RECON] diagnostic markers when adding new instrumentation
-- Use distinct diagnostic marker prefixes (e.g. [LOGIN], [RECON], [ADMIN-SEED], [ADMIN-RATELIMIT]) for new instrumentation so logs are greppable
+- Draft only — never touch live canisters
+- Existing features (minting, claiming, collections, library tabs, analytics) must stay intact
+- Preserve existing [RENDER]/[AUTH]/[COMMIT]/[DOM]/[LOGIN]/[RECON] diagnostic markers
+- Use distinct diagnostic marker prefixes for new instrumentation so logs are greppable
+- Minimize explanatory text in the UI
+- Health page is admin-only and minimal point-form
+- The public gallery is a section of the landing page at '/', not a replacement for the dApp
+- The entire dApp must stay unified: one shell with Header/menu and BottomNav on every route
+- Whole-value USD price (no cents) on every NFT
+- Single compact info box below each card image; no pills on the image face
+- Verify ICP payments via ledger canister call against the admin wallet principal
+- Live ICP/USD rate with rounding to cover fees, plus optional admin manual override
+- Less UI is more
+- Draft only, never touch live canisters.
+- Preserve existing minting, claiming, collections, library tabs and analytics.
+- Preserve existing [RENDER]/[AUTH]/[COMMIT]/[DOM]/[LOGIN]/[RECON] diagnostic markers and use distinct new prefixes.
+- Whole-value USD price, no cents.
+
+## Accepted Requirements
+
+- Admins can set, update, and clear priceUsd so an NFT can be unlisted
+- Free claim links with eligibility, duplicate prevention, canonical ownership, and metadata preserved
+- ICP purchase hardening: ledger verification, replay protection via consumed-block-index guard, idempotent settlement re-checking ownerId==seller, no double sale, pending purchase recovery without duplicate payment, accurate states
+- All public purchase entry points use one canonical purchase flow
+- Canonical ownership and metadata preservation across claim, purchase, and transfer
+- Library reflects canonical ownership with no duplicates
+- Minimal UI reusing PurchaseModal and NftDetailModal, no new routes, no, no card options
 
 ## Verified Commands
 
-**Frontend** (run from `src/frontend/`):
-
-- **install**: `pnpm install --prefer-offline`
-- **typecheck**: `pnpm typecheck`
-- **lint fix**: `pnpm fix`
-- **build**: `pnpm build`
-
-**Backend** (run from `src/backend/`):
-
-- **install**: `mops install`
-- **typecheck**: `mops check --fix`
-- **build**: `mops build`
-
-**Backend and frontend integration** (run from root):
-
-- **generate bindings**: `pnpm bindgen` This step is necessary to ensure the frontend can call the backend methods.
+- **typecheck**: `pnpm --dir src/frontend typecheck`
+- **fix**: `pnpm --dir src/frontend fix`
+- **build**: `pnpm --dir src/frontend build`
 
 ## Learnings
 
-- "canister-ids.json must have exactly two keys: 'draft' and 'live'. Never add a third key like 'ic' — vite.config.js only reads 'draft' or 'live' based on DFX_NETWORK. If Caffeine adds an 'ic' key, move those values into 'draft' and remove 'ic'."
-- "system func init() is NOT valid Motoko — compiler rejects it with M0129. Use a private helper called directly in the actor body (before system funcs) instead."
-- "postupgrade() does NOT run on fresh canister installs — only on upgrades. Master admin seeding must happen during actor init (directly in the actor body) so it works on both fresh installs and upgrades."
-- "The @caffeineai/core-infrastructure package source is NOT installed in the workspace (no node_modules) — signIn()/setIdentity/.then() internals are inside the package and not readable. Instrument the app-side boundary (useInternetIdentity return values) instead of trying to read package internals."
-- "To observe a function's return value without altering synchronous behavior, capture it in a const, duck-type check `typeof result.then === 'function'`, then attach observer-only .then()/.catch() handlers; the original call still runs synchronously."
-- "When adding new useEffect observers before an existing effect that carries a biome-ignore useExhaustiveDependencies suppression, the suppression line shifts down but remains valid; biome may flag it as 'unused' if surrounding context changes — verify it is pre-existing before touching it."
-- "The @caffeineai/core-infrastructure package dist/ IS installed in node_modules and readable (contradicts an older AGENTS.md note). Only dist/ ships, not src/."
-- "The wrapper's useInternetIdentity() returns { identity?, login: ()=>void, clear: ()=>void, loginStatus, isInitializing, isLoginIdle, isLoggingIn, isLoginSuccess, isLoginError, isAuthenticated, loginError? }. login() returns void — it internally awaits authClient.signIn() and updates its own internal state via handleLoginSuccess. There are NO onSuccess/onError callback params."
-- "To fix the login-refresh defect: destructure loginStatus/isLoginSuccess from useInternetIdentity() and add loginStatus to the identity-value observer effect deps so the post-login state transition is reactive. Do NOT await or .then() iiLogin() — it returns void."
-- "biome flags the core identity effect's useExhaustiveDependencies suppression as 'unused' after adding a new useEffect observer above it — this is a pre-existing false positive (the effect intentionally excludes authState/actor via refs) and should not be touched."
-- "The @caffeineai/core-infrastructure wrapper's withAttributes={false} login branch (useInternetIdentity.js lines 171-182) calls `await actor._initialize_access_control()` BEFORE the un-awaited handleLoginSuccess(authClient). When the backend canister does not implement the IdentityAttributes mixin, _initialize_access_control() rejects, the .catch() fires handleLoginError, and handleLoginSuccess NEVER runs — so setIdentity/setStatus('success') never fire even though the II popup completed and the delegation was persisted. This is a deterministic defect, not a race."
-- "The wrapper exposes NO public refresh/reconciliation function. The only mechanism that re-reads persisted delegation is the mount effect (lines 204-243, deps [createOptions, authClient]) which runs on provider mount. The proven recovery path is provider remount → mount effect re-runs → existingClient.isAuthenticated() true → getIdentity() → setIdentity → setStatus('success')."
-- "To reconcile a failed live login without editing node_modules: export a RECONCILE_LOGIN_EVENT constant from main.tsx (the provider's parent), add a providerKey state + window event listener there that increments the key on the event, pass key={providerKey} to InternetIdentityProvider, and dispatch the event from AuthContext (inside the provider) when loginStatus transitions to loginError after a real login attempt (guarded by a loginAttemptedRef to fire exactly once). AuthContext cannot pass props up to the provider, so a CustomEvent is the safe signaling direction."
-- "RECONCILE_LOGIN_EVENT is exported from main.tsx (the provider's parent) and imported by AuthContext (inside the provider) — the only safe direction for child-to-provider remount signaling since AuthContext cannot pass props up to InternetIdentityProvider."
-- "The provider-remount reconciliation uses a loginAttemptedRef guard (set true in login(), cleared after a single dispatch) to ensure the reconcile event fires exactly once per real login attempt and never on mount, logout, or in a loop."
-- "The v220 provider-remount login-refresh fix obsoleted the header.auth_hint instructional span ('After connecting, refresh the page if your account doesn't update automatically.'); the entire conditional block was removed from Header.tsx, leaving the auth button as the only pre-button element in the nav row."
-- "The NFT rate-limiter in mixins/nft-api.mo checkRateLimit uses `elapsed > 60` comparing nanoseconds — that is 60 NANOSECONDS, not 60 seconds (pre-existing bug). The window resets on essentially every call. When sharing rateLimitStore across features, this bug lets any co-located limiter be reset by unrelated calls. Give security-critical rate-limiters (e.g. setupAdmin) their own dedicated transient Map to avoid window-reset interactions."
-- "seedAdminsIfLive() in main.mo must be called inside postupgrade() to re-seed LIVE_ADMIN PIDs after every upgrade — the migration 20260722_000000.mo resets adminPrincipals to empty, and without the postupgrade call the live canister would have no admins until a manual claim."
-- "Diagnostic markers [RENDER]/[AUTH]/[COMMIT]/[DOM]/[LOGIN]/[RECON] are frontend-only (AuthContext.tsx, Header.tsx, main.tsx) — they do not appear in src/backend/main.mo. Do not expect to find them there during backend checks."
-- "v222 security fix #1: LIVE_ADMIN_1 and LIVE_ADMIN_2 in main.mo:81-82 are now the user's actual II identities (e4ok7-... and krtlu-...), replacing the old 4upfr-... and 62vwb-... PIDs. The old PIDs were stale and did not match the user's real Internet Identity principals."
-- "v222 security fix #2: seedAdminsIfLive() is now called inside postupgrade() (main.mo:140) with a defense-in-depth lockout guard (main.mo:149-152) that re-seeds if adminPrincipals is still empty on live after the call. On draft it remains a no-op. This ensures live canisters always have working admins after every upgrade, even when a migration resets adminPrincipals."
-- "v222 security fix #3: setupAdmin() now has per-principal hourly rate-limiting (3 attempts/hour) on a dedicated transient setupAdminRateLimitStore, separate from the shared rateLimitStore. This is required because the NFT limiter's elapsed > 60 nanoseconds bug (see above) would let an attacker reset the setupAdmin count by minting a single NFT if they shared the store. Security-critical rate-limiters must never share a store with the buggy NFT limiter."
+- BottomNav anonymous tabs are Gallery('/'), How It Works, Verify; authenticated tabs are Library(/collector), Verify, How It Works, Profile, Settings, Studio('/studio'). Active matching must be exact for '/' or every path matches.
+- Header.handleLogoClick unconditionally navigates to '/' from any route; the old /collector special case was removed.
+- GalleryPage is now the landing page at '/': hero/intro section with a Studio CTA plus the public gallery as a section below; it lazy-loads NftDetailModal so the public page does not statically import AuthContext.
+- DisconnectPage is routed at /disconnect and linked from the authenticated Header menu (data-ocid=header.disconnect_link).
+- CollectorPage's empty-state 'Mint an NFT' link targets '/studio' since '/' is the landing page.
+- The local-deploy autonomous tester cannot reach the canister API from the browser boundary (certificate signature-verification error / canister_reject IC0536 on _initialize_access_control after sign-in), so authenticated runtime flows and the public gallery report inconclusive rather than exercising the app. This is an environment limitation, not an app defect.
+- Local-replica certificate signature-verification failures are fixed by calling agent.fetchRootKey() when backend_host includes 'localhost', exactly as @caffeineai/core-infrastructure's createActorWithConfig does; production hosts must keep the built-in mainnet root key and skip the fetch. Every actor-creation path (authenticated, anonymous gallery, claim preview) needs this guard or that surface blanks with a certificate verification error.
+- The public gallery hydrates thumbnails through the anonymous-callable getNftPublic(id) query; getNft traps for anonymous callers. The generated binding already unwraps the opt to Nft|null, so read the value directly and never re-unwrap with Array.isArray.
+- React Query's useMutation returns a new object identity each render; destructure the stable mutateAsync and depend only on it in effects/callbacks, never on the whole mutation object. A quote effect that calls a shared-update mutation should also guard with a ref keyed on (open, nftId).
+- getPurchaseQuote is a shared update (it resolves the live ICP/USD rate via HTTP outcall), so it must be called via useMutation, not useQuery.
+- The backend updateBusinessMetadata treats priceUsd=null as 'unchanged', so the edit form can set/change a price but cannot clear it; the mint form passes priceUsd as the final bigint|null argument to mintNft.
+- The PocketIC backend lane calls mintNft with the full argument list ending in the priceUsd opt, Candid-encoded as [250n] for ?250 and [] for null; a bare 250n or null fails at encode time.
+- The public gallery keeps readOnly on NftDetailModal (UnifiedShell test asserts data-readonly='true'), so the buyer's BUY action is gated on !isOwner alone, not !readOnly; readOnly suppresses only owner edit/delete/burn.
+- Deleted/burned NFTs are filtered out of every listing by the backend isListable predicate but remain retrievable via getNft(tokenId); the Library's Find-by-ID lookup opens the detail modal read-only with a status badge.
+- The admin payment address is stored in the backend paymentConfig and is empty until an admin sets it via setPaymentAddress; the purchase modal shows 'Unavailable' until then. The admin payment-address/rate-override config UI lives on the Settings page.
+- Admin ownership reassignment: adminReassignOwner(id, newOwner) and adminReassignOwnerBatch(ids, newOwner) are Auth.isAdmin-gated, rewrite only ownerId in place (no audit entry, no timestamp), and maintain ownerIndex via NftLib.moveOwnerIndex (a no-op when from == to). They return AdminReassignResult { id: bigint; ok: boolean; error?: string } (batch returns one entry per requested id, same order).
+- The Settings admin panel hosts the reassignment control (single id + target principal, and a batch action that pages listMyNfts to collect ids then issues one adminReassignOwnerBatch call); it is gated on isAdmin and invalidates myActiveNfts/myNfts/nfts/collections/nftRegistry/publicNfts.
+- OQL entities declared with OQL.Entity.manual(...) still require .sample(...); without it an empty collection yields an empty schema (fields: []).
+- Nft.creatorId is a derived hex id (NftLib.generateCreatorId), NOT the caller principal, so any 'created by me' comparison must use the caller's profile creatorId from getCallerProfile().
+- Owner-scoped listings must derive ownership from the canonical nftStore (ownerId) and use the ownerIndex only as a fast-path hint; dedup by canonical id.
+- updateBusinessMetadata's priceUsd is tri-state: a value sets/updates, and null must CLEAR for an admin while remaining unchanged for a non-admin owner.
+- deleteNft/burnNft must clear priceUsd alongside the status transition so a removed NFT leaves every listing.
+- verifyPurchase consumes the ledger block index before settlement, rejects replays, and releases the block index on pending/failed/settlement failure; markNftSold re-checks ownerId == seller.
+- The local-deploy tester cannot reach the live ICP/USD exchange-rate outcall, so the purchase quote (ICP amount and payment address) never renders locally; purchase and claim flows stay blocked in local testing.
+- The PocketIC backend lane skips with no_backend_wasm in this sandbox, and the mainnet ICP ledger canister is not installed, so real settlement and the consumed-block-index replay guard cannot be exercised locally.

@@ -20,5 +20,16 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    // Pin a single forked worker. The sandbox reports a CPU count that makes
+    // Vitest's default min/max thread bounds conflict
+    // ("options.minThreads and options.maxThreads must not conflict"), which
+    // aborts the run before any test file is collected. A single fork is
+    // deterministic and sufficient for this suite.
+    pool: "forks",
+    poolOptions: {
+      forks: {
+        singleFork: true,
+      },
+    },
   },
 });

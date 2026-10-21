@@ -108,12 +108,22 @@ export default {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.35" },
         },
+        "purchase-spin": {
+          from: { transform: "rotate(0deg)" },
+          to: { transform: "rotate(360deg)" },
+        },
+        "purchase-fade": {
+          from: { opacity: "0", transform: "translateY(4px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "help-card-enter": "help-card-enter 0.3s ease-out both",
         "status-pulse": "status-pulse 2s ease-in-out infinite",
+        "purchase-spin": "purchase-spin 0.9s linear infinite",
+        "purchase-fade": "purchase-fade 0.25s ease-out both",
       },
     },
   },

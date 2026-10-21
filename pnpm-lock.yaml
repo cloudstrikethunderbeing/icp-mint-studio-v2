@@ -22,11 +22,11 @@ importers:
   src/frontend:
     dependencies:
       '@caffeineai/core-infrastructure':
-        specifier: ^1.3.0
-        version: 1.3.0(@caffeineai/object-storage@1.1.1)
+        specifier: ^1.4.1
+        version: 1.4.1(@caffeineai/object-storage@1.1.2)
       '@caffeineai/object-storage':
-        specifier: ^1.1.1
-        version: 1.1.1
+        specifier: ^1.1.2
+        version: 1.1.2
       '@icp-sdk/auth':
         specifier: ^7.1.0
         version: 7.1.0(@icp-sdk/core@5.4.0)
@@ -261,6 +261,10 @@ packages:
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
     engines: {node: '>=6.9.0'}
 
+  '@babel/code-frame@7.29.7':
+    resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
+    engines: {node: '>=6.9.0'}
+
   '@babel/compat-data@7.29.0':
     resolution: {integrity: sha512-T1NCJqT/j9+cn8fvkt7jtwbLBfLC/1y1c7NtCeXFRgzGTsafi68MRv8yzkYSapBnFA6L3U2VSc02ciDzoAJhJg==}
     engines: {node: '>=6.9.0'}
@@ -303,6 +307,10 @@ packages:
     resolution: {integrity: sha512-qSs4ifwzKJSV39ucNjsvc6WVHs6b7S03sOh2OcHF9UHfVPqWWALUsNUVzhSBiItjRZoLHx7nIarVjqKVusUZ1Q==}
     engines: {node: '>=6.9.0'}
 
+  '@babel/helper-validator-identifier@7.29.7':
+    resolution: {integrity: sha512-qehxGkRj55h/ff8EMaJ+cYhyaKlHIxqYDn682wQD7RNp9UujOQsHog2uS0r2vzr4pW+sXf90NeeayjcNaX3fFg==}
+    engines: {node: '>=6.9.0'}
+
   '@babel/helper-validator-option@7.27.1':
     resolution: {integrity: sha512-YvjJow9FxbhFFKDSuFnVCe2WxXk1zWc22fFePVNEaWJEu8IrZVlda6N0uHwzZrUM1il7NC9Mlp4MaJYbYd9JSg==}
     engines: {node: '>=6.9.0'}
@@ -327,6 +335,10 @@ packages:
     engines: {node: '>=6.9.0'}
     peerDependencies:
       '@babel/core': ^7.0.0-0
+
+  '@babel/runtime@7.29.10':
+    resolution: {integrity: sha512-NpugTzbKgGrNe45Ui32cN8vCFFMxVtP/9rtfwv0nP5FRDAjvYBxJcLVpYA9mr1jxP6cnIT7x9LUzuDTbWYYNRA==}
+    engines: {node: '>=6.9.0'}
 
   '@babel/runtime@7.29.2':
     resolution: {integrity: sha512-JiDShH45zKHWyGe4ZNVRrCjBz8Nh9TMmZG1kh4QTK8hCBTWBi8Da+i7s1fJw7/lYpM4ccepSNfqzZ/QvABBi5g==}
@@ -403,16 +415,16 @@ packages:
   '@caffeineai/core-infrastructure@0.3.0':
     resolution: {integrity: sha512-8BVQr+bdpAhhVdjhfem0sWY3NDaUsztez1FKBbHvF1RY1xgqNN5eVPyNjDrP/tenhNibvruD40WZur7EBZvieg==}
 
-  '@caffeineai/core-infrastructure@1.3.0':
-    resolution: {integrity: sha512-I5LsCjVZa3cjzatzB+J3Y4wLMH7AvGhp/MdaNTq2LgMfCkBlOSzFqok5wJ2UWuRbfNcjkqlP1shhAKSsuGh1eg==}
+  '@caffeineai/core-infrastructure@1.4.1':
+    resolution: {integrity: sha512-kSv99tKRSVY7NmLIpfoD+FSBYWT3djPjmqD2af3+zCxR1Efyt6OKjMZd2YIsuwGRZt0/d1TO0Q3zhB/oWr6Klg==}
     peerDependencies:
       '@caffeineai/object-storage': ^1.0.0
 
   '@caffeineai/object-storage@0.1.1':
     resolution: {integrity: sha512-EUcLvxi8Y/2rNeV3R3J6DChFb0L3pHLh1W1CR9iHAOWDOWqVarXNgNcZvQjEhD5SzEzUMp5TdGZ8uLb43H1brQ==}
 
-  '@caffeineai/object-storage@1.1.1':
-    resolution: {integrity: sha512-WfAofqfLRK+/xr/hgzglef7n/QeHJRbLhuVD9YneqnefBipoT8JpNLP/1l7XDcFKiq31cMoxKghYDzkCziNSvg==}
+  '@caffeineai/object-storage@1.1.2':
+    resolution: {integrity: sha512-JAmoHT6E8M18DEbW4rkHinAOw0A8yNbz+rj8F56VAvr8Hf0TxQSK0ZdMrkwwT7BsiOLvtFK/YcLtoaWBc9x2xQ==}
 
   '@csstools/color-helpers@5.1.0':
     resolution: {integrity: sha512-S11EXWJyy0Mz5SYvRmY8nJYTFFd1LCNV+7cXyAgQtOOuzb4EsgfqDufL+9esx72/eLhsRdGZwaldu/h+E4t4BA==}
@@ -1840,12 +1852,12 @@ packages:
     resolution: {integrity: sha512-COROpnaoap1E2F000S62r6A60uHZnmlvomhfyT2DlTcrY1OrBKn2UhH7qn5wTC9zMvD0AY7csdPSNwKP+7WiQw==}
     engines: {node: '>= 0.4'}
 
-  asn1js@3.0.10:
-    resolution: {integrity: sha512-S2s3aOytiKdFRdulw2qPE51MzjzVOisppcVv7jVFR+Kw0kxwvFrDcYA0h7Ndqbmj0HkMIXYWaoj7fli8kgx1eg==}
-    engines: {node: '>=12.0.0'}
-
   asn1js@3.0.7:
     resolution: {integrity: sha512-uLvq6KJu04qoQM6gvBfKFjlh6Gl0vOKQuR5cJMDHQkmwfMOQeN3F3SHCv9SNYSL+CRoHvOGFfllDlVz03GQjvQ==}
+    engines: {node: '>=12.0.0'}
+
+  asn1js@3.1.0:
+    resolution: {integrity: sha512-HWYi1THkOqguCiO+vwj09ZkQFD2kKEsejYHAYCtX0D80WVdoDnvRc9IukXX/jeb0T9NRWJnRtqwdbHltnFjwXA==}
     engines: {node: '>=12.0.0'}
 
   assertion-error@2.0.1:
@@ -3014,7 +3026,6 @@ packages:
   whatwg-encoding@3.1.1:
     resolution: {integrity: sha512-6qN4hJdMwfYBtE3YBTTHhoeuUrDBPZmbQaxWAqSALV/MeEnR5z1xd8UKud2RAkFoPkmB+hli1TZSnyi84xz1vQ==}
     engines: {node: '>=18'}
-    deprecated: Use @exodus/bytes instead for a more spec-conformant and faster implementation
 
   whatwg-mimetype@4.0.0:
     resolution: {integrity: sha512-QaKxh0eNIi2mE9p2vEdzfagOKHCcj1pJ56EEHGQOVxp8r9/iszLUUV7v89x9O1p/T+NlTM5W7jW6+cz4Fq1YVg==}
@@ -3094,6 +3105,12 @@ snapshots:
       js-tokens: 4.0.0
       picocolors: 1.1.1
 
+  '@babel/code-frame@7.29.7':
+    dependencies:
+      '@babel/helper-validator-identifier': 7.29.7
+      js-tokens: 4.0.0
+      picocolors: 1.1.1
+
   '@babel/compat-data@7.29.0': {}
 
   '@babel/core@7.29.0':
@@ -3156,6 +3173,8 @@ snapshots:
 
   '@babel/helper-validator-identifier@7.28.5': {}
 
+  '@babel/helper-validator-identifier@7.29.7': {}
+
   '@babel/helper-validator-option@7.27.1': {}
 
   '@babel/helpers@7.29.2':
@@ -3176,6 +3195,8 @@ snapshots:
     dependencies:
       '@babel/core': 7.29.0
       '@babel/helper-plugin-utils': 7.28.6
+
+  '@babel/runtime@7.29.10': {}
 
   '@babel/runtime@7.29.2': {}
 
@@ -3253,9 +3274,9 @@ snapshots:
       - '@dfinity/identity-secp256k1'
       - '@dfinity/principal'
 
-  '@caffeineai/core-infrastructure@1.3.0(@caffeineai/object-storage@1.1.1)':
+  '@caffeineai/core-infrastructure@1.4.1(@caffeineai/object-storage@1.1.2)':
     dependencies:
-      '@caffeineai/object-storage': 1.1.1
+      '@caffeineai/object-storage': 1.1.2
       '@icp-sdk/auth': 7.1.0(@icp-sdk/core@5.4.0)
       '@icp-sdk/core': 5.4.0
       '@tanstack/react-query': 5.95.2(react@19.1.5)
@@ -3271,7 +3292,7 @@ snapshots:
       - '@dfinity/identity-secp256k1'
       - '@dfinity/principal'
 
-  '@caffeineai/object-storage@1.1.1':
+  '@caffeineai/object-storage@1.1.2':
     dependencies:
       '@icp-sdk/core': 5.4.0
       file-type: 21.3.4
@@ -3329,7 +3350,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      asn1js: 3.0.10
+      asn1js: 3.1.0
     transitivePeerDependencies:
       - '@dfinity/principal'
 
@@ -4422,8 +4443,8 @@ snapshots:
 
   '@testing-library/dom@10.4.1':
     dependencies:
-      '@babel/code-frame': 7.29.0
-      '@babel/runtime': 7.29.2
+      '@babel/code-frame': 7.29.7
+      '@babel/runtime': 7.29.10
       '@types/aria-query': 5.0.4
       aria-query: 5.3.0
       dom-accessibility-api: 0.5.16
@@ -4609,16 +4630,16 @@ snapshots:
 
   aria-query@5.3.2: {}
 
-  asn1js@3.0.10:
-    dependencies:
-      pvtsutils: 1.3.6
-      pvutils: 1.2.0
-      tslib: 2.8.1
-
   asn1js@3.0.7:
     dependencies:
       pvtsutils: 1.3.6
       pvutils: 1.1.5
+      tslib: 2.8.1
+
+  asn1js@3.1.0:
+    dependencies:
+      pvtsutils: 1.3.6
+      pvutils: 1.2.0
       tslib: 2.8.1
 
   assertion-error@2.0.1: {}

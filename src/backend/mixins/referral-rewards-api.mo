@@ -1,4 +1,5 @@
 import Map "mo:core/Map";
+import List "mo:core/List";
 import Principal "mo:core/Principal";
 import Queue "mo:core/Queue";
 import Result "mo:core/Result";
@@ -17,6 +18,12 @@ import Types "../types/referral-rewards";
 import Common "../types/common";
 import ClaimTypes "../types/claim-link";
 
+// Known LIVE backend canister id — the backend's own liveness marker. This is
+// NOT a wiring pin: the frontend never reads it for actor creation. It is
+// compared against the actor's OWN runtime identity (the selfCanisterId stable
+// value, which main.mo keeps in sync with Principal.fromActor(Main).toText())
+// so the draft-only guards below are correct on BOTH draft and live and can
+// never pin a stale id. Sourced from types/common.mo so there is one constant.
 mixin (
   nftStore : NftLib.NftStore,
   userStore : UserLib.UserStore,
@@ -47,6 +54,9 @@ mixin (
   // dedicated store as in mixins/claim-link-api.mo — passed by reference from
   // main.mo so both mixins share one limiter.
   claimRateLimitStore : Map.Map<Principal, { var lastClaimSec : Int }>,
+  // [SCALE] Owner secondary index, shared with the NFT mixin. The batch-award
+  // reuses claimNftInternal, which records each awarded copy here.
+  ownerIndex : Map.Map<Principal, List.List<Nat>>,
 ) {
 
   /// Public (authenticated): get or create the caller's own referral code.
@@ -231,6 +241,7 @@ mixin (
             nextNftId,
             selfCanisterId,
             claimRateLimitStore,
+            ownerIndex,
           )) {
             case (#err(msg)) {
               // Sold out mid-cycle, rate-limited, or token invalid — skip
@@ -307,8 +318,12 @@ mixin (
       return batchAwardConfig.value;
     };
     // Draft-only constraint: reject on the live canister. The config is
-    // admin-tunable on draft only.
-    if (selfCanisterId.value == "kd6s6-ziaaa-aaaam-ajfwa-cai") {
+    // admin-tunable on draft only. Liveness is derived from the actor's OWN
+    // runtime identity (the selfCanisterId stable value, kept in sync with
+    // Principal.fromActor(Main).toText() by main.mo) — never a hardcoded
+    // canister id — so the check is correct on BOTH draft and live and can
+    // never pin a stale id.
+    if (selfCanisterId.value == Common.LIVE_CANISTER_ID) {
       Debug.print("[BATCH-AWARD] adminUpdateBatchAwardConfig rejected on live canister");
       return batchAwardConfig.value;
     };
@@ -326,8 +341,10 @@ mixin (
     if (not Auth.isAdmin(caller, admins.value)) {
       return #err("Unauthorized: Admin only");
     };
-    // Draft-only constraint: reject on the live canister.
-    if (selfCanisterId.value == "kd6s6-ziaaa-aaaam-ajfwa-cai") {
+    // Draft-only constraint: reject on the live canister. Liveness is derived
+    // from the actor's OWN runtime identity (selfCanisterId) — never a
+    // hardcoded canister id.
+    if (selfCanisterId.value == Common.LIVE_CANISTER_ID) {
       return #err("Cannot modify NFT rewardType on the live canister (draft-only)");
     };
     let result = ReferralLib.adminSetNftRewardType(nftStore, nftId, rewardType);
@@ -351,8 +368,10 @@ mixin (
     if (not Auth.isAdmin(caller, admins.value)) {
       return #err("Unauthorized: Admin only");
     };
-    // Draft-only constraint: reject on the live canister.
-    if (selfCanisterId.value == "kd6s6-ziaaa-aaaam-ajfwa-cai") {
+    // Draft-only constraint: reject on the live canister. Liveness is derived
+    // from the actor's OWN runtime identity (selfCanisterId) — never a
+    // hardcoded canister id.
+    if (selfCanisterId.value == Common.LIVE_CANISTER_ID) {
       return #err("Cannot modify NFT referralThreshold on the live canister (draft-only)");
     };
     let result = ReferralLib.adminSetNftReferralThreshold(nftStore, nftId, threshold);

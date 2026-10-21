@@ -2,6 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   HelpCircle,
+  LayoutGrid,
   Library,
   Settings,
   Shield,
@@ -11,20 +12,26 @@ import {
 import { devLog } from "../utils/devLog";
 
 interface BottomNavProps {
-  shell: "collector" | "studio" | "none";
+  /**
+   * The unified shell renders the nav for "app". "none" renders nothing.
+   * "collector"/"studio" are retained as accepted aliases for callers that
+   * still pass the legacy shell names; they render the same unified nav.
+   */
+  shell: "app" | "collector" | "studio" | "none";
 }
 
 export function BottomNav({ shell }: BottomNavProps) {
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
-  const { isAuthenticated } = useAuth();
-  devLog("[RENDER] BottomNav render:", { isAuthenticated });
+  const { isAuthenticated, isAdmin } = useAuth();
+  devLog("[RENDER] BottomNav render:", { isAuthenticated, isAdmin });
 
   if (shell === "none") return null;
 
   // Navigation is derived from a single authentication source.
-  // Anonymous users see ONLY Verify. Authenticated users see all tabs.
-  // No CSS hiding — tabs are either in the array or not rendered at all.
+  // Anonymous visitors get the public tabs (Gallery, How It Works, Verify).
+  // Authenticated users get the full dApp tab set. No CSS hiding — tabs are
+  // either in the array or not rendered at all.
   const tabs = isAuthenticated
     ? [
         {
@@ -47,26 +54,32 @@ export function BottomNav({ shell }: BottomNavProps) {
           Icon: Settings,
           ocid: "nav.settings",
         },
-        { to: "/", label: "Studio", Icon: Sparkles, ocid: "nav.studio" },
+        { to: "/studio", label: "Studio", Icon: Sparkles, ocid: "nav.studio" },
       ]
     : [
-        { to: "/verify", label: "Verify", Icon: Shield, ocid: "nav.verify" },
+        { to: "/", label: "Gallery", Icon: LayoutGrid, ocid: "nav.gallery" },
         {
           to: "/how-it-works",
           label: "How It Works",
           Icon: HelpCircle,
           ocid: "nav.how_it_works",
         },
+        { to: "/verify", label: "Verify", Icon: Shield, ocid: "nav.verify" },
       ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border safe-area-inset-bottom">
       <div className="flex items-stretch max-w-2xl mx-auto">
         {tabs.map((tab) => {
+          // Exact match for the landing route "/" (otherwise every path would
+          // match); prefix match for the rest, with the Library tab pinned to
+          // its exact route.
           const isActive =
-            tab.to === "/collector"
-              ? currentPath === "/collector"
-              : currentPath.startsWith(tab.to);
+            tab.to === "/"
+              ? currentPath === "/"
+              : tab.to === "/collector"
+                ? currentPath === "/collector"
+                : currentPath.startsWith(tab.to);
 
           return (
             <Link

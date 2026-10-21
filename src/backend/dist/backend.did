@@ -66,9 +66,21 @@ type UpdateMetadataRequest =
    businessName: opt text;
    discountCode: opt text;
    membershipId: opt text;
+   priceUsd: opt nat;
    rewardTier: opt RewardTier;
    tags: opt vec text;
    website: opt text;
+ };
+type TransformationOutput = 
+ record {
+   body: blob;
+   headers: vec HttpHeader;
+   status: nat;
+ };
+type TransformationInput = 
+ record {
+   context: blob;
+   response: HttpRequestResult;
  };
 type TransferResult = 
  record {
@@ -105,19 +117,17 @@ type Result__1 =
 type Result_9 = 
  variant {
    err: text;
-   ok: nat;
+   ok: record {
+         paymentAddress: text;
+         rateOverride: opt nat;
+       };
  };
 type Result_8 = 
  variant {
    err: text;
-   ok: ClaimPreview;
+   ok: PurchaseQuote;
  };
 type Result_7 = 
- variant {
-   err: text;
-   ok: ClaimStatus;
- };
-type Result_6 = 
  variant {
    err: record {message: text;};
    ok: record {
@@ -127,40 +137,60 @@ type Result_6 =
          tokenId: nat;
        };
  };
-type Result_5 = 
+type Result_6 = 
  variant {
    err: text;
    ok: RecordReferralResult;
  };
-type Result_4 = 
+type Result_5 = 
  variant {
    err: text;
    ok: BatchAwardResult;
  };
-type Result_3 = 
+type Result_4 = 
  variant {
    err: text;
    ok: text;
  };
-type Result_2 = 
+type Result_3 = 
  variant {
    err: text;
    ok;
  };
-type Result_10 = 
- variant {
-   err: text;
-   ok: Nft;
- };
-type Result_1 = 
+type Result_2 = 
  variant {
    err: text;
    ok: vec VerifyResult;
  };
-type Result = 
+type Result_13 = 
+ variant {
+   err: text;
+   ok: Nft;
+ };
+type Result_12 = 
+ variant {
+   err: text;
+   ok: nat;
+ };
+type Result_11 = 
+ variant {
+   err: text;
+   ok: ClaimPreview;
+ };
+type Result_10 = 
+ variant {
+   err: text;
+   ok: ClaimStatus;
+ };
+type Result_1 = 
  variant {
    err: text;
    ok: VerifyResult;
+ };
+type Result = 
+ variant {
+   err: text;
+   ok: Purchase;
  };
 type RenameCollectionRequest = 
  record {
@@ -189,6 +219,36 @@ type RecordReferralResult =
    referrerPrincipal: principal;
    thresholdTier: opt nat;
  };
+type PurchaseStatus = 
+ variant {
+   confirmed;
+   failed;
+   pending;
+ };
+type PurchaseQuote = 
+ record {
+   expectedE8s: nat;
+   nftId: nat;
+   paymentAddress: text;
+   priceUsd: nat;
+   rateIsOverride: bool;
+   rateUsed: nat;
+ };
+type Purchase = 
+ record {
+   buyer: principal;
+   expectedE8s: nat;
+   failureReason: opt text;
+   id: text;
+   nftId: nat;
+   priceUsd: nat;
+   rateUsed: nat;
+   seller: principal;
+   status: PurchaseStatus;
+   submittedAt: Timestamp;
+   txRef: text;
+   verifiedAt: opt Timestamp;
+ };
 type PaymentProofStatus = 
  variant {
    approved;
@@ -207,6 +267,26 @@ type PaymentProof =
    submittedAt: int;
    tierRequested: text;
    txHash: text;
+ };
+type NftSummaryPage = 
+ record {
+   items: vec NftSummary;
+   limit: nat;
+   offset: nat;
+   total: nat;
+ };
+type NftSummary = 
+ record {
+   collectionId: opt nat;
+   creatorId: CreatorId;
+   id: nat;
+   mintDate: Timestamp;
+   nftUniqueId: text;
+   ownerId: principal;
+   priceUsd: opt nat;
+   status: NftStatus;
+   thumbnail: text;
+   title: text;
  };
 type NftStatus = 
  variant {
@@ -244,6 +324,7 @@ type Nft =
    mintDate: Timestamp;
    nftUniqueId: text;
    ownerId: principal;
+   priceUsd: opt nat;
    referralThreshold: nat;
    rewardTier: RewardTier;
    rewardType: RewardType;
@@ -258,6 +339,17 @@ type MyReferralStatus =
    awardedTiers: vec nat;
    referralCode: opt text;
    referralsCount: nat;
+ };
+type HttpRequestResult = 
+ record {
+   body: blob;
+   headers: vec HttpHeader;
+   status: nat;
+ };
+type HttpHeader = 
+ record {
+   name: text;
+   value: text;
  };
 type HealthMetrics = 
  record {
@@ -368,6 +460,12 @@ type AlertType =
    subscription_expiry;
    transfer_window;
  };
+type AdminReassignResult = 
+ record {
+   error: opt text;
+   id: nat;
+   ok: bool;
+ };
 service : {
   __adminPrincipals: () -> (reserved) query;
   __backendBuildTimestamp: () -> (reserved) query;
@@ -378,10 +476,20 @@ service : {
           ClaimToken;
         }) query;
   __claimersStore: () -> (reserved) query;
+  __collectionNftCount: (ko: opt nat, count: opt nat) ->
+   (vec record {
+          nat;
+          nat;
+        }) query;
   __collectionStore: (ko: opt nat, count: opt nat) ->
    (vec record {
           nat;
           Collection;
+        }) query;
+  __consumedBlockIndexStore: (ko: opt nat, count: opt nat) ->
+   (vec record {
+          nat;
+          text;
         }) query;
   __creatorIndex: () -> (reserved) query;
   __eligiblePendingStore: (ko: opt principal, count: opt nat) ->
@@ -403,10 +511,17 @@ service : {
           nat;
           text;
         }) query;
+  __ownerIndex: () -> (reserved) query;
+  __paymentConfig: () -> (reserved) query;
   __paymentProofStore: (ko: opt text, count: opt nat) ->
    (vec record {
           text;
           PaymentProof;
+        }) query;
+  __purchaseStore: (ko: opt text, count: opt nat) ->
+   (vec record {
+          text;
+          Purchase;
         }) query;
   __rateLimitStore: () -> (reserved) query;
   __referralCodeStore: (ko: opt text, count: opt nat) ->
@@ -437,29 +552,87 @@ service : {
    (_ImmutableObjectStorageRefillResult);
   _immutableObjectStorageUpdateGatewayPrincipals: () -> ();
   addAdmin: (p: principal) -> (bool);
-  addNftToCollection: (nftId: nat, collectionId: nat) -> (Result_2);
+  addNftToCollection: (nftId: nat, collectionId: nat) -> (Result_3);
+  /// Admin-only: purge a specific eligible-pending entry (e.g. on admin
+  /// review). Deactivation does NOT purge — only admin action or actual award
+  /// removes an entry. Returns true if an entry was removed. Rejects non-admin
+  /// callers (returns false).
   adminPurgeEligiblePending: (referrerPrincipal: principal) -> (bool);
-  adminSetNftReferralThreshold: (nftId: nat, threshold: nat) -> (Result_2);
-  adminSetNftRewardType: (nftId: nat, rewardType: RewardType) -> (Result_2);
+  adminReassignOwner: (id: nat, newOwner: principal) -> (AdminReassignResult);
+  adminReassignOwnerBatch: (ids: vec nat, newOwner: principal) ->
+   (vec AdminReassignResult);
+  adminSetNftPrice: (id: nat, priceUsd: opt nat) -> (Result_13);
+  /// Admin-only: set the referralThreshold on a referralBonus NFT. Only
+  /// meaningful when the NFT's rewardType = #referralBonus. Respects the
+  /// draft-only constraint — gated by isLiveCanister() (no live canister
+  /// writes). Rejects non-admin callers (returns #err). Returns #err if the
+  /// NFT does not exist or is not a referralBonus NFT.
+  adminSetNftReferralThreshold: (nftId: nat, threshold: nat) -> (Result_3);
+  /// Admin-only: set the rewardType on an NFT (#none or #referralBonus).
+  /// Respects the draft-only constraint — gated by isLiveCanister() (no live
+  /// canister writes). Rejects non-admin callers (returns #err). Returns
+  /// #err if the NFT does not exist.
+  adminSetNftRewardType: (nftId: nat, rewardType: RewardType) -> (Result_3);
+  /// Admin-only: update the batch-award throttle config (batch size, delay,
+  /// per-cycle cap). The default is DEFAULT_BATCH_AWARD_CONFIG; admins may
+  /// tune it. Respects the draft-only constraint — gated by isLiveCanister()
+  /// (no live canister writes). Returns the new config. Rejects non-admin
+  /// callers (returns the default config unchanged).
   adminUpdateBatchAwardConfig: (config: BatchAwardConfig) ->
    (BatchAwardConfig);
-  approvePaymentProof: (proofId: text) -> (Result_3);
-  burnNft: (id: nat) -> (Result_2);
-  claimNft: (token: text, ref: opt text) -> (Result_10);
+  approvePaymentProof: (proofId: text) -> (Result_4);
+  burnNft: (id: nat) -> (Result_3);
+  /// NON-PUBLIC internal claim path. Contains the canonical validation flow
+  /// (anonymous reject, [H3] rate limit, token validation, supply cap,
+  /// assertClaimable, atomic useToken, [H2] counter-ordering, new NFT copy).
+  /// This is the SAME flow the public claimNft uses; it is now extracted as a
+  /// PUBLIC function in lib/claim-link.mo (ClaimLib.claimNftInternal) so the
+  /// referral auto-award and the retroactive batch-award can REUSE the
+  /// canonical mint path instead of creating a parallel mint. This mixin
+  /// delegates to ClaimLib.claimNftInternal with all the shared stores.
+  /// 
+  /// `claimer` is the principal who will own the new NFT copy. For a public
+  /// claim this is the caller; for an auto-award this is the referrer; for a
+  /// batch-award this is the eligible-pending referrer. `ref` is the optional
+  /// referral code presented by the claimant — it is ONLY acted on by the
+  /// PUBLIC claimNft wrapper (which records the referral + triggers the
+  /// auto-award AFTER this internal func returns #ok). When the auto-award or
+  /// batch-award calls this internal func, it passes `null` for ref so no
+  /// referral is recorded on an auto-award (the referrer is being awarded,
+  /// not referring).
+  /// Public: claim an NFT by presenting a valid token. Creates a NEW NFT copy
+  /// from the master; master NFT is never modified. Accepts an optional
+  /// referral code (`ref`) — if present and valid, the referrer's
+  /// referralsCount is incremented after a successful claim, and if the
+  /// referrer now meets/exceeds a threshold for an active in-stock
+  /// referralBonus NFT (and is not already in awardedTiers for that tier),
+  /// the referrer is auto-awarded via claimNftInternal(referrer, internalToken,
+  /// null) — reusing the SAME validation path as this claim. If the bonus NFT
+  /// is sold out at trigger time, the referrer is moved to eligible-pending
+  /// (handled inside ReferralLib.recordReferral). Self-referrals (referrer ==
+  /// claimer) are rejected. Unknown/invalid ref codes fail OPEN — the claim
+  /// still succeeds; only the referral recording is skipped (a bad ref must
+  /// never block a legitimate claim).
+  claimNft: (token: text, ref: opt text) -> (Result_13);
+  clearRateOverride: () -> (Result_3);
   createCheckoutSession: (_items: vec record {
                                         name: text;
                                         price: nat;
                                       }, _successUrl: text, _cancelUrl:
    text) -> (text);
-  createCollection: (name: text, description: text) -> (Result_9);
-  createSlot: () -> (Result_9);
+  createCollection: (name: text, description: text) -> (Result_12);
+  createSlot: () -> (Result_12);
   deleteCollection: (id: nat) -> ();
   deleteCollectionAndUnassignNfts: (collectionId: CollectionId) ->
    (CollectionSummary);
-  deleteNft: (id: nat) -> (Result_2);
+  deleteNft: (id: nat) -> (Result_3);
   execute: (qJson: text) -> (Result__1) query;
-  generateClaimLink: (nftId: nat) -> (Result_3);
+  /// Admin-only: generate a shareable claim URL for a specific NFT.
+  /// Returns the relative path "/claim/" # token.
+  generateClaimLink: (nftId: nat) -> (Result_4);
   getActiveNfts: () -> (nat) query;
+  /// Public query: returns the backend API documentation as Markdown.
+  getApiDoc: () -> (text) query;
   getAvailableNfts: () -> (nat) query;
   getBackendBuildTimestamp: () -> (nat) query;
   getCallerProfile: () -> (UserProfile);
@@ -471,8 +644,11 @@ service : {
       myNftCount: nat;
       totalNftCount: nat;
     }) query;
-  getClaimPreview: (token: text) -> (Result_8) query;
-  getClaimStatus: (nftId: nat) -> (Result_7) query;
+  /// Public (unauthenticated): retrieve NFT metadata for the claim page preview.
+  /// Does NOT modify state; returns error if token invalid or NFT not claimable.
+  getClaimPreview: (token: text) -> (Result_11) query;
+  /// Admin-only: return claim status for a given NFT.
+  getClaimStatus: (nftId: nat) -> (Result_10) query;
   getClaimedNfts: () -> (nat) query;
   getCollection: (id: nat) -> (opt Collection) query;
   getCollectionIdByName: (name: text) -> (opt CollectionId) query;
@@ -485,11 +661,46 @@ service : {
   getHealthMetrics: () -> (HealthMetrics) query;
   getMetricsCanisterId: () -> (text) query;
   getMyPaymentProofs: () -> (vec PaymentProof) query;
+  /// Public (authenticated): get the caller's own referral status
+  /// (referralCode, referralsCount, awardedTiers). Preserves [OQL-LOCKDOWN] —
+  /// never exposes discountCode, membershipId, secretKey, or stripe mode.
+  /// Returns null if the caller has no profile.
   getMyReferralStatus: () -> (opt MyReferralStatus) query;
   getNft: (id: nat) -> (opt Nft) query;
+  /// ADMIN-ONLY: per-NFT claim breakdown joined with the Nft store to include
+  /// the title for the Health tab breakdown table. Returns an array of
+  /// { nftId, title, claimedCount, supplyLimit } for every published NFT that
+  /// has a ClaimToken. Exposes ONLY those four fields — no discountCode,
+  /// membershipId, or other redacted fields. Rejects anonymous and non-admin
+  /// callers (returns [] for non-admins, consistent with the other admin-only
+  /// metrics queries in this mixin). Read-only; does not mutate any store.
+  /// Existing getClaimStatus remains admin-only and unchanged.
   getNftClaimBreakdown: () -> (vec NftClaimBreakdownEntry) query;
+  /// PUBLIC (unauthenticated): per-NFT claim counts for every NFT that has a
+  /// ClaimToken. Returns an array of { nftId, claimedCount, supplyLimit } —
+  /// ONLY those three fields. No token string, usedBy, usedAt, or any Nft
+  /// redacted field (discountCode, membershipId) is exposed. Read-only; does
+  /// not mutate any store. This is the public surface for the Library card
+  /// indicator. Sits alongside getClaimPreview in the public-no-auth query
+  /// list. v251 security redactions preserved — only nftId/claimedCount/
+  /// supplyLimit are surfaced.
   getNftClaimCounts: () -> (vec NftClaimCount) query;
-  getOrCreateMyReferralCode: () -> (Result_3);
+  getNftPublic: (id: nat) -> (opt Nft) query;
+  /// Public (authenticated): get or create the caller's own referral code.
+  /// Codes are random + unguessable and NEVER expire (NO EXPIRY). Idempotent —
+  /// returns the existing code if the caller already has one. Rejects
+  /// anonymous callers. Also persists the new code onto the caller's
+  /// UserProfile.referralCode so getMyReferralStatus can read it without
+  /// scanning the referrerCodeIndex.
+  getOrCreateMyReferralCode: () -> (Result_4);
+  getPaymentConfig: () -> (Result_9) query;
+  getPurchaseQuote: (nftId: nat) -> (Result_8);
+  /// Admin-only: get the referral/bonus Health metrics for the Health tab.
+  /// Extends the existing getHealthMetrics / getNftClaimBreakdown admin-gated
+  /// queries. `eligiblePendingQueueLengthPerTier` is indexed by threshold
+  /// tier (stacking-ready). Preserves [OQL-LOCKDOWN] — never exposes
+  /// discountCode, membershipId, secretKey, or stripe mode. Returns zeroed
+  /// metrics for non-admin callers (consistent with getHealthMetrics).
   getReferralHealthMetrics: () -> (ReferralHealthMetrics) query;
   getSlotsStatus: () -> (record {
                            remaining: nat;
@@ -514,44 +725,83 @@ service : {
   getTotalCreators: () -> (nat) query;
   getTotalMinted: () -> (nat) query;
   getTotalNftCount: () -> (nat) query;
+  getTotalNftCountCertified: () -> (nat);
   getTotalNfts: () -> (nat) query;
   hasRealAdmin: () -> (bool) query;
   isAdmin: () -> (bool) query;
   isLiveCanister: () -> (bool) query;
   isStripeConfigured: () -> (bool) query;
   listAdmins: () -> (vec principal) query;
-  listAllNfts: () -> (vec Nft) query;
-  listMyActiveNfts: () -> (vec Nft) query;
+  listAllNfts: (offset: nat, limit: nat) -> (NftSummaryPage) query;
+  listMyActiveNfts: (offset: nat, limit: nat) -> (NftSummaryPage) query;
   listMyCollections: () -> (vec CollectionWithCount) query;
-  listMyNfts: () -> (vec Nft) query;
+  listMyNfts: (offset: nat, limit: nat) -> (NftSummaryPage) query;
+  listMyPurchases: () -> (vec Purchase) query;
   listPaymentProofs: () -> (vec PaymentProof) query;
+  listPublicNfts: (offset: nat, limit: nat) -> (NftSummaryPage) query;
   mintNft: (imageBlob: ExternalBlob, assetHash: text, title: text,
    description: text, collectionId: opt nat, businessName: opt text, website:
    opt text, discountCode: opt text, membershipId: opt text, supplyLimit:
-   nat) -> (Result_6);
-  recordReferral: (code: text) -> (Result_5);
-  rejectPaymentProof: (proofId: text, reason: text) -> (Result_3);
+   nat, priceUsd: opt nat) -> (Result_7);
+  /// Public (authenticated): record a referral by presenting a referral code.
+  /// Increments the referrer's referralsCount. If the new count crosses a
+  /// referralBonus NFT's threshold and no active in-stock referralBonus NFT
+  /// exists, enqueues the referrer as eligible-pending. Deactivation
+  /// preserves pending eligibility. Rejects anonymous callers and self-
+  /// referrals (a referrer cannot refer themselves). Returns the referrer's
+  /// new count and whether they became newly eligible-pending.
+  /// 
+  /// NOTE: This endpoint does NOT trigger the synchronous auto-award. The
+  /// synchronous auto-award is triggered by the claimNft path (in
+  /// claim-link-api.mo) when a claimant presents a referral code alongside
+  /// their claim token — that is the canonical mint path reuse. This
+  /// endpoint is the explicit "I was referred" path for claimants who are
+  /// not claiming an NFT at the same time.
+  recordReferral: (code: text) -> (Result_6);
+  rejectPaymentProof: (proofId: text, reason: text) -> (Result_4);
   removeAdmin: (p: principal) -> (bool);
-  removeNftFromCollection: (nftId: nat, collectionId: nat) -> (Result_2);
+  removeNftFromCollection: (nftId: nat, collectionId: nat) -> (Result_3);
   renameCollection: (request: RenameCollectionRequest) -> (CollectionSummary);
-  runBatchAwardCycle: () -> (Result_4);
+  /// Admin-only: run one retroactive batch-award cycle. Processes up to
+  /// `batchSize` eligible-pending entries in earliest-eligible-first order,
+  /// awarding each an in-stock referralBonus NFT by REUSING the existing
+  /// claimNft validation path (not a parallel mint). Capped per cycle; if the
+  /// cap is hit, the caller should schedule the next cycle after the
+  /// configured delay. Rejects anonymous and non-admin callers (returns
+  /// #err for non-admins, consistent with admin-gated metrics queries).
+  /// 
+  /// The award reuses claimNftInternal (extracted in claim-link-api.mo) so
+  /// the auto-award goes through the SAME validation path as a public claim:
+  /// anonymous reject, [H3] rate limit, token validation, supply cap,
+  /// assertClaimable, atomic useToken, [H2] counter-ordering, new NFT copy.
+  /// On a successful award, the referrer's awardedTiers is appended (dedup by
+  /// tier) and the eligible-pending entry is dequeued. On failure (e.g. sold
+  /// out mid-cycle), the entry stays in the queue (deactivation preserves
+  /// pending eligibility).
+  runBatchAwardCycle: () -> (Result_5);
   saveCallerProfile: (profile: UserProfile) -> ();
   schema: () -> (text) query;
-  searchNfts: (searchTerm: text) -> (vec Nft) query;
+  searchNfts: (searchTerm: text, offset: nat, limit: nat) ->
+   (NftSummaryPage) query;
   sendVerificationEmail: (email: text) -> ();
   setEmail: (email: text) -> ();
   setEmailAlerts: (alerts: vec AlertType) -> ();
   setOisyWalletAddress: (address: text) -> ();
+  setPaymentAddress: (address: text) -> (Result_3);
+  setRateOverride: (rate: nat) -> (Result_3);
   setStripeConfiguration: (mode: text, publishableKey: text) -> ();
   setUserStripeProductId: (userPrincipal: principal, productId: text) ->
-   (Result_2);
+   (Result_3);
   setupAdmin: () -> (bool);
   submitPaymentProof: (txHash: text, tierRequested: text, networkType:
-   text) -> (Result_3);
+   text) -> (Result_4);
+  submitPurchase: (nftId: nat, txRef: text) -> (Result);
   transferNft: (id: nat, toPrincipal: principal) -> (TransferResult);
+  transform: (input: TransformationInput) -> (TransformationOutput) query;
   updateBusinessMetadata: (id: nat, updates: UpdateMetadataRequest) ->
-   (Result_2);
-  verifyNftByCreatorId: (creatorId: text) -> (Result_1) query;
-  verifyNftByCreatorIdWithHistory: (creatorId: text) -> (Result_1) query;
-  verifyNftPublic: (nftUniqueId: text) -> (Result) query;
+   (Result_3);
+  verifyNftByCreatorId: (creatorId: text) -> (Result_2) query;
+  verifyNftByCreatorIdWithHistory: (creatorId: text) -> (Result_2) query;
+  verifyNftPublic: (nftUniqueId: text) -> (Result_1) query;
+  verifyPurchase: (purchaseId: text) -> (Result);
 }
